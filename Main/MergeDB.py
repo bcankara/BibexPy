@@ -16,6 +16,25 @@ def meta_tag_extraction(df: pd.DataFrame, tag: str) -> pd.DataFrame:
         df['SR'] = df.apply(lambda row: f"{row['AU'].split(';')[0]} {row['PY']}", axis=1)
     return df
 
+def clean_merged_values(x: str) -> str:
+    """Clean merged values by removing extra semicolons, spaces and duplicates"""
+    if not isinstance(x, str):
+        return x
+    
+    # Split by semicolon and clean each part
+    parts = [part.strip() for part in x.split(';')]
+    
+    # Remove empty parts and duplicates while preserving order
+    seen = set()
+    cleaned_parts = []
+    for part in parts:
+        if part and part not in seen:
+            seen.add(part)
+            cleaned_parts.append(part)
+    
+    # Join back with semicolon
+    return '; '.join(cleaned_parts)
+
 def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, merge_fields: bool = True, verbose: bool = False) -> pd.DataFrame:
     """
     Merges bibliometric data from different databases.
@@ -60,18 +79,19 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
         M = M.rename(columns={'CR': 'CR_raw'})
         M['CR'] = 'NA'
     
+    def merge_values(series):
+        if series.dtype == 'object':
+            # Combine all non-null values
+            combined = '; '.join(str(val) for val in series.dropna() if str(val).strip())
+            return clean_merged_values(combined)
+        return series.max()
+    
     if remove_duplicated:
         if merge_fields:
             # Group by DOI and select the most complete data within each group
             if 'DI' in M.columns:
                 # Group records with DOI
-                grouped = M[~M['DI'].isna()].groupby('DI', as_index=False).agg(lambda x: x.fillna('').str.cat(sep=';') if x.dtype == 'object' else x.max())
-                
-                # Select the most complete data for each group
-                for col in grouped.columns:
-                    if col != 'DI':
-                        # Merge semicolon-separated values and remove duplicates
-                        grouped[col] = grouped[col].apply(lambda x: ';'.join(list(dict.fromkeys(str(x).split(';')))) if isinstance(x, str) else x)
+                grouped = M[~M['DI'].isna()].groupby('DI', as_index=False).agg(merge_values)
                 
                 # Add records without DOI
                 no_doi = M[M['DI'].isna()]
@@ -87,13 +107,7 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
                 M['title_year'] = M['clean_title'] + ' ' + M['PY'].astype(str)
                 
                 # Select the most complete data for each group
-                grouped = M.groupby('title_year', as_index=False).agg(lambda x: x.fillna('').str.cat(sep=';') if x.dtype == 'object' else x.max())
-                
-                # Remove duplicate values for each column
-                for col in grouped.columns:
-                    if col not in ['title_year', 'clean_title']:
-                        grouped[col] = grouped[col].apply(lambda x: ';'.join(list(dict.fromkeys(str(x).split(';')))) if isinstance(x, str) else x)
-                
+                grouped = M.groupby('title_year', as_index=False).agg(merge_values)
                 M = grouped.drop(['title_year', 'clean_title'], axis=1)
         else:
             # Just remove duplicate records
@@ -120,15 +134,19 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
                     return ""
                 
                 authors = []
+                seen = set()
                 for author in au_str.split(';'):
                     author = trim(author.replace(',', ' '))
                     parts = author.split()
                     if parts:
                         lastname = parts[0]
                         initials = ' '.join(p[0] for p in parts[1:] if p)
-                        authors.append(f"{lastname} {initials}")
+                        author_key = f"{lastname} {initials}"
+                        if author_key not in seen:
+                            seen.add(author_key)
+                            authors.append(author_key)
                 
-                return ';'.join(list(dict.fromkeys(authors)))
+                return '; '.join(authors)
             
             M['AU'] = M['AU'].apply(clean_author)
     
