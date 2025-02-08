@@ -110,53 +110,135 @@ def process_scopus_data(input_file: str, output_file: str) -> tuple[bool, pd.Dat
         sys.stderr.write(f"\nError: {str(e)}\n")
         return False, None, {}
 
-def merge_txt_files(data_dir: str) -> str:
-    """Merge all txt files in data directory into wos_raw.txt in merged_raw folder"""
-    txt_files = find_files(data_dir, "txt")
-    if not txt_files:
-        raise ValueError("No WoS files (txt) found in Data folder.")
-    
-    # Create merged_raw directory if not exists
-    merged_raw_dir = os.path.join(data_dir, "merged_raw")
-    os.makedirs(merged_raw_dir, exist_ok=True)
-    
-    output_file = os.path.join(merged_raw_dir, "wos_raw.txt")
-    with open(output_file, 'w', encoding='utf-8') as outfile:
-        for txt_file in txt_files:
-            with open(txt_file, 'r', encoding='utf-8') as infile:
-                outfile.write(infile.read())
-                outfile.write('\n')  # Add newline between files
-    
-    return output_file
+def process_pubmed_data(input_file: str, output_file: str) -> tuple[bool, pd.DataFrame, dict]:
+    """Process PubMed data"""
+    try:
+        from Main.pubmed2xlsx import save_to_excel
+        success = save_to_excel(input_file, output_file)
+        
+        if success:
+            with ProcessIndicator("Converting PubMed data to Excel format") as indicator:
+                df = pd.read_excel(output_file)
+                stats = {
+                    'Record Count': len(df),
+                    'Column Count': len(df.columns),
+                    'Non-Empty Columns': df.count().to_dict()
+                }
+                return True, df, stats
+        return False, None, {}
+    except Exception as e:
+        sys.stderr.write(f"\nError: {str(e)}\n")
+        return False, None, {}
 
-def merge_csv_files(data_dir: str) -> str:
-    """Merge all csv files in data directory into scp_raw.csv in merged_raw folder"""
-    csv_files = find_files(data_dir, "csv")
-    if not csv_files:
-        raise ValueError("No Scopus files (csv) found in Data folder.")
+def process_dimensions_data(input_file: str, output_file: str) -> tuple[bool, pd.DataFrame, dict]:
+    """Process Dimensions data"""
+    try:
+        from Main.dimensions2xlsx import save_to_excel
+        success = save_to_excel(input_file, output_file)
+        
+        if success:
+            with ProcessIndicator("Converting Dimensions data to Excel format") as indicator:
+                df = pd.read_excel(output_file)
+                stats = {
+                    'Record Count': len(df),
+                    'Column Count': len(df.columns),
+                    'Non-Empty Columns': df.count().to_dict()
+                }
+                return True, df, stats
+        return False, None, {}
+    except Exception as e:
+        sys.stderr.write(f"\nError: {str(e)}\n")
+        return False, None, {}
+
+def process_cochrane_data(input_file: str, output_file: str) -> tuple[bool, pd.DataFrame, dict]:
+    """Process Cochrane data"""
+    try:
+        from Main.cochrane2xlsx import save_to_excel
+        success = save_to_excel(input_file, output_file)
+        
+        if success:
+            with ProcessIndicator("Converting Cochrane data to Excel format") as indicator:
+                df = pd.read_excel(output_file)
+                stats = {
+                    'Record Count': len(df),
+                    'Column Count': len(df.columns),
+                    'Non-Empty Columns': df.count().to_dict()
+                }
+                return True, df, stats
+        return False, None, {}
+    except Exception as e:
+        sys.stderr.write(f"\nError: {str(e)}\n")
+        return False, None, {}
+
+def process_lens_data(input_file: str, output_file: str) -> tuple[bool, pd.DataFrame, dict]:
+    """Process Lens data"""
+    try:
+        from Main.lens2xlsx import save_to_excel
+        success = save_to_excel(input_file, output_file)
+        
+        if success:
+            with ProcessIndicator("Converting Lens data to Excel format") as indicator:
+                df = pd.read_excel(output_file)
+                stats = {
+                    'Record Count': len(df),
+                    'Column Count': len(df.columns),
+                    'Non-Empty Columns': df.count().to_dict()
+                }
+                return True, df, stats
+        return False, None, {}
+    except Exception as e:
+        sys.stderr.write(f"\nError: {str(e)}\n")
+        return False, None, {}
+
+def process_openAlex_data(input_file: str, output_file: str) -> tuple[bool, pd.DataFrame, dict]:
+    """Process OpenAlex data"""
+    try:
+        from Main.openAlex2xlsx import save_to_excel
+        success = save_to_excel(input_file, output_file)
+        
+        if success:
+            with ProcessIndicator("Converting OpenAlex data to Excel format") as indicator:
+                df = pd.read_excel(output_file)
+                stats = {
+                    'Record Count': len(df),
+                    'Column Count': len(df.columns),
+                    'Non-Empty Columns': df.count().to_dict()
+                }
+                return True, df, stats
+        return False, None, {}
+    except Exception as e:
+        sys.stderr.write(f"\nError: {str(e)}\n")
+        return False, None, {}
+
+def merge_files(data_dir: str, db_name: str, file_ext: str) -> str:
+    """Merge all files of a specific type in data directory into a single file in merged_raw folder"""
+    files = find_files(os.path.join(data_dir, db_name), file_ext)
+    if not files:
+        raise ValueError(f"No {db_name} files ({file_ext}) found in Data/{db_name} folder.")
     
     # Create merged_raw directory if not exists
     merged_raw_dir = os.path.join(data_dir, "merged_raw")
     os.makedirs(merged_raw_dir, exist_ok=True)
     
-    output_file = os.path.join(merged_raw_dir, "scp_raw.csv")
+    output_file = os.path.join(merged_raw_dir, f"{db_name}_raw.{file_ext}")
     
-    if len(csv_files) == 1:
-        # If only one CSV file, just copy it
-        import shutil
-        shutil.copy2(csv_files[0], output_file)
-    else:
-        # Read and combine all CSV files
-        all_data = []
-        for csv_file in csv_files:
-            df = pd.read_csv(csv_file, encoding='utf-8')
-            all_data.append(df)
-        
-        # Concatenate all dataframes
-        combined_df = pd.concat(all_data, ignore_index=True)
-        
-        # Save combined data
-        combined_df.to_csv(output_file, index=False, encoding='utf-8')
+    if file_ext == 'txt':
+        with open(output_file, 'w', encoding='utf-8') as outfile:
+            for txt_file in files:
+                with open(txt_file, 'r', encoding='utf-8') as infile:
+                    outfile.write(infile.read())
+                    outfile.write('\n')  # Add newline between files
+    else:  # CSV files
+        if len(files) == 1:
+            import shutil
+            shutil.copy2(files[0], output_file)
+        else:
+            all_data = []
+            for csv_file in files:
+                df = pd.read_csv(csv_file, encoding='utf-8')
+                all_data.append(df)
+            combined_df = pd.concat(all_data, ignore_index=True)
+            combined_df.to_csv(output_file, index=False, encoding='utf-8')
     
     return output_file
 
@@ -213,146 +295,67 @@ def main():
         os.makedirs(text_files_dir, exist_ok=True)
         os.makedirs(cell_files_dir, exist_ok=True)
         
-        # Set output files in analysis directory
-        wos_output = os.path.join(cell_files_dir, "WoS.xlsx")
-        scopus_output = os.path.join(cell_files_dir, "Scopus.xlsx")
-        merged_bib = os.path.join(cell_files_dir, "Merged_Bib.xlsx")
-        merged_vos = os.path.join(text_files_dir, "Merged_Vos.txt")
-        api_enriched_bib = os.path.join(cell_files_dir, "Merged_API_Enriched_Bib.xlsx")
-        api_enriched_vos = os.path.join(text_files_dir, "Merged_API_Enriched_Vos.txt")
-        stats_excel = os.path.join(analysis_dir, "Statistics.xlsx")
-        api_log = os.path.join(analysis_dir, "Api_Log.txt")
-        api_updates = os.path.join(analysis_dir, "Api_Update.xlsx")
+        # Database configuration
+        db_config = {
+            'wos': {'ext': 'txt', 'processor': process_wos_data},
+            'scopus': {'ext': 'csv', 'processor': process_scopus_data},
+            'pubmed': {'ext': 'csv', 'processor': process_pubmed_data},
+            'dimensions': {'ext': 'csv', 'processor': process_dimensions_data},
+            'cochrane': {'ext': 'csv', 'processor': process_cochrane_data},
+            'lens': {'ext': 'csv', 'processor': process_lens_data},
+            'openAlex': {'ext': 'csv', 'processor': process_openAlex_data}
+        }
         
-        # Check if merged_raw directory exists and contains required files
+        # Create database directories if they don't exist
+        for db_name in db_config.keys():
+            db_dir = os.path.join(data_dir, db_name)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir)
+        
+        # Create merged_raw directory if not exists
         merged_raw_dir = os.path.join(data_dir, "merged_raw")
-        wos_raw = os.path.join(merged_raw_dir, "wos_raw.txt")
-        scp_raw = os.path.join(merged_raw_dir, "scp_raw.csv")
+        if not os.path.exists(merged_raw_dir):
+            os.makedirs(merged_raw_dir)
         
-        use_existing = False
-        if os.path.exists(merged_raw_dir) and os.path.exists(wos_raw) and os.path.exists(scp_raw):
-            while True:
-                choice = input("\nPreviously merged raw files found. What would you like to do?\n"
-                             "1. Use previously merged files\n"
-                             "2. Perform new merge\n"
-                             "Your choice (1/2): ")
-                if choice in ['1', '2']:
-                    use_existing = (choice == '1')
-                    break
-                else:
-                    sys.stderr.write("Invalid choice. Please enter 1 or 2.\n")
+        # Process each database
+        dataframes = []
+        for db_name, config in db_config.items():
+            db_dir = os.path.join(data_dir, db_name)
+            if os.path.exists(db_dir) and os.listdir(db_dir):  # If directory exists and not empty
+                try:
+                    # Merge files if multiple files exist
+                    raw_file = merge_files(data_dir, db_name, config['ext'])
+                    
+                    # Process the merged file
+                    output_file = os.path.join(cell_files_dir, f"{db_name.capitalize()}.xlsx")
+                    success, df, stats = config['processor'](raw_file, output_file)
+                    
+                    if success:
+                        print(f"\n{db_name.capitalize()} Statistics:")
+                        print(f"Records: {stats['Record Count']}")
+                        print(f"Columns: {stats['Column Count']}")
+                        dataframes.append(df)
+                    
+                except Exception as e:
+                    sys.stderr.write(f"\nError processing {db_name}: {str(e)}\n")
         
-        if not use_existing:
-            if os.path.exists(merged_raw_dir):
-                print("\nDeleting old merged files...")
-                import shutil
-                shutil.rmtree(merged_raw_dir)
-            
-            # Merge txt files into wos_raw.txt
-            print("\nMerging process in progress...")
-            try:
-                wos_input = merge_txt_files(data_dir)
-                print(f"WoS files merged: {os.path.basename(wos_input)}")
-            except ValueError as e:
-                sys.stderr.write(f"\nError: {str(e)}\n")
-                return
-            
-            # Merge csv files into scp_raw.csv
-            print("\nMerging Scopus files...")
-            try:
-                scopus_input = merge_csv_files(data_dir)
-                print(f"Scopus files merged: {os.path.basename(scopus_input)}")
-            except ValueError as e:
-                sys.stderr.write(f"\nError: {str(e)}\n")
-                return
-        else:
-            print("\nUsing existing merged files...")
-            wos_input = wos_raw
-            scopus_input = scp_raw
-        
-        # Process WoS data
-        print("\nProcessing WoS data...")
-        wos_success, wos_df, wos_stats = process_wos_data(wos_input, wos_output)
-        if not wos_success:
-            sys.stderr.write("\nError: Failed to process WoS data.\n")
+        if not dataframes:
+            sys.stderr.write("\nNo data could be processed!\n")
             return
-        print("WoS data processing completed.")
         
-        # Process Scopus data
-        print("\nProcessing Scopus data...")
-        scopus_success, scopus_df, scopus_stats = process_scopus_data(scopus_input, scopus_output)
-        if not scopus_success:
-            sys.stderr.write("\nError: Failed to process Scopus data.\n")
-            return
-        print("Scopus data processing completed.")
+        # Merge all databases
+        print("\nMerging databases...")
+        merged_df = merge_databases_enhanced(*dataframes)
         
-        # Get Scopus API key from environment variable
-        scopus_api_key = os.getenv('SCOPUS_API_KEY')
-        unpaywall_email = os.getenv('UNPAYWALL_EMAIL')
-
-        if not scopus_api_key:
-            print("\nWarning: Scopus API key not found in .env file.")
-            print("You can add it to the .env file to enable Scopus metadata enrichment.")
-            print("Continuing with other data sources...")
-
-        if not unpaywall_email:
-            print("\nWarning: Unpaywall email not found in .env file.")
-            print("You can add it to the .env file to enable Unpaywall metadata enrichment.")
-            print("Continuing with other data sources...")
-            
-        # Enhanced merge
-        print("\nMerging process in progress...")
-        enhanced_success, enhanced_stats, enhanced_df = merge_databases_enhanced(
-            wos_df, 
-            scopus_df, 
-            merged_bib, 
-            scopus_api_key=scopus_api_key,
-            unpaywall_email=unpaywall_email,
-            result_dir=analysis_dir
-        )
-
-        print("\nConverting data to VosViewer format...")
-        from Main.xlsx2vos import convert_excel_to_wos
-        convert_excel_to_wos(merged_bib, merged_vos)
-        print("VosViewer conversion completed.")
+        # Save merged results
+        merged_output = os.path.join(cell_files_dir, f"Merged_Data_{timestamp}.xlsx")
+        merged_df.to_excel(merged_output, index=False)
         
-        if enhanced_success:
-            # Save statistics
-            print("\nPreparing statistics...")
-            all_stats = {
-                'WoS Statistics': wos_stats,
-                'Scopus Statistics': scopus_stats,
-                'Merge Statistics': enhanced_stats
-            }
-            
-            save_comprehensive_statistics(all_stats, wos_df, scopus_df, enhanced_df, stats_excel)
-            print("Statistics completed.")
-            
-            # Check and convert API enriched file
-            if os.path.exists(api_enriched_bib):
-                print("\nConverting API Enriched data to VosViewer format...")
-                convert_excel_to_wos(api_enriched_bib, api_enriched_vos)
-                print("API Enriched VosViewer conversion completed.")
-            
-            print("\nProcess completed successfully.")
-            print(f"\nAnalysis results saved to: {analysis_dir}")
-            print("Generated Files:")
-            print(f"1. WoS Data: {os.path.basename(wos_output)}")
-            print(f"2. Scopus Data: {os.path.basename(scopus_output)}")
-            print(f"3. Merged Data (Biblioshiny): {os.path.basename(merged_bib)}")
-            print(f"4. Merged Data (VosViewer): {os.path.basename(merged_vos)}")
-            print(f"5. Statistics: {os.path.basename(stats_excel)}")
-            print(f"6. API Log: {os.path.basename(api_log)}")
-            if os.path.exists(api_updates):
-                print(f"7. API Updates: {os.path.basename(api_updates)}")
-            if os.path.exists(api_enriched_bib):
-                print(f"8. API Enriched Data (Biblioshiny): {os.path.basename(api_enriched_bib)}")
-                print(f"9. API Enriched Data (VosViewer): {os.path.basename(api_enriched_vos)}")
-        else:
-            sys.stderr.write("\nError: Merge process failed.\n")
-    
+        print(f"\nMerged data saved to: {merged_output}")
+        print(f"Total records: {len(merged_df)}")
+        
     except Exception as e:
-        print(f"\nAn unexpected error occurred: {str(e)}")
+        sys.stderr.write(f"\nAn unexpected error occurred: {str(e)}\n")
     finally:
         print("\nProgram terminating...")
 

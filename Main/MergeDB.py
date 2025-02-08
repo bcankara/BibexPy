@@ -160,43 +160,99 @@ def main():
         print("Database Merge Tool")
         print("------------------")
         
-        # Find Excel files in rawData folder
-        raw_data_path = "rawData"
-        if not os.path.exists(raw_data_path):
-            print("Error: rawData folder not found!")
-            return
+        # Define database folders and their file types
+        db_config = {
+            'scopus': ['.csv', '.xlsx'],
+            'wos': ['.txt', '.csv'],
+            'pubmed': ['.csv'],
+            'dimensions': ['.csv'],
+            'cochrane': ['.csv'],
+            'lens': ['.csv'],
+            'openAlex': ['.csv']
+        }
         
-        excel_files = [f for f in os.listdir(raw_data_path) if f.endswith('.xlsx')]
+        # Create Data directory if it doesn't exist
+        data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Data')
+        if not os.path.exists(data_path):
+            os.makedirs(data_path)
+            print(f"Created Data directory at {data_path}")
         
-        if not excel_files:
-            print("Error: No Excel files found in rawData folder!")
-            return
+        # Create database subdirectories if they don't exist
+        for db in db_config.keys():
+            db_path = os.path.join(data_path, db)
+            if not os.path.exists(db_path):
+                os.makedirs(db_path)
+                print(f"Created {db} directory at {db_path}")
         
-        print(f"\nFound Excel files:")
-        for i, file in enumerate(excel_files, 1):
-            print(f"{i}. {file}")
+        # Create merged_raw directory if it doesn't exist
+        merged_path = os.path.join(data_path, 'merged_raw')
+        if not os.path.exists(merged_path):
+            os.makedirs(merged_path)
+            print(f"Created merged_raw directory at {merged_path}")
         
         dataframes = []
-        for file in excel_files:
-            try:
-                file_path = os.path.join(raw_data_path, file)
-                df = pd.read_excel(file_path)
-                dataframes.append(df)
-                print(f"\n{file} loaded successfully.")
-                print(f"Record count: {len(df)}")
-            except Exception as e:
-                print(f"Error: Could not read file {file}: {str(e)}")
+        
+        # Process each database directory
+        for db, extensions in db_config.items():
+            db_path = os.path.join(data_path, db)
+            if os.path.exists(db_path):
+                files = []
+                for ext in extensions:
+                    files.extend([f for f in os.listdir(db_path) if f.endswith(ext)])
+                
+                if files:
+                    print(f"\nFound {len(files)} files in {db} directory:")
+                    for file in files:
+                        print(f"- {file}")
+                        
+                        try:
+                            file_path = os.path.join(db_path, file)
+                            
+                            # Convert to Excel if needed
+                            if db == 'scopus' and file.endswith('.csv'):
+                                from scp2xlsx import csvScopus2df
+                                df = csvScopus2df(file_path)
+                            elif db == 'wos' and file.endswith('.txt'):
+                                from wos2xlsx import txtWos2df
+                                df = txtWos2df(file_path)
+                            elif db == 'pubmed':
+                                from pubmed2xlsx import csvPubMed2df
+                                df = csvPubMed2df(file_path)
+                            elif db == 'dimensions':
+                                from dimensions2xlsx import csvDimensions2df
+                                df = csvDimensions2df(file_path)
+                            elif db == 'cochrane':
+                                from cochrane2xlsx import csvCochrane2df
+                                df = csvCochrane2df(file_path)
+                            elif db == 'lens':
+                                from lens2xlsx import csvLens2df
+                                df = csvLens2df(file_path)
+                            elif db == 'openAlex':
+                                from openAlex2xlsx import csvOpenAlex2df
+                                df = csvOpenAlex2df(file_path)
+                            else:
+                                # For Excel files, read directly
+                                df = pd.read_excel(file_path)
+                            
+                            dataframes.append(df)
+                            print(f"Successfully processed {file}")
+                            print(f"Record count: {len(df)}")
+                            
+                        except Exception as e:
+                            print(f"Error processing {file}: {str(e)}")
         
         if not dataframes:
-            print("\nNo files could be read!")
+            print("\nNo files could be processed!")
             return
         
         print("\nMerging data...")
         merged_df = merge_db_sources(*dataframes, remove_duplicated=True, merge_fields=True, verbose=False)
         
-        # Save merged file
-        output_file = "merged_data.xlsx"
-        merged_df.to_excel(output_file, index=True)  # SR will be used as index
+        # Save merged file with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(merged_path, f"merged_data_{timestamp}.xlsx")
+        merged_df.to_excel(output_file, index=False)
         
         print(f"\nMerged data saved to {output_file}")
         print(f"Total record count: {len(merged_df)}")
