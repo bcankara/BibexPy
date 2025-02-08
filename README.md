@@ -1,91 +1,169 @@
 # BibexPy
 
-**Harmonizing the Bibliometric Symphony of Scopus and Web of Science**
+[![GitHub](https://img.shields.io/github/license/bcankara/BibexPy)](https://github.com/bcankara/BibexPy/blob/Dev/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
 
-BibexPy is a Python-based software designed to streamline bibliometric data integration, deduplication, metadata enrichment, and format conversion. It simplifies the preparation of high-quality datasets for advanced analyses by automating traditionally manual and error-prone tasks.
+BibexPy is a comprehensive bibliometric data processing tool designed to streamline the analysis of academic publications across multiple databases. It provides robust data merging, standardization, and analysis capabilities for bibliometric research.
 
-## Features
+## 🚀 Key Features
 
-- **DOI-Based Deduplication and Merging**: Identifies and removes duplicate entries while enriching metadata by merging complementary records.
-- **API-Driven Metadata Enrichment**: Completes missing fields such as abstracts, keywords, and affiliations using APIs like Unpaywall and Semantic Scholar.
-- **Format Conversion**: Generates outputs compatible with VosViewer and Biblioshiny for easy analysis.
-- **Command-Line Interface (CLI)**: Offers user-friendly interaction with minimal setup requirements.
+- **Multi-Database Support**
+  - Web of Science (WoS)
+  - Scopus
+  - PubMed
+  - Dimensions
+  - Cochrane
+  - Lens
+  - OpenAlex
 
-# Prerequisites
+- **Advanced Data Processing**
+  - Automated field mapping and standardization
+  - Intelligent author name disambiguation
+  - Institution information normalization
+  - Journal abbreviation standardization
+  - Citation format harmonization
+  - Smart duplicate detection and removal
 
-## Required Python Version
-- Python ≥ 3.9.0
-  
-**Libraries**:
-  - `python-dotenv==1.0.0`
-  - `pandas>=2.0.0`
-  - `openpyxl>=3.1.2`
-  - `numpy>=1.24.0`
-  - `requests>=2.31.0`
-  - `scikit-learn>=1.3.0`
-  - `scipy>=1.11.0`
-  - `tqdm>=4.65.0`
-  - `xlrd>=2.0.1`
-  - `xlsxwriter>=3.1.0`
-  - `colorama >= 0.4.6`
-  - `typing-extensions >= 4.7.0`
+- **Enhanced Merging Capabilities**
+  - Cross-database deduplication
+  - Field-level intelligent merging
+  - Metadata enrichment
+  - Data quality validation
 
+## 📁 Project Structure
 
-## Installation
+```
+BibexPy/
+├── Main/                     # Core processing modules
+│   ├── wos2xlsx.py          # WoS data converter
+│   ├── scp2xlsx.py          # Scopus data converter
+│   ├── pubmed2xlsx.py       # PubMed data converter
+│   ├── dimensions2xlsx.py   # Dimensions data converter
+│   ├── cochrane2xlsx.py     # Cochrane data converter
+│   ├── lens2xlsx.py         # Lens data converter
+│   ├── openAlex2xlsx.py     # OpenAlex data converter
+│   └── MergeDB.py           # Database merging module
+├── docs/                     # Documentation
+├── Web/                      # Web interface components
+├── Workspace/                # User project workspace
+├── DataProcessor.py          # Main processing script
+└── requirements.txt         # Project dependencies
+```
 
-1. **Clone the Repository**  
-   ```bash
-   git clone https://github.com/bcankara/BibexPy.git
-   ```
-2. **Navigate to the Directory**  
-   ```bash
-   cd BibexPy
-   ```
-3. **Install Dependencies**  
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🛠️ Installation
 
-4. **(Optional) Virtual Environment Setup**  
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Mac/Linux
-   venv\Scripts\activate     # Windows
-   ```
+1. Clone the Dev branch:
+```bash
+git clone -b Dev https://github.com/bcankara/BibexPy.git
+cd BibexPy
+```
 
-## Usage
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-1. **Run the Application**  
-   ```bash
-   python DataProcessor.py
-   ```
+3. Configure environment (optional):
+   - Create a `.env` file in the root directory
+   - Add your API keys if needed:
+     ```
+     SCOPUS_API_KEY=your_scopus_api_key
+     UNPAYWALL_EMAIL=your_email
+     ```
 
-2. **Follow the Workflow**  
-   - Select your project.
-   - Upload Scopus (`.csv`) and Web of Science (`.txt`) files.
-   - Choose to enrich metadata (optional).
-   - Review and save the processed datasets.
+## 📂 Data Organization
 
-## Outputs
+After installation, follow these steps to organize your data:
 
-BibexPy generates the following outputs:
-- Unified datasets (`Prefix_Bib.xlsx`).
-- VosViewer-compatible files (`Prefix_Vos.txt`).
-- Statistical summaries for dataset quality and completeness.
+1. Create your project folder in `Workspace/`:
+```
+Workspace/
+└── YourProjectName/
+```
 
-## Documentation
+2. The system will automatically create the following structure in your project folder:
+```
+YourProjectName/
+├── Data/                    # Main data directory
+│   ├── wos/                # Web of Science files (.txt)
+│   ├── scopus/             # Scopus files (.csv)
+│   ├── pubmed/             # PubMed files (.csv)
+│   ├── dimensions/         # Dimensions files (.csv)
+│   ├── cochrane/           # Cochrane files (.csv)
+│   ├── lens/               # Lens files (.csv)
+│   ├── openAlex/           # OpenAlex files (.csv)
+│   └── merged_raw/         # Auto-generated merged files
+└── Analysis_TIMESTAMP/      # Analysis results
+    ├── Cell_Files/         # Excel outputs
+    └── Text_Files/         # Text format outputs
+```
 
-For detailed documentation and examples, visit: [BibexPy Documentation](http://bibexpy.com/doc)
+3. Place your database files in the corresponding folders:
+   - Web of Science: Place `.txt` files in `Data/wos/`
+   - Scopus: Place `.csv` files in `Data/scopus/`
+   - PubMed: Place `.csv` files in `Data/pubmed/`
+   - Dimensions: Place `.csv` files in `Data/dimensions/`
+   - Cochrane: Place `.csv` files in `Data/cochrane/`
+   - Lens: Place `.csv` files in `Data/lens/`
+   - OpenAlex: Place `.csv` files in `Data/openAlex/`
 
-## Support
+4. File Naming:
+   - Files can have any name
+   - Multiple files from the same database will be automatically merged
+   - Original files are preserved
 
-For questions or feedback, contact:  
-📧 **info@bibexpy.com**
+## 📊 Data Processing Workflow
 
-## License
+1. **Data Organization**
+   - Place database files in appropriate directories under your workspace
+   - Supported formats:
+     - WoS: `.txt` files
+     - Others: `.csv` files
 
-BibexPy is licensed under the **GNU General Public License (GPL)**. See the LICENSE file for details.
+2. **Processing Pipeline**
+   - Automated file detection and merging
+   - Field standardization and mapping
+   - Author and institution normalization
+   - Citation format standardization
+   - Cross-database deduplication
+
+3. **Output Generation**
+   - Excel format for detailed analysis
+   - Standardized data structure
+   - Comprehensive processing statistics
+   - Quality validation reports
+
+## 💻 Usage
+
+1. Prepare your data files in the appropriate format
+
+2. Run the processor:
+```bash
+python DataProcessor.py
+```
+
+3. Follow the interactive prompts to:
+   - Select your project
+   - Process your data
+   - View statistics
+   - Access merged results
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Thanks to all contributors who have helped shape this project
+- Special thanks to the bibliometric research community for their valuable feedback
+
+## 📧 Contact
+
+For questions and feedback, please open an issue on GitHub or contact the maintainers directly through the repository.
 
 ---
-
-Enhance your bibliometric research with BibexPy, making data preparation efficient, reliable, and analysis-ready!
+Made with ❤️ by the BibexPy Team
