@@ -15,8 +15,7 @@ def labelling(data: pd.DataFrame) -> pd.DataFrame:
 
     df_tag = pd.DataFrame([
         ["Abbreviated Source Title", "JI"],
-        ["Authors with affiliations", "C1"],
-        ["Author Addresses", "C1"],
+        ["Affiliations", "C1"],
         ["Authors", "AU"],
         ["Author Names", "AU"],
         ["Author full names", "AF"],
@@ -122,22 +121,7 @@ def csvScopus2df(files: Union[str, List[str]]) -> pd.DataFrame:
         DATA['AU'] = DATA['AU'].str.replace(',', ';', regex=False)
 
     # Store raw institution information
-    if 'C1' in DATA.columns:
-        DATA['C1raw'] = DATA['C1'].copy()
-
-        # Process institution addresses
-        def process_affiliation(aff):
-            if pd.isna(aff) or aff == '':
-                return ''
-            parts = aff.split(';')
-            processed = []
-            for part in parts:
-                # Remove author information (part after comma)
-                processed.append(re.sub(r'.*?, ', '', part))
-            return ';'.join(processed)
-
-        DATA['C1'] = DATA['C1'].apply(process_affiliation)
-    else:
+    if 'C1' not in DATA.columns:
         DATA['C1'] = ''
 
     # Process journal abbreviations

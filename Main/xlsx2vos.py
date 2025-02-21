@@ -17,13 +17,13 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
         "DE": "DE",           # Keywords
         "ID": "ID",           # Keywords Plus
         "AB": "AB",           # Abstract
-        "C1": "C1raw",        # Author Address
+        "C1": "C1",        # Author Address
         "C3": "C3",           # Additional Address
         "RP": "RP",           # Reprint Address
         "EM": "EM",           # Email
         "FU": "FU",           # Funding
         "FX": "FX",           # Funding Text
-        "CR": "CR_raw",       # Cited References
+        "CR": "CR",       # Cited References
         "NR": "NR",           # Number of References
         "TC": "TC",           # Times Cited
         "Z9": "Z9",           # Total Times Cited
@@ -103,31 +103,31 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
 
             # C1 (Author Address) information - Each address on a new line
             c1 = values_dict['C1'][idx]
-            if c1:
-                # First check addresses separated by semicolons
-                if ';' in c1:
-                    addresses = [addr.strip() for addr in c1.split(';') if addr.strip()]
-                    for i, address in enumerate(addresses):
-                        if i == 0:
-                            file.write(f"C1 {address}\n")  # First address
-                        else:
-                            file.write(f"   {address}\n")  # Other addresses
-                # Check addresses separated by square brackets
-                elif '[' in c1:
-                    addresses = c1.split('[')[1:]  # Skip first empty part
-                    for i, address in enumerate(addresses):
-                        address = address.strip()
-                        if not address.startswith('['):
-                            address = '[' + address
+            af = values_dict['AF'][idx]
+
+            if c1 and af:
+                # Split authors and addresses
+                authors = [a.strip() for a in af.split(';') if a.strip()]
+                addresses = [addr.strip() for addr in c1.split(';') if addr.strip()]
+                
+                # If we have both authors and addresses
+                if authors and addresses:
+                    # İlk satır için "C1" kullan
+                    file.write(f"C1 [{authors[0]}] {addresses[0]}\n")
+                    
+                    # Diğer satırlar için "   " ile başla
+                    current_addr_idx = 1
+                    
+                    # Normal eşleşmeleri yaz
+                    for i in range(1, min(len(authors), len(addresses))):
+                        file.write(f"   [{authors[i]}] {addresses[i]}\n")
+                        current_addr_idx = i + 1
                         
-                        if address:
-                            if i == 0:
-                                file.write(f"C1 {address}\n")  # First address
-                            else:
-                                file.write(f"   {address}\n")  # Other addresses
-                # If there is only one address
-                else:
-                    file.write(f"C1 {c1}\n")
+                    # Eğer fazla yazar varsa, son adresle eşleştir
+                    if len(authors) > len(addresses):
+                        last_address = addresses[-1]
+                        for i in range(current_addr_idx, len(authors)):
+                            file.write(f"   [{authors[i]}] {last_address}\n")
             else:
                 file.write("C1 \n")
 

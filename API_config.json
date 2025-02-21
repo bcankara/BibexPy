@@ -1,0 +1,18 @@
+{
+    "scopus": {
+        "api_key": "cdd53243ce77568adb725bfc04497152",
+        "description": "Get your API key from https://dev.elsevier.com/"
+    },
+    "semantic_scholar": {
+        "api_key": "YOUR-SEMANTIC-SCHOLAR-KEY",
+        "description": "Optional. Get your key from https://www.semanticscholar.org/product/api"
+    },
+    "unpaywall": {
+        "email": "burakcan.kara@amasya.edu.tr",
+        "description": "Use your institutional email for Unpaywall access"
+    },
+    "crossref": {
+        "email": "burakcankara@gmail.com",
+        "description": "Recommended for better rate limits with CrossRef"
+    }
+} 

@@ -1,10 +1,35 @@
 import requests
 import pandas as pd
 import os
+import json
 from dotenv import load_dotenv
 
 # Load .env file
 load_dotenv()
+
+def load_api_config() -> dict:
+    """Load API configuration from API_config.json"""
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'API_config.json')
+        
+        if not os.path.exists(config_path):
+            print("\nWarning: API_config.json not found. Some features may be limited.")
+            print("Please create API_config.json file with your API credentials.")
+            return {}
+        
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return config
+    except Exception as e:
+        print(f"\nError loading API configuration: {str(e)}")
+        return {}
+
+def get_api_credential(service: str, field: str = 'api_key') -> str:
+    """Get API credential for a specific service"""
+    config = load_api_config()
+    if service in config and field in config[service]:
+        return config[service][field]
+    return None
 
 def extract_metadata_from_crossref(doi: str) -> dict:
     """Extract metadata from CrossRef API (Free, no key required)"""
@@ -83,6 +108,12 @@ def extract_metadata_from_crossref(doi: str) -> dict:
         print(f"CrossRef API Error: {str(e)}")
     return {}
 
+def truncate_url(url: str, max_length: int = 2079) -> str:
+    """Excel'in URL karakter limitine uygun olarak URL'yi kısalt"""
+    if not url or len(url) <= max_length:
+        return url
+    return url[:max_length-3] + "..."
+
 def extract_metadata_from_openalex(doi: str) -> dict:
     """Extract metadata from OpenAlex API (Free, no key required)"""
     try:
@@ -158,7 +189,7 @@ def extract_metadata_from_openalex(doi: str) -> dict:
                 if 'issn_l' in venue:
                     metadata['SN'] = venue['issn_l']
                 if 'url' in venue:
-                    metadata['UR'] = venue['url']
+                    metadata['UR'] = truncate_url(venue['url'])
             
             # Abstract
             if 'abstract' in work:
@@ -191,7 +222,9 @@ def extract_metadata_from_openalex(doi: str) -> dict:
             
             # Referenced Works
             if 'referenced_works' in work:
-                metadata['CR'] = '; '.join(work['referenced_works'])
+                # Sadece ilk referans URL'sini al
+                if work['referenced_works']:
+                    metadata['CR'] = work['referenced_works'][0]  # Sadece ilk referansı al
             
             return metadata
     except Exception as e:
@@ -653,33 +686,76 @@ def extract_metadata_from_semantic_scholar(doi: str, api_key: str = None) -> dic
         print(f"Semantic Scholar API Error: {str(e)}")
     return {}
 
+def truncate_url_list(url_list: str, max_length: int = 2079) -> str:
+    """Excel'in URL uzunluk sınırına uygun şekilde URL listesini kısalt"""
+    # Eğer URL listesi boşsa veya zaten sınırın altındaysa direkt döndür
+    if not url_list or len(url_list) <= max_length:
+        return url_list
+    
+    # URL'leri ayır
+    urls = url_list.split('; ')
+    result = []
+    current_length = 0
+    
+    # Her URL için
+    for i, url in enumerate(urls):
+        # İlk URL için ayırıcı gerekmez, diğerleri için '; ' (2 karakter) gerekir
+        separator_length = 0 if not result else 2
+        
+        # Bu URL'yi eklersek toplam uzunluk
+        new_length = current_length + len(url) + separator_length
+        
+        # Eğer bu URL'yi eklemek sınırı aşmayacaksa
+        if new_length <= max_length - 3:  # "..." için 3 karakter rezerve et
+            result.append(url)
+            current_length = new_length
+        else:
+            # Sınıra ulaşıldı, "..." ekle ve döngüyü kır
+            result.append("...")
+            break
+    
+    # URL'leri birleştir
+    return '; '.join(result)
+
 def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, semantic_scholar_key: str = None, unpaywall_email: str = None) -> dict:
     """Try to extract metadata from multiple sources"""
     metadata = current_data.copy()
-    api_sources = {}  # Hangi alanın hangi API'den geldiğini takip etmek için
+    api_sources = {}  # Track which fields came from which API
     
     try:
-        # API anahtarlarını .env'den al
-        scopus_api_key = os.getenv('SCOPUS_API_KEY', scopus_api_key)
-        unpaywall_email = os.getenv('UNPAYWALL_EMAIL', unpaywall_email)
+        # Get API credentials from config file
+        if not scopus_api_key:
+            scopus_api_key = get_api_credential('scopus', 'api_key')
+        if not semantic_scholar_key:
+            semantic_scholar_key = get_api_credential('semantic_scholar', 'api_key')
+        if not unpaywall_email:
+            unpaywall_email = get_api_credential('unpaywall', 'email')
+        crossref_email = get_api_credential('crossref', 'email')
 
         if not scopus_api_key:
-            print("\nWarning: Scopus API key not found in .env file.")
-            print("You can add it to the .env file to enable Scopus metadata enrichment.")
+            print("\nWarning: Scopus API key not found in API_config.json")
+            print("You can add it to enable Scopus metadata enrichment.")
             print("Continuing with other data sources...")
 
         if not unpaywall_email:
-            print("\nWarning: Unpaywall email not found in .env file.")
-            print("You can add it to the .env file to enable Unpaywall metadata enrichment.")
+            print("\nWarning: Unpaywall email not found in API_config.json")
+            print("You can add it to enable Unpaywall metadata enrichment.")
             print("Continuing with other data sources...")
         
         # CrossRef
         print(f"\nTrying CrossRef API...", end='')
         try:
+            # Update CrossRef headers with email if available
+            headers = {
+                'User-Agent': f'keyFINDER/1.0 (mailto:{crossref_email if crossref_email else "info@example.com"})'
+            }
             crossref_data = extract_metadata_from_crossref(doi)
             if crossref_data:
                 for key, value in crossref_data.items():
                     if pd.isna(metadata.get(key, None)) or str(metadata.get(key, '')).strip() == '':
+                        # URL içeren alanları kısalt
+                        if isinstance(value, str) and ('http://' in value or 'https://' in value):
+                            value = truncate_url_list(value)
                         metadata[key] = value
                         if pd.notna(value) and str(value).strip() != '':
                             api_sources[key] = 'CrossRef'
@@ -696,6 +772,9 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
             if openalex_data:
                 for key, value in openalex_data.items():
                     if pd.isna(metadata.get(key, None)) or str(metadata.get(key, '')).strip() == '':
+                        # URL içeren alanları kısalt
+                        if isinstance(value, str) and ('http://' in value or 'https://' in value):
+                            value = truncate_url_list(value)
                         metadata[key] = value
                         if pd.notna(value) and str(value).strip() != '':
                             api_sources[key] = 'OpenAlex'
@@ -802,6 +881,11 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
         # API kaynaklarını ekle
         if api_sources:
             metadata['API_Sources'] = api_sources
+        
+        # Son kontrol: Tüm URL içeren alanları kontrol et ve gerekirse kısalt
+        for field in metadata:
+            if isinstance(metadata[field], str) and ('http://' in metadata[field] or 'https://' in metadata[field]):
+                metadata[field] = truncate_url_list(metadata[field])
         
         return metadata
         

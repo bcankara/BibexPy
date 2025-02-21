@@ -435,36 +435,19 @@ def enrich_with_api(merged_df: pd.DataFrame, scopus_api_key: str = None, semanti
         return False, {}, pd.DataFrame()
 
 def merge_databases_enhanced(wos_df: pd.DataFrame, scopus_df: pd.DataFrame, output_file: str, 
-                           scopus_api_key: str = None, semantic_scholar_key: str = None,
-                           unpaywall_email: str = None, api_log: str = None, api_updates: str = None,
                            result_dir: str = None) -> tuple[bool, dict, pd.DataFrame]:
-    """Merge databases with enhanced deduplication and field merging"""
+    """Enhanced database merge with deduplication and metadata enrichment"""
     try:
         from Main.MergeDB import merge_db_sources
         
-        # Use provided result directory
         if result_dir is None:
             result_dir = os.path.dirname(output_file)
-        
-        # Create output directories
-        cell_files_dir = os.path.join(result_dir, "Cell_Files")
-        text_files_dir = os.path.join(result_dir, "Text_Files")
-        os.makedirs(cell_files_dir, exist_ok=True)
-        os.makedirs(text_files_dir, exist_ok=True)
-        
-        # Define output files
-        merged_bib = os.path.join(cell_files_dir, "Merged_Bib.xlsx")
-        merged_vos = os.path.join(text_files_dir, "Merged_Vos.txt")
-        stats_txt = os.path.join(result_dir, "Statistics.txt")
-        stats_xlsx = os.path.join(result_dir, "Statistics.xlsx")
-        lost_wos_file = os.path.join(result_dir, "Lost_Wos_Records.xlsx")
-        lost_scopus_file = os.path.join(result_dir, "Lost_Scopus_Records.xlsx")
         
         # Add database labels
         wos_df['DB'] = 'ISI'
         scopus_df['DB'] = 'SCOPUS'
         
-        # Merge databases
+        print(f"\n{Fore.CYAN}Starting enhanced database merge...{Style.RESET_ALL}")
         merged_df = merge_db_sources(wos_df, scopus_df, remove_duplicated=True, merge_fields=True)
         
         # Calculate and print statistics
@@ -475,83 +458,26 @@ def merge_databases_enhanced(wos_df: pd.DataFrame, scopus_df: pd.DataFrame, outp
         print_stats(f"Completeness of metadata -- {merged_docs} records merged from 2 databases")
         print_stats(f"Original size -- Total {total_docs} records, {duplicates} duplicates merged")
         
-        # Complete SC and WC fields from each other
-        print("\nCompleting category fields...")
+        # Complete category fields (SC and WC)
         merged_df = complete_category_fields(merged_df)
         
-        # Save enhanced merge results before API enrichment
-        print("\nSaving enhanced merge results...")
-        merged_df.to_excel(merged_bib, index=False)
-        print(f"Save completed: {merged_bib}")
+        # Save results
+        print(f"\n{Fore.CYAN}Saving data...{Style.RESET_ALL}")
+        merged_df.to_excel(output_file, index=False)
+        print(f"{Fore.GREEN}Save completed: {output_file}{Style.RESET_ALL}")
         
-        # Convert to VosViewer format
-        print("\nConverting data to VosViewer format...")
-        from Main.xlsx2vos import convert_excel_to_wos
-        convert_excel_to_wos(merged_bib, merged_vos)
-        print("VosViewer conversion completed.")
-        
-        # Save statistics before API enrichment
+        # Save statistics
         stats = {
             'Total Records': len(merged_df),
             'WoS Records': len(wos_df),
             'Scopus Records': len(scopus_df),
             'Merged Columns': len(merged_df.columns),
-            'Common Columns': len(set(wos_df.columns) & set(scopus_df.columns)),
-            'Completed Metadata': 0
+            'Common Columns': len(set(wos_df.columns) & set(scopus_df.columns))
         }
-        
-        # Save basic statistics
-        save_statistics(stats, stats_txt)
-        
-        # Save comprehensive statistics
-        field_stats = save_comprehensive_statistics(stats, wos_df, scopus_df, merged_df, stats_xlsx)
-        
-        # Analyze and save lost records
-        lost_wos, lost_scopus, loss_reasons = analyze_lost_records(wos_df, scopus_df, merged_df)
-        if not lost_wos.empty:
-            lost_wos.to_excel(lost_wos_file, index=False)
-        if not lost_scopus.empty:
-            lost_scopus.to_excel(lost_scopus_file, index=False)
-            
-        print(f"\nAnalysis results saved to: {result_dir}")
-        print("Generated Files:")
-        print(f"1. Merged Data (Cell_Files): {os.path.basename(merged_bib)}")
-        print(f"2. Merged Data (Text_Files): {os.path.basename(merged_vos)}")
-        print(f"3. Statistics: {os.path.basename(stats_xlsx)}")
-        if not lost_wos.empty:
-            print(f"4. Lost WoS Records: {os.path.basename(lost_wos_file)}")
-        if not lost_scopus.empty:
-            print(f"5. Lost Scopus Records: {os.path.basename(lost_scopus_file)}")
-        
-        # API selection
-        print("\nAPI Metadata Enrichment")
-        print("Missing metadata fields can be completed using APIs.")
-        print("This process may take time and requires internet connection.")
-        
-        response = input("\nDo you want to continue with API enrichment? (Y/N): ").strip().upper()
-        while response not in ['Y', 'N']:
-            print("Error: Please enter Y or N.")
-            response = input("Do you want to continue with API enrichment? (Y/N): ").strip().upper()
-        
-        if response == 'Y':
-            # API enrichment process
-            api_success, api_stats, merged_df = enrich_with_api(
-                merged_df=merged_df,
-                scopus_api_key=scopus_api_key,
-                semantic_scholar_key=semantic_scholar_key,
-                unpaywall_email=unpaywall_email,
-                api_log=api_log,
-                api_updates=api_updates,
-                result_dir=result_dir
-            )
-        
-        # Copy CR_raw column to CR
-        from .post_process import process_merged_files
-        process_merged_files(result_dir)
         
         return True, stats, merged_df
     except Exception as e:
-        print(f"\nError: {str(e)}")
+        print(f"\n{Fore.RED}Error: {str(e)}{Style.RESET_ALL}")
         return False, {}, pd.DataFrame()
 
 def analyze_lost_records(wos_df: pd.DataFrame, scopus_df: pd.DataFrame, merged_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
