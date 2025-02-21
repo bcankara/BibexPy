@@ -1,9 +1,8 @@
-# BibexPy <img src="https://bibexpy.com/bibexpy_logo.webp" alt="BibexPy Logo" width="80" align="right"/>
-
-<div align="center">
+<p align="center">
   <img src="https://bibexpy.com/bibexpy_logo.webp" alt="BibexPy" width="250"/>
-  <h3>Harmonizing the Bibliometric Symphony of Scopus and Web of Science</h3>
-</div>
+</p>
+
+<h3 align="center">Harmonizing the Bibliometric Symphony of Scopus and Web of Science</h3>
 
 <p align="center">
   <a href="https://www.python.org">
@@ -35,37 +34,19 @@
 
 We appreciate the academic community's interest in BibexPy. If you find our tool useful in your research work, we kindly request that you cite our paper:
 
-<div align="center" style="display: flex; justify-content: center; gap: 10px;">
-  <a href="https://doi.org/10.1016/j.softx.2025.102098">
-    <img src="https://img.shields.io/badge/DOI-10.1016/j.softx.2025.102098-blue.svg" width="200" alt="DOI"/>
-  </a>
-  <a href="https://www.sciencedirect.com/science/article/pii/S2352711025000652">
-    <img src="https://img.shields.io/badge/ScienceDirect-View_Paper-orange.svg?logo=elsevier" width="200" alt="ScienceDirect"/>
-  </a>
-</div>
+[![DOI](https://img.shields.io/badge/DOI-10.1016/j.softx.2025.102098-blue.svg)](https://doi.org/10.1016/j.softx.2025.102098)
+[![ScienceDirect](https://img.shields.io/badge/ScienceDirect-View_Paper-orange.svg?logo=elsevier)](https://www.sciencedirect.com/science/article/pii/S2352711025000652)
 
-<div align="center">
-  <div style="max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h3>📝 Recommended Citation Format (APA 7th Edition)</h3>
-    <div style="position: relative; padding: 15px; background-color: white; border-radius: 4px; margin: 10px 0;">
-      <button class="copy-button" onclick="copyToClipboard('apa-citation')" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        Copy
-      </button>
-      <code id="apa-citation">Kara, B. C., Şahin, A., & Dirsehan, T. (2025). BibexPy: Harmonizing the bibliometric symphony of Scopus and Web of Science. SoftwareX, 30, 102098. https://doi.org/10.1016/j.softx.2025.102098</code>
-    </div>
-  </div>
-</div>
+### APA Citation Format
 
-<details>
-<summary><b>🔍 Other Citation Formats</b></summary>
+```
+Kara, B. C., Şahin, A., & Dirsehan, T. (2025). BibexPy: Harmonizing the bibliometric symphony of Scopus and Web of Science. SoftwareX, 30, 102098. https://doi.org/10.1016/j.softx.2025.102098
+```
 
-<div style="margin: 20px 0;">
-  <h4>BibTeX</h4>
-  <div style="position: relative; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
-    <button class="copy-button" onclick="copyToClipboard('bibtex-citation')" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-      Copy
-    </button>
-    <pre><code id="bibtex-citation">@article{bibexpy2025,
+### BibTeX Citation Format
+
+```bibtex
+@article{bibexpy2025,
     title     = {BibexPy: Harmonizing the bibliometric symphony of {Scopus} and {Web of Science}},
     author    = {Kara, Burak Can and {\c{S}}ahin, Alperen and Dirsehan, Ta{\c{s}}k{\i}n},
     journal   = {SoftwareX},
@@ -77,40 +58,20 @@ We appreciate the academic community's interest in BibexPy. If you find our tool
     doi       = {10.1016/j.softx.2025.102098},
     url       = {https://www.sciencedirect.com/science/article/pii/S2352711025000652},
     keywords  = {Bibliometric analysis tools, Automated data integration, Metadata enrichment software, Scikit-learn, Machine learning, API-Based metadata processing}
-}</code></pre>
-  </div>
-
-  <h4>IEEE</h4>
-  <div style="position: relative; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
-    <button class="copy-button" onclick="copyToClipboard('ieee-citation')" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-      Copy
-    </button>
-    <code id="ieee-citation">B. C. Kara, A. Şahin and T. Dirsehan, "BibexPy: Harmonizing the bibliometric symphony of Scopus and Web of Science," SoftwareX, vol. 30, p. 102098, 2025, doi: 10.1016/j.softx.2025.102098.</code>
-  </div>
-
-  <h4>Chicago</h4>
-  <div style="position: relative; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
-    <button class="copy-button" onclick="copyToClipboard('chicago-citation')" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-      Copy
-    </button>
-    <code id="chicago-citation">Kara, Burak Can, Alperen Şahin, and Taşkın Dirsehan. "BibexPy: Harmonizing the Bibliometric Symphony of Scopus and Web of Science." SoftwareX 30 (2025): 102098. https://doi.org/10.1016/j.softx.2025.102098.</code>
-  </div>
-</div>
-</details>
-
-<script>
-function copyToClipboard(elementId) {
-  const element = document.getElementById(elementId);
-  const text = element.textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const button = element.parentElement.querySelector('.copy-button');
-    button.textContent = 'Copied!';
-    setTimeout(() => {
-      button.textContent = 'Copy';
-    }, 2000);
-  });
 }
-</script>
+```
+
+### IEEE Citation Format
+
+```
+B. C. Kara, A. Şahin and T. Dirsehan, "BibexPy: Harmonizing the bibliometric symphony of Scopus and Web of Science," SoftwareX, vol. 30, p. 102098, 2025, doi: 10.1016/j.softx.2025.102098.
+```
+
+### Chicago Citation Format
+
+```
+Kara, Burak Can, Alperen Şahin, and Taşkın Dirsehan. "BibexPy: Harmonizing the Bibliometric Symphony of Scopus and Web of Science." SoftwareX 30 (2025): 102098. https://doi.org/10.1016/j.softx.2025.102098.
+```
 
 ---
 
@@ -118,20 +79,16 @@ BibexPy is a Python-based software designed to streamline bibliometric data inte
 
 ## Tech Stack
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
-  <img src="https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white" alt="Pandas"/>
-  <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy"/>
-  <img src="https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white" alt="scikit-learn"/>
-  <img src="https://img.shields.io/badge/NLTK-154F5B?style=for-the-badge&logo=python&logoColor=white" alt="NLTK"/>
-  <img src="https://img.shields.io/badge/Excel-217346?style=for-the-badge&logo=microsoft-excel&logoColor=white" alt="Excel"/>
-</p>
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Pandas](https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)
+![NLTK](https://img.shields.io/badge/NLTK-154F5B?style=for-the-badge&logo=python&logoColor=white)
+![Excel](https://img.shields.io/badge/Excel-217346?style=for-the-badge&logo=microsoft-excel&logoColor=white)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Scopus-E9711C?style=for-the-badge&logo=elsevier&logoColor=white" alt="Scopus"/>
-  <img src="https://img.shields.io/badge/Web_of_Science-000000?style=for-the-badge&logo=clarivate&logoColor=white" alt="Web of Science"/>
-  <img src="https://img.shields.io/badge/VOSviewer-00A6D6?style=for-the-badge&logoColor=white" alt="VOSviewer"/>
-</p>
+![Scopus](https://img.shields.io/badge/Scopus-E9711C?style=for-the-badge&logo=elsevier&logoColor=white)
+![Web of Science](https://img.shields.io/badge/Web_of_Science-000000?style=for-the-badge&logo=clarivate&logoColor=white)
+![VOSviewer](https://img.shields.io/badge/VOSviewer-00A6D6?style=for-the-badge&logoColor=white)
 
 ## Features
 
@@ -171,22 +128,36 @@ BibexPy is a Python-based software designed to streamline bibliometric data inte
 - **Detailed Feedback**: Clear statistics and progress indicators during processing
 - **Easy to Use**: Simple command-line interface with clear instructions
 
-# Prerequisites
+## Prerequisites
 
-## Required Python Version
+### Required Python Version
 - Python ≥ 3.9.0
   
-## Required Libraries
-- `pandas>=2.0.0`          # Data manipulation and analysis
-- `numpy>=1.24.0`          # Required by pandas for numerical operations
-- `openpyxl>=3.1.2`        # Excel file handling
-- `scikit-learn>=1.2.0`    # ML-based metadata enrichment
-- `nltk>=3.8.1`            # Text processing for ML features
-- `requests>=2.31.0`       # API interactions for metadata enrichment
-- `tqdm>=4.65.0`          # Progress tracking
-- `colorama>=0.4.6`        # Console output formatting
-- `unidecode==1.3.6`       # Text normalization
-- `typing-extensions>=4.7.0`  # Type hints support
+### Required Libraries
+```
+# Core Libraries - Required for Basic Functionality
+pandas>=2.0.0          # Data manipulation and analysis
+numpy>=1.24.0          # Required by pandas for numerical operations
+openpyxl>=3.1.2        # Excel file handling
+
+# Machine Learning - Required for ML Enrichment
+scikit-learn>=1.3.0    # ML-based metadata enrichment and predictions
+nltk>=3.8.1            # Text processing and feature extraction
+
+# API and Network Libraries - Required for API Enrichment
+requests>=2.31.0       # API interactions for metadata enrichment
+urllib3>=2.0.0         # HTTP client for Python, used by requests
+certifi>=2023.5.7      # Required for SSL certificate verification
+python-dotenv>=1.0.0   # API configuration management
+
+# Progress and User Interface
+tqdm>=4.65.0          # Progress tracking for long operations
+colorama>=0.4.6        # Console output formatting and colors
+
+# Utilities
+unidecode==1.3.6       # Text normalization and cleaning
+typing-extensions>=4.7.0  # Type hints support
+```
 
 ## Installation
 
@@ -256,12 +227,6 @@ BibexPy is a Python-based software designed to streamline bibliometric data inte
    - User confirmation at each step
    - Automatic cleanup of temporary files
    - Detailed statistics saved to Excel files
-
-   **Flexible Workflow**
-   - Choose any enrichment method
-   - Clear statistics and progress tracking
-   - Independent or combined processing options
-   - User control over the enrichment process
 
 3. **API Configuration**
 
@@ -344,56 +309,16 @@ BibexPy generates several output files to support different analysis needs:
   - Quality control
   - Troubleshooting
 
-## Data Fields
-
-The unified dataset includes standardized fields from both Scopus and Web of Science:
-
-- **Document Identification**
-  - DOI, Title, Authors, Year
-  - Source details (Journal, Volume, Issue)
-  - Document type and language
-
-- **Citation Information**
-  - Citation counts from multiple sources
-  - Reference lists
-  - Citation context (when available)
-
-- **Author Information**
-  - Standardized author names
-  - Author affiliations
-  - Corresponding author details
-
-- **Content Classification**
-  - Keywords (author and index)
-  - Research areas
-  - Subject categories
-
-- **Additional Metadata**
-  - Abstracts
-  - Funding information
-  - Open access status
-  - URLs and identifiers
-
-## Documentation
-
-For detailed documentation, including:
-- Advanced usage examples
-- API integration guides
-- Field mapping references
-- Troubleshooting tips
-
-Visit: [BibexPy Documentation](http://bibexpy.com/doc)
-
 ## Support and Community
 
-- **Issues and Bugs**: Submit via GitHub Issues
-- **Feature Requests**: Use GitHub Discussions
-- **Questions**: Contact us at 📧 **info@bibexpy.com**
+- **Issues and Bugs**: Submit via [GitHub Issues](https://github.com/bcankara/BibexPy/issues)
+- **Feature Requests**: Use [GitHub Discussions](https://github.com/bcankara/BibexPy/discussions)
+- **Questions**: Contact us at 📧 info@bibexpy.com
 - **Updates**: Follow us on Twitter [@BibexPy](https://twitter.com/bibexpy)
 
 ## License
 
-BibexPy is licensed under the **GNU General Public License (GPL)**. See the LICENSE file for details.
+BibexPy is licensed under the [GNU General Public License (GPL)](LICENSE). See the LICENSE file for details.
 
 ---
 
