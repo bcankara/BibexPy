@@ -20,7 +20,6 @@
   <a href="https://github.com/bcankara/BibexPy/releases">
     <img src="https://img.shields.io/github/downloads/bcankara/BibexPy/total.svg" alt="Downloads"/>
   </a>
-  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy/blob/main/BibexPy.ipynb)
 </p>
 
 <p align="center">
@@ -31,6 +30,8 @@
   <a href="#support-and-community">Support</a>
 </p>
 
+## Google Colab Run
+ [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy/blob/main/BibexPy.ipynb)
 ## Academic Citation
 
 We appreciate the academic community's interest in BibexPy. If you find our tool useful in your research work, we kindly request that you cite our paper:
