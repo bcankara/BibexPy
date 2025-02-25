@@ -20,6 +20,7 @@
   <a href="https://github.com/bcankara/BibexPy/releases">
     <img src="https://img.shields.io/github/downloads/bcankara/BibexPy/total.svg" alt="Downloads"/>
   </a>
+  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy/blob/main/BibexPy.ipynb)
 </p>
 
 <p align="center">
