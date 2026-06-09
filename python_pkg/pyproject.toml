@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bibexpy"
-version = "2.0.0"
+version = "2.0.1"
 description = "Self-hosted bibliometric data preparation tool (Scopus + Web of Science)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -101,5 +101,6 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-# _web saf statik UI — recursive glob (setuptools>=62 `**` destekler).
-bibexpy = ["_web/**/*", "_web/**/.*"]
+# _web saf statik UI + _samples örnek veri seti ("Simple Project") —
+# recursive glob (setuptools>=62 `**` destekler).
+bibexpy = ["_web/**/*", "_web/**/.*", "_samples/**/*"]

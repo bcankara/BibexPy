@@ -121,6 +121,49 @@ def create_app() -> FastAPI:
               system_router, tools_router, report_router):
         app.include_router(r.router, prefix="/api")
 
+    # Startup: ilk kurulumda paketle gelen örnek veriden "Simple Project" oluştur.
+    # Yalnız packaged çalıştırmada (cli.py BIBEXPY_SAMPLES_DIR'i set eder) ve
+    # depo TAMAMEN boşken bir kez çalışır; `.sample_seeded` işaret dosyası
+    # sayesinde kullanıcı projeyi silerse yeniden OLUŞTURULMAZ.
+    @app.on_event("startup")
+    def _seed_sample_project_on_startup() -> None:
+        try:
+            import os
+            import shutil
+
+            samples_dir = os.environ.get("BIBEXPY_SAMPLES_DIR", "").strip()
+            if not samples_dir:
+                return
+            src = Path(samples_dir)
+            if not src.is_dir():
+                return
+            marker = settings.storage_path / ".sample_seeded"
+            if marker.exists():
+                return
+            from services import storage as _storage
+
+            if _storage.list_projects():
+                # Mevcut kullanıcı deposu — örnek ekleme, ama bir daha da deneme.
+                marker.touch()
+                return
+            meta = _storage.create_project(
+                "Simple Project",
+                "Built-in sample dataset (Web of Science + Scopus) — try the pipeline end-to-end.",
+            )
+            raw = _storage.project_dir(meta.id) / "raw"
+            copied = 0
+            for f in sorted(src.iterdir()):
+                if f.is_file() and _storage.detect_file_kind(f.name) != "unknown":
+                    shutil.copy2(f, raw / f.name)
+                    copied += 1
+            marker.touch()
+            import logging
+            logging.getLogger("uvicorn").info(
+                f"Seeded sample project 'Simple Project' ({copied} file(s))"
+            )
+        except Exception:
+            pass
+
     # Startup: soft-deleted analiz klasörlerini fiziksel temizle.
     @app.on_event("startup")
     def _purge_soft_deleted_on_startup() -> None:

@@ -34,7 +34,7 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __codename__ = "Helium"   # v2 surum kod adi (v1 "Hydrogen"in ardili; H -> He)
 
 
@@ -111,6 +111,40 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
     return None
 
 
+def _windows_path_hint() -> str | None:
+    """Windows'ta `bibexpy` komutu PATH'te yoksa, exe'nin bulunduğu Scripts
+    klasörünü döndür (kullanıcıya kopyala-yapıştır düzeltme göstermek için).
+
+    Tipik senaryo: Microsoft Store Python veya `pip install --user` →
+    Scripts klasörü PATH'te değil → "bibexpy is not recognized". Kullanıcı
+    `python -m bibexpy` ile başlatabildiği için bu ipucu tam o anda görünür.
+    """
+    if os.name != "nt":
+        return None
+    import shutil
+    import site
+    import sysconfig
+
+    if shutil.which("bibexpy"):
+        return None  # zaten PATH'te — ipucuna gerek yok
+    candidates: list[Path] = []
+    try:
+        candidates.append(Path(sysconfig.get_path("scripts")))
+    except Exception:
+        pass
+    try:
+        candidates.append(Path(site.getuserbase()) / "Scripts")
+    except Exception:
+        pass
+    for c in candidates:
+        try:
+            if (c / "bibexpy.exe").is_file():
+                return str(c)
+        except OSError:
+            continue
+    return None
+
+
 def _open_browser_when_ready(url: str, health_url: str, timeout: float = 30.0) -> None:
     """Sunucu /api/health'e cevap verince tarayıcıyı aç.
 
@@ -169,14 +203,14 @@ def main(argv: list[str] | None = None) -> int:
     # 1. Paket bütünlüğü kontrolü — build script çalışmadan kurulmuşsa anlamlı hata ver.
     if not (_WEB_DIR / "index.html").is_file():
         sys.stderr.write(
-            "HATA: Gömülü frontend bulunamadı (_web/index.html yok).\n"
-            "Bu wheel düzgün build edilmemiş. scripts/build_wheel.* ile yeniden üretin.\n"
+            "ERROR: embedded frontend not found (_web/index.html missing).\n"
+            "This wheel was not built properly. Rebuild with scripts/build_wheel.*\n"
         )
         return 2
     if not (_SERVER_DIR / "main.py").is_file():
         sys.stderr.write(
-            "HATA: Gömülü sunucu bulunamadı (_server/main.py yok).\n"
-            "Bu wheel düzgün build edilmemiş. scripts/build_wheel.* ile yeniden üretin.\n"
+            "ERROR: embedded server not found (_server/main.py missing).\n"
+            "This wheel was not built properly. Rebuild with scripts/build_wheel.*\n"
         )
         return 2
 
@@ -200,6 +234,13 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["BIBEXPY_FRONTEND_DIST"] = str(_WEB_DIR)
     os.environ["STORAGE_DIR"] = str(storage_path)
 
+    # Paketle gelen örnek veri (ilk kurulumda "Simple Project" olarak yüklenir;
+    # main.py startup'ı boş depoda bir kez kullanır). Kullanıcı önceden set
+    # ettiyse (örn. boş string ile kapatma) dokunma.
+    _samples = _PKG_DIR / "_samples" / "simple_project"
+    if "BIBEXPY_SAMPLES_DIR" not in os.environ and _samples.is_dir():
+        os.environ["BIBEXPY_SAMPLES_DIR"] = str(_samples)
+
     # 4. Flat import'lar (from config import ..., from routers import ...) için
     #    gömülü sunucu dizinini sys.path başına ekle.
     sys.path.insert(0, str(_SERVER_DIR))
@@ -209,22 +250,33 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from main import app  # type: ignore  # noqa: E402  (gömülü _server modülü)
     except Exception as exc:  # pragma: no cover
-        sys.stderr.write(f"HATA: Sunucu uygulaması yüklenemedi: {exc}\n")
+        sys.stderr.write(f"ERROR: failed to load the server application: {exc}\n")
         return 1
 
     import uvicorn
 
     port = _resolve_port(args.host, args.port)
     if port != args.port:
-        print(f"  (not: {args.port} portu dolu; {port} kullaniliyor)")
+        print(f"  (note: port {args.port} is busy; using {port})")
     url = f"http://{args.host}:{port}/"
     health = f"http://{args.host}:{port}/api/health"
 
     print(f"  BibexPy v{__version__} \"{__codename__}\"")
-    print(f"  -> Arayuz:   {url}")
-    print(f"  -> Depolama: {storage_path}")
-    print(f"  -> Ayarlar:  {env_file}")
-    print(f"  (Durdurmak icin Ctrl+C)\n")
+    print(f"  -> UI:       {url}")
+    print(f"  -> Storage:  {storage_path}")
+    print(f"  -> Settings: {env_file}")
+    print(f"  (Press Ctrl+C to stop)\n")
+
+    # Windows: `bibexpy` PATH'te değilse (Store Python / --user kurulum) tam
+    # Scripts yolu + kopyala-yapıştır kalıcı düzeltme göster.
+    hint_dir = _windows_path_hint()
+    if hint_dir:
+        print('  NOTE: the "bibexpy" command is not on your PATH (this run still works).')
+        print("  Permanent fix - run this once in PowerShell, then open a NEW terminal:")
+        print('    [Environment]::SetEnvironmentVariable("Path", '
+              '[Environment]::GetEnvironmentVariable("Path","User") + '
+              f'";{hint_dir}", "User")')
+        print("  Or simply always start it with:  python -m bibexpy\n")
 
     if not args.no_browser:
         threading.Thread(

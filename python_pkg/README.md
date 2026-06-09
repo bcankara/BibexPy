@@ -31,8 +31,16 @@ bibexpy --version
 Defaults: UI at `http://127.0.0.1:6060`, data under `~/.bibexpy/storage`, settings/API keys
 under `~/.bibexpy/.env` (managed from the in-app Settings page). Press `Ctrl+C` to stop.
 
+> **Windows — `bibexpy` is not recognized?** Your Python `Scripts` folder isn't on PATH
+> (common with Microsoft Store Python and `pip install --user`). Just run it as
+> **`python -m bibexpy`** — on startup it prints your exact `Scripts` path together with a
+> copy-paste PowerShell command that fixes PATH permanently. Alternatively install via
+> [pipx](https://pipx.pypa.io) (`pipx install bibexpy`), which manages PATH for you.
+
 ## Highlights (v2)
 
+- **Built-in sample dataset** — first launch creates a ready-to-explore *Simple Project*
+  (real WoS + Scopus exports) so you can try the whole pipeline immediately.
 - One-click **Smart Merge** — probabilistic record linkage (DOI + Jaro–Winkler), confidence
   scoring, optional borderline review, and a copy-ready methodology paragraph.
 - **ORCID-first** author disambiguation + **address harmonization** (organization roll-up,

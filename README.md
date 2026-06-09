@@ -47,14 +47,23 @@ inside the wheel). Works on Windows, macOS and Linux.
 bibexpy --port 8080        # custom port
 bibexpy --no-browser       # server only
 bibexpy --storage ./data   # custom storage folder
-bibexpy --version          # → BibexPy 2.0.0 (Helium)
+bibexpy --version          # → BibexPy 2.0.1 (Helium)
 ```
+
+> **Windows — `bibexpy` is not recognized?** Your Python `Scripts` folder isn't on PATH
+> (common with Microsoft Store Python and `pip install --user`). Just run it as
+> **`python -m bibexpy`** — on startup it prints your exact `Scripts` path together with a
+> copy-paste PowerShell command that fixes PATH permanently. Alternatively install via
+> [pipx](https://pipx.pypa.io) (`pipx install bibexpy`), which manages PATH for you.
 
 Projects/data live under `~/.bibexpy/storage`; settings and API keys under `~/.bibexpy/.env`
 (managed from the in-app Settings page).
 
 ## What's new in v2
 
+- **Built-in sample dataset** — the first launch creates a ready-to-explore **Simple
+  Project** (real Web of Science + Scopus exports), so you can try the whole pipeline
+  before uploading your own data.
 - **One-click Smart Merge** — multi-stage probabilistic record linkage: exact DOI/identifier
   matching + Jaro–Winkler title similarity, confidence scoring, and an optional
   borderline-review queue. The result includes a copy-ready methodology paragraph.
@@ -125,7 +134,7 @@ bash scripts/build_wheel.sh      # macOS / Linux
 pwsh scripts/build_wheel.ps1     # Windows
 ```
 
-→ `python_pkg/dist/bibexpy-2.0.0-py3-none-any.whl` — a pure-python `py3-none-any` wheel that
+→ `python_pkg/dist/bibexpy-2.0.1-py3-none-any.whl` — a pure-python `py3-none-any` wheel that
 installs on Windows / macOS / Linux with no compiler.
 
 ## Release
