@@ -12,3 +12,7 @@
 *.gif  binary
 *.ico  binary
 *.whl  binary
+
+# Örnek veri setleri bayt-bayt korunur — WoS exportu CRLF gelir; eol
+# dönüşümü/normalizasyon YOK (paketlenen kopya orijinaliyle birebir aynı).
+python_pkg/src/bibexpy/_samples/** -text
