@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">CitNetExplorer</title>
+  <rect width="64" height="64" rx="14" fill="#CCFBF1"/>
+  <path d="M20 42.5 31.5 22 44 42.5H20Z" fill="none" stroke="#0F766E" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="31.5" cy="22" r="6" fill="#14B8A6"/>
+  <circle cx="20" cy="42.5" r="6" fill="#2DD4BF"/>
+  <circle cx="44" cy="42.5" r="6" fill="#0D9488"/>
+</svg>

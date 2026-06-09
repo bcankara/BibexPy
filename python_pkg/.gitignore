@@ -1,0 +1,14 @@
+# Build-time kopyalanan artıklar — scripts/build_wheel.* tarafından üretilir.
+# Kaynak gerçeği apps/ ve packages/bibex_core içindedir; bunlar versiyonlanmaz.
+src/bibexpy/_web/
+src/bibexpy/_server/
+src/bibex_core/
+
+# Build çıktıları
+dist/
+build/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]

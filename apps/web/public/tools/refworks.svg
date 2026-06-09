@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">RefWorks</title>
+  <rect width="64" height="64" rx="14" fill="#F5F3FF"/>
+  <path d="M18 17h15.6c7.1 0 11.4 3.8 11.4 10.1 0 4.2-2 7.3-5.5 8.9L47 50h-8.8l-6.5-12.4h-5.9V50H18V17Zm15 14c2.8 0 4.5-1.4 4.5-3.9s-1.7-3.9-4.5-3.9h-7.2V31H33Z" fill="#7C3AED"/>
+</svg>

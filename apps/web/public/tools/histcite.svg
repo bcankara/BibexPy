@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">HistCite</title>
+  <rect width="64" height="64" rx="14" fill="#F3E8FF"/>
+  <path d="M19 17h8v12h10V17h8v30h-8V35.8H27V47h-8V17Z" fill="#7E22CE"/>
+  <path d="M18 51h28" stroke="#A855F7" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="47" cy="16.5" r="4" fill="#C084FC"/>
+</svg>

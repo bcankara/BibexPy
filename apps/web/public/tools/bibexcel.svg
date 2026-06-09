@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">BibExcel</title>
+  <rect width="64" height="64" rx="14" fill="#DCFCE7"/>
+  <path d="M16 16h22c5.6 0 9.3 3.4 9.3 8.3 0 3-1.5 5.4-4.1 6.7 3.2 1.2 5 3.8 5 7.4 0 5.5-4.2 9.6-10.2 9.6H16V16Zm20.3 13.2c2.4 0 4-1.4 4-3.4 0-2.1-1.6-3.5-4-3.5H23.5v6.9h12.8Zm.8 12.5c2.6 0 4.3-1.5 4.3-3.7s-1.7-3.7-4.3-3.7H23.5v7.4h13.6Z" fill="#16A34A"/>
+  <path d="M22 52h24" stroke="#15803D" stroke-width="4" stroke-linecap="round"/>
+</svg>

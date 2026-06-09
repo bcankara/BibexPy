@@ -1,0 +1,105 @@
+# BibexPy v2 — PyPI paketi (pip install bibexpy)
+#
+# Bu paket, geliştirme kaynağı `apps/` ve `packages/bibex_core` içindeki kodun
+# DAĞITIM ambalajıdır. Build script (scripts/build_wheel.*) şu üç parçayı
+# `src/` altına kopyalayıp wheel üretir:
+#   • apps/web/out/        → src/bibexpy/_web/      (Next.js static export)
+#   • apps/api/{...}       → src/bibexpy/_server/   (FastAPI uygulaması)
+#   • packages/bibex_core/ → src/bibex_core/        (çekirdek modüller, vendored)
+#
+# Son kullanıcı:  pip install bibexpy && bibexpy
+# Node.js / npm GEREKMEZ — frontend önceden build edilmiş statik dosyalar olarak gelir.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bibexpy"
+version = "2.0.0"
+description = "Self-hosted bibliometric data preparation tool (Scopus + Web of Science)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Burak Can Kara" },
+    { name = "Alperen Şahin" },
+    { name = "Taşkın Dirsehan" },
+]
+keywords = ["bibliometrics", "scientometrics", "scopus", "web of science", "research"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Framework :: FastAPI",
+]
+
+dependencies = [
+    # --- FastAPI stack (apps/api/requirements.txt ile aynı) ---
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "sse-starlette>=2.0.0",
+    # --- bibex_core bağımlılıkları (vendored paket kendi deps'ini PyPI'dan ister) ---
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "openpyxl>=3.1.2",
+    "scikit-learn>=1.3.0",
+    "nltk>=3.8.1",
+    "requests>=2.31.0",
+    "urllib3>=2.0.0",
+    "certifi>=2023.5.7",
+    "python-dotenv>=1.0.0",
+    "tqdm>=4.65.0",
+    "colorama>=0.4.6",
+    "unidecode==1.3.6",
+    "typing-extensions>=4.7.0",
+]
+
+[project.scripts]
+bibexpy = "bibexpy.cli:main"
+
+[project.urls]
+Homepage = "https://bibexpy.com"
+Repository = "https://github.com/bcankara/BibexPy"
+Paper = "https://doi.org/10.1016/j.softx.2025.102098"
+
+# --- setuptools yapılandırması ---
+# _server bir alt-paket olarak keşfedilir (build script `_server/__init__.py`
+# ekler) → tüm .py modülleri wheel'e dahil. ÖNEMLİ: setuptools, `.py`
+# dosyalarını package-data ile güvenilir taşımaz (onları modül sanıp dışlar);
+# bu yüzden _server paket olarak keşfedilmek ZORUNDA. _web ise saf statik
+# dosya (html/js/css) olduğundan package-data glob'u ile taşınır.
+#
+# Runtime'da cli.py, _server dizinini sys.path'e ekleyerek flat import'ları
+# (from config import ..., from routers import ...) çözer; dotted erişim
+# (bibexpy._server.config) ile çakışmaz çünkü o yol hiç kullanılmaz.
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = false
+# Paketler açıkça listelenir (find_packages('src') çıktısı) — deterministik.
+# _server alt-ağacı paket olarak dahil edilir ki .py modülleri wheel'e girsin.
+packages = [
+    "bibexpy",
+    "bibexpy._server",
+    "bibexpy._server.jobs",
+    "bibexpy._server.models",
+    "bibexpy._server.routers",
+    "bibexpy._server.services",
+    "bibexpy._server.services.disambiguation",
+    "bibex_core",
+    "bibex_core.modules",
+]
+
+[tool.setuptools.package-data]
+# _web saf statik UI — recursive glob (setuptools>=62 `**` destekler).
+bibexpy = ["_web/**/*", "_web/**/.*"]

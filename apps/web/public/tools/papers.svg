@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Papers</title>
+  <rect width="64" height="64" rx="14" fill="#ECFEFF"/>
+  <path d="M21 14h17l9 9v27H21V14Z" fill="#0891B2"/>
+  <path d="M38 14v10h9" fill="#67E8F9"/>
+  <path d="M27 31h14M27 38h14M27 45h9" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+</svg>

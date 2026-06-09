@@ -1,0 +1,6 @@
+node_modules/
+.next/
+.next_locked_trash/
+out/
+*.tsbuildinfo
+.env*.local

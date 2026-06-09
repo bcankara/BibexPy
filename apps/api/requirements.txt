@@ -1,0 +1,15 @@
+# FastAPI stack
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+sse-starlette>=2.0.0
+
+# bibex_core bağımlılıkları (editable install ile bibex_core kendi requirements'ını getirir)
+-e ../../packages/bibex_core
+
+# Testing
+pytest>=8.0.0
+httpx>=0.27.0
+pytest-asyncio>=0.23.0

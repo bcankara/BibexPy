@@ -1,0 +1,38 @@
+{
+  "name": "bibexpy-v2-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:static": "cross-env BIBEXPY_BUILD_MODE=static NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.25",
+    "clsx": "2.1.1",
+    "cmdk": "^1.1.1",
+    "html-to-image": "^1.11.13",
+    "lucide-react": "0.460.0",
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-dropzone": "14.3.5",
+    "tailwind-merge": "2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.1",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "autoprefixer": "10.4.20",
+    "cross-env": "7.0.3",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.18",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.15",
+    "typescript": "5.7.2"
+  }
+}

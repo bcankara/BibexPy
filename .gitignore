@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+dist/
+*.log
+.pnpm-store/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Storage (kullanıcı dosyaları)
+apps/api/storage/
+!apps/api/storage/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build
+build/
+*.tar.gz
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Temp
+tmp/
+
+# Dev/release scratch — geçici venv'ler, screenshot/seed scriptleri (repoya girmez)
+.shotsenv/
+.pkgtest*/
+home*.js
+shot.js
+seed.py
+
+# Paper assets — manuscript ve figürler kod reposunda tutulmaz
+manuscript_*.docx
+manuscript_assets/
+
+# V1 — kendi git repo'su olan ayri kod tabani; V2 reposunda izlenmez
+/BibexPy/

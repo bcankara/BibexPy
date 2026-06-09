@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">EndNote</title>
+  <rect width="64" height="64" rx="14" fill="#EEF2FF"/>
+  <path d="M19 17h26v7H27v5.4h16v6.8H27V43h18.8v7H19V17Z" fill="#4F46E5"/>
+  <path d="M46.5 14.5 51 19l-4.5 4.5L42 19l4.5-4.5Z" fill="#818CF8"/>
+</svg>

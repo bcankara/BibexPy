@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bibex_core"
+version = "0.1.0"
+description = "BibexPy çekirdek modülleri (v2 monorepo paketi)"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "openpyxl>=3.1.2",
+    "scikit-learn>=1.3.0",
+    "nltk>=3.8.1",
+    "requests>=2.31.0",
+    "urllib3>=2.0.0",
+    "certifi>=2023.5.7",
+    "python-dotenv>=1.0.0",
+    "tqdm>=4.65.0",
+    "colorama>=0.4.6",
+    "unidecode==1.3.6",
+    "typing-extensions>=4.7.0",
+]
+
+[tool.setuptools]
+packages = ["bibex_core", "bibex_core.modules"]
+
+[tool.setuptools.package-dir]
+"bibex_core" = "."
+"bibex_core.modules" = "modules"

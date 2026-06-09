@@ -1,0 +1,14 @@
+# Satır sonu normalizasyonu — repo LF saklar; shell scriptleri DAİMA LF (CI/Linux güvenli),
+# Windows scriptleri CRLF. Bu, scripts/build_wheel.sh'in CI'da \r yüzünden kırılmasını önler.
+* text=auto eol=lf
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+
+# İkili varlıklar
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.whl  binary

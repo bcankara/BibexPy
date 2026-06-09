@@ -1,0 +1,67 @@
+name: Release (PyPI wheel)
+
+# v* tag'i push edilince (örn. v2.0.0) tetiklenir:
+#   git tag v2.0.0 && git push origin v2.0.0
+#
+# Akış: Node ile frontend static export → apps/api + bibex_core kopyala →
+#       tek wheel build → PyPI'a yükle (Trusted Publishing / OIDC).
+#
+# Auth: PyPI Trusted Publishing (OIDC) — secret/token GEREKMEZ. PyPI'da publisher
+#       tanımlı: Repository bcankara/BibexPy · Workflow release.yml.
+#       (Yedek yöntem: twine + PYPI_API_TOKEN secret; bu workflow OIDC kullanır.)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}   # manuel tetikleme
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # PyPI Trusted Publishing (OIDC) — token gerekmez
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (frontend build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frontend deps
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build wheel (static export + assemble + build)
+        run: bash scripts/build_wheel.sh
+
+      - name: Verify wheel contents
+        run: |
+          WHL=$(ls python_pkg/dist/*.whl)
+          echo "Wheel: $WHL"
+          python -m zipfile -l "$WHL" | grep -E "_server/main.py|_web/index.html|bibex_core/scp2xlsx.py" \
+            || { echo "HATA: wheel eksik içerik"; exit 1; }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bibexpy-dist
+          path: python_pkg/dist/*
+
+      # PyPI Trusted Publishing (OIDC) — PyPI'da publisher tanımlı:
+      #   Repository: bcankara/BibexPy · Workflow: release.yml
+      # Token/secret saklamaya gerek yok; kimlik GitHub OIDC ile doğrulanır.
+      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python_pkg/dist

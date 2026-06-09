@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  /* Sayfa fonu Hero/AppShell ile aynı (#f7fbff). Önceden #F6F8FB idi —
+     ribbon header sayfa background'ı ile birebir aynı hissi versin diye uyumlu. */
+  background: #f7f9fc;
+  color: #172033;
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Selection — ana lacivert (kurumsal palet) */
+::selection { background: rgba(12, 40, 71, 0.18); }
+
+/* Hide details marker */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+
+/* Modern erişilebilirlik: klavye ile gezen kullanıcılar için tüm interaktif
+   öğelerde tutarlı cyan focus halkası. Mouse focus ile karıştırmamak için
+   `:focus-visible` (klavye/AT odağı) kullanılır. */
+*:focus-visible {
+  outline: 2px solid #0f766e;   /* vurgu/CTA petrol */
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Dual range slider — overlapping native inputs with visible thumbs */
+.dual-range {
+  pointer-events: none;       /* track tıklanmasın */
+  -webkit-appearance: none;
+  appearance: none;
+  height: 100%;
+  outline: none;
+  background: transparent;
+}
+.dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: all;       /* sadece thumb tıklanabilir */
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #0f766e;   /* cyan-500 */
+  cursor: grab;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  transition: transform 0.1s;
+}
+.dual-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  border-color: #0d635d;       /* petrol koyu */
+}
+.dual-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+  background: #0f766e;         /* cyan-500 */
+  border-color: #ffffff;
+}
+.dual-range::-moz-range-thumb {
+  pointer-events: all;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #0f766e;
+  cursor: grab;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+}
+.dual-range::-moz-range-thumb:hover { transform: scale(1.15); }
+.dual-range::-moz-range-thumb:active { cursor: grabbing; background: #0f766e; }
+.dual-range::-webkit-slider-runnable-track { background: transparent; height: 100%; }
+.dual-range::-moz-range-track { background: transparent; height: 100%; }
+.dual-range:focus { outline: none; }
