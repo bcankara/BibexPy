@@ -36,9 +36,15 @@ records with full provenance, and **never sends your licensed exports off your m
 ## Install
 
 ```bash
-pip install bibexpy
-python -m bibexpy      # start BibexPy — the browser opens automatically
+pip install bibexpy    # macOS / Linux: pip3 install bibexpy
+python -m bibexpy      # macOS / Linux: python3 -m bibexpy   (browser opens automatically)
 ```
+
+> **macOS / Linux:** on most systems the commands are **`python3` / `pip3`** — plain
+> `python`/`pip` may not exist (or may point to an old Python 2). If `pip3` itself is
+> missing, install it first: `python3 -m ensurepip --upgrade`
+> (Debian/Ubuntu: `sudo apt install python3-pip`). On Windows it is usually
+> `python` / `pip`.
 
 **`python -m bibexpy` is the recommended way to start the app** — it works on every setup
 out of the box, with no PATH configuration. The short `bibexpy` command works too once your
