@@ -34,7 +34,7 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 __codename__ = "Helium"   # v2 surum kod adi (v1 "Hydrogen"in ardili; H -> He)
 
 
@@ -319,7 +319,17 @@ def main(argv: list[str] | None = None) -> int:
     if hint_dir:
         added = False
         prompt_marker = config_dir / ".path_setup_offered"
-        interactive = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        # GERÇEKTEN etkileşimli mi? stdin VE stdout'un İKİSİ de TTY olmalı.
+        # Yalnız stdin'e bakmak yetmez: çıktısı dosyaya yönlendirilmiş ama
+        # stdin'i konsola bağlı bir süreçte (servis/zamanlayıcı/otomasyon)
+        # input() cevapsız bekler ve SUNUCU HİÇ BAŞLAMAZDI (2.0.2 hatası).
+        def _tty(stream) -> bool:
+            try:
+                return bool(stream and stream.isatty())
+            except Exception:
+                return False
+
+        interactive = _tty(sys.stdin) and _tty(sys.stdout)
         if args.add_path or (interactive and not prompt_marker.exists()):
             consent = bool(args.add_path)
             if not consent:
