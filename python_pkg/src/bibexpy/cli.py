@@ -34,7 +34,7 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 __codename__ = "Helium"   # v2 surum kod adi (v1 "Hydrogen"in ardili; H -> He)
 
 
@@ -122,27 +122,66 @@ def _windows_path_hint() -> str | None:
     if os.name != "nt":
         return None
     import shutil
-    import site
     import sysconfig
 
     if shutil.which("bibexpy"):
         return None  # zaten PATH'te — ipucuna gerek yok
+    # SIRA ÖNEMLİ: önce kullanıcı şeması (nt_user) — Store Python / --user
+    # kurulumlarında exe oraya düşer. sysconfig'in varsayılan 'scripts' yolu
+    # Store Python'da Program Files\WindowsApps sanal yolunu (süreç içinden
+    # "var" görünür, dışarıdan ERİŞİLEMEZ) gösterebilir → WindowsApps filtrele.
     candidates: list[Path] = []
-    try:
-        candidates.append(Path(sysconfig.get_path("scripts")))
-    except Exception:
-        pass
-    try:
-        candidates.append(Path(site.getuserbase()) / "Scripts")
-    except Exception:
-        pass
+    for args in (("scripts", "nt_user"), ("scripts",)):
+        try:
+            candidates.append(Path(sysconfig.get_path(*args)))
+        except Exception:
+            pass
     for c in candidates:
         try:
+            if "WindowsApps" in str(c):
+                continue
             if (c / "bibexpy.exe").is_file():
                 return str(c)
         except OSError:
             continue
     return None
+
+
+def _add_to_user_path_windows(scripts_dir: str) -> bool:
+    """Scripts klasörünü kullanıcı PATH'ine KALICI ekle (HKCU\\Environment).
+
+    setx KULLANILMAZ — değeri 1024 karakterde keser. winreg ile mevcut değer
+    tipi (REG_SZ / REG_EXPAND_SZ) korunarak sona eklenir; idempotenttir.
+    Yeni açılan terminaller güncel PATH'i görsün diye WM_SETTINGCHANGE
+    yayınlanır (mevcut açık terminaller etkilenmez). Başarıda True.
+    """
+    try:
+        import ctypes
+        import winreg
+
+        target = os.path.normcase(os.path.normpath(scripts_dir))
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0,
+            winreg.KEY_READ | winreg.KEY_SET_VALUE,
+        ) as key:
+            try:
+                current, vtype = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current, vtype = "", winreg.REG_EXPAND_SZ
+            parts = [p for p in str(current).split(";") if p.strip()]
+            if any(os.path.normcase(os.path.normpath(p)) == target for p in parts):
+                return True  # zaten ekli
+            new_val = (str(current).rstrip(";") + ";" if current else "") + scripts_dir
+            winreg.SetValueEx(key, "Path", 0, vtype, new_val)
+
+        HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG = 0xFFFF, 0x001A, 0x0002
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment",
+            SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()),
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _open_browser_when_ready(url: str, health_url: str, timeout: float = 30.0) -> None:
@@ -184,6 +223,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Yapılandırma klasörü (.env burada; varsayılan: ~/.bibexpy)",
     )
     p.add_argument("--no-browser", action="store_true", help="Tarayıcıyı otomatik açma")
+    p.add_argument(
+        "--add-path",
+        action="store_true",
+        help='Windows: add the "bibexpy" command to your user PATH (no prompt) and start',
+    )
     p.add_argument("--version", action="version", version=f"BibexPy {__version__} ({__codename__})")
     return p
 
@@ -267,16 +311,40 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  -> Settings: {env_file}")
     print(f"  (Press Ctrl+C to stop)\n")
 
-    # Windows: `bibexpy` PATH'te değilse (Store Python / --user kurulum) tam
-    # Scripts yolu + kopyala-yapıştır kalıcı düzeltme göster.
+    # Windows: `bibexpy` PATH'te değilse (Store Python / --user kurulum) PATH'e
+    # eklemeyi TEKLİF ET (pipx ensurepath / rustup deseni). Yalnız etkileşimli
+    # terminalde ve BİR KEZ sorulur (marker); otomasyon/CI asla bloklanmaz.
+    # `--add-path` bayrağı sormadan ekler. Eklenmezse kopyala-yapıştır ipucu.
     hint_dir = _windows_path_hint()
     if hint_dir:
-        print('  NOTE: the "bibexpy" command is not on your PATH (this run still works).')
-        print("  Permanent fix - run this once in PowerShell, then open a NEW terminal:")
-        print('    [Environment]::SetEnvironmentVariable("Path", '
-              '[Environment]::GetEnvironmentVariable("Path","User") + '
-              f'";{hint_dir}", "User")')
-        print("  Or simply always start it with:  python -m bibexpy\n")
+        added = False
+        prompt_marker = config_dir / ".path_setup_offered"
+        interactive = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        if args.add_path or (interactive and not prompt_marker.exists()):
+            consent = bool(args.add_path)
+            if not consent:
+                try:
+                    ans = input('  Add the "bibexpy" command to your PATH? [Y/n] ')
+                    consent = ans.strip().lower() in ("", "y", "yes", "e", "evet")
+                except (EOFError, KeyboardInterrupt):
+                    consent = False
+            try:
+                prompt_marker.touch()
+            except OSError:
+                pass
+            if consent:
+                added = _add_to_user_path_windows(hint_dir)
+                if added:
+                    print("  OK - added to PATH. Open a NEW terminal and simply type: bibexpy\n")
+                else:
+                    print("  Could not update PATH automatically; manual fix below.\n")
+        if not added:
+            print('  NOTE: the "bibexpy" command is not on your PATH (this run still works).')
+            print("  Permanent fix - run this once in PowerShell, then open a NEW terminal:")
+            print('    [Environment]::SetEnvironmentVariable("Path", '
+                  '[Environment]::GetEnvironmentVariable("Path","User") + '
+                  f'";{hint_dir}", "User")')
+            print("  Or simply always start it with:  python -m bibexpy\n")
 
     if not args.no_browser:
         threading.Thread(

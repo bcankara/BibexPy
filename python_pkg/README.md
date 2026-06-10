@@ -15,27 +15,47 @@ BibTeX, RIS, Excel and more.
 
 ```bash
 pip install bibexpy
-bibexpy            # launches the local web UI (browser opens automatically)
+python -m bibexpy      # start BibexPy — the browser opens automatically
 ```
+
+**`python -m bibexpy` is the recommended way to start the app** — it works on every setup
+out of the box, with no PATH configuration. The short `bibexpy` command works too once your
+Python `Scripts` folder is on PATH (see the Windows note below).
 
 Requires **Python 3.10+** only — **no Node.js/npm needed** (the interface ships precompiled
 inside the package). Works on Windows, macOS and Linux.
 
 ```bash
-bibexpy --port 8080          # custom port
-bibexpy --no-browser         # server only
-bibexpy --storage ./data     # custom storage folder
-bibexpy --version
+python -m bibexpy --port 8080        # custom port
+python -m bibexpy --no-browser       # server only
+python -m bibexpy --storage ./data   # custom storage folder
+python -m bibexpy --version
 ```
+
+(The short `bibexpy` command accepts exactly the same options.)
 
 Defaults: UI at `http://127.0.0.1:6060`, data under `~/.bibexpy/storage`, settings/API keys
 under `~/.bibexpy/.env` (managed from the in-app Settings page). Press `Ctrl+C` to stop.
 
-> **Windows — `bibexpy` is not recognized?** Your Python `Scripts` folder isn't on PATH
-> (common with Microsoft Store Python and `pip install --user`). Just run it as
-> **`python -m bibexpy`** — on startup it prints your exact `Scripts` path together with a
-> copy-paste PowerShell command that fixes PATH permanently. Alternatively install via
-> [pipx](https://pipx.pypa.io) (`pipx install bibexpy`), which manages PATH for you.
+### Add `bibexpy` to PATH (Windows)
+
+With **Microsoft Store Python** or `pip install --user`, the `Scripts` folder holding
+`bibexpy.exe` is usually **not** on PATH, so PowerShell replies
+`bibexpy : The term 'bibexpy' is not recognized…`. Nothing is broken — `python -m bibexpy`
+always works. To enable the short command as well:
+
+- **Easiest** — start the app once with `python -m bibexpy`: it detects the situation and
+  **offers to add itself to PATH** — answer <kbd>Y</kbd>, open a new terminal, done. (In
+  non-interactive shells it prints a personalized copy-paste command instead; you can also
+  force it with `python -m bibexpy --add-path`.)
+- **Manual** — paste this into PowerShell, then open a **new** terminal:
+
+  ```powershell
+  $s = python -c "import sysconfig, os; c=[sysconfig.get_path('scripts','nt_user'), sysconfig.get_path('scripts')]; print(next((p for p in c if 'WindowsApps' not in p and os.path.exists(os.path.join(p,'bibexpy.exe'))), c[0]))"
+  [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$s", "User")
+  ```
+
+- **Or use [pipx](https://pipx.pypa.io)** — `pipx install bibexpy` manages PATH for you.
 
 ## Highlights (v2)
 

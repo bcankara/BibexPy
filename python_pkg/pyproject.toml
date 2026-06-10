@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bibexpy"
-version = "2.0.1"
+version = "2.0.2"
 description = "Self-hosted bibliometric data preparation tool (Scopus + Web of Science)"
 readme = "README.md"
 requires-python = ">=3.10"
