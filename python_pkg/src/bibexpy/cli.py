@@ -25,7 +25,7 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 __codename__ = "Helium"   # v2 surum kod adi (v1 "Hydrogen"in ardili; H -> He)
 
 
