@@ -49,6 +49,15 @@ def _frontend_root() -> Optional[Path]:
     return None
 
 
+# SPA HTML her istekte revalidate edilmeli. Hash'li /_next/static asset'leri
+# (StaticFiles ile servis edilir) değişmezdir ve uzun süre önbeklenebilir; ama
+# index.html sabit isimlidir ve yeni hash'li chunk'lara işaret eder. Önbeklenirse,
+# bir wheel yükseltmesinden sonra tarayıcı ESKİ HTML'i (eski chunk referansları)
+# servis eder → eski UI. `no-cache` ile tarayıcı her seferinde ETag ile doğrular
+# (değişmemişse 304 — ucuz), yükseltmede yeni HTML'i garanti alır.
+_HTML_NO_CACHE = {"Cache-Control": "no-cache"}
+
+
 def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
     """Verilen URL path'i için doğru statik HTML dosyasını bul.
 
@@ -64,12 +73,12 @@ def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
         return None
 
     if full.is_file():
-        return FileResponse(full)
+        return FileResponse(full, headers=_HTML_NO_CACHE)
 
     # 2. Dizin + index.html
     idx = full / "index.html"
     if idx.is_file():
-        return FileResponse(idx)
+        return FileResponse(idx, headers=_HTML_NO_CACHE)
 
     # 3. Dinamik [id] segment: `projects/abc123/upload` → `projects/_/upload/index.html`
     parts = path.strip("/").split("/")
@@ -77,12 +86,12 @@ def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
         # parts[1] proje ID — `_` ile değiştir
         ph_path = root.joinpath("projects", "_", *parts[2:]) / "index.html"
         if ph_path.is_file():
-            return FileResponse(ph_path)
+            return FileResponse(ph_path, headers=_HTML_NO_CACHE)
 
     # 4. SPA son fallback — root index.html (404.html da denenebilir ama gerek yok)
     fallback = root / "index.html"
     if fallback.is_file():
-        return FileResponse(fallback)
+        return FileResponse(fallback, headers=_HTML_NO_CACHE)
     return None
 
 
@@ -217,7 +226,7 @@ def create_app() -> FastAPI:
         # Root da SPA için
         @app.get("/", include_in_schema=False)
         async def spa_root() -> FileResponse:
-            return FileResponse(frontend_root / "index.html")
+            return FileResponse(frontend_root / "index.html", headers=_HTML_NO_CACHE)
     else:
         # API-only mode (dev veya frontend build edilmemiş)
         @app.get("/", tags=["meta"])
