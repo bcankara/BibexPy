@@ -95,6 +95,24 @@ def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
     return None
 
 
+# Codename cli.py ile elle senkron tutulur (paketlenmiş sürümde tek string).
+_APP_CODENAME = "Helium"
+
+
+def _app_version() -> str:
+    """Çalışan paketin sürümü — packaged wheel'de installed metadata'dan,
+    kaynaktan (dev) çalışırken 'dev'. Footer'da hangi sürümün aktif olduğunu
+    göstermek için /api/health ile sunulur."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+        try:
+            return version("bibexpy")
+        except PackageNotFoundError:
+            return "dev"
+    except Exception:
+        return "dev"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="BibexPy v2 API",
@@ -196,6 +214,8 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {
             "status": "ok",
+            "version": _app_version(),
+            "codename": _APP_CODENAME,
             "storage": str(settings.storage_path),
             "disambiguation_enabled": settings.disambiguation_enabled,
             "frontend_bundled": _frontend_root() is not None,

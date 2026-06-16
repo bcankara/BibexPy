@@ -30,7 +30,9 @@ export function BorderlineReviewPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [threshold, setThreshold] = useState(0.88);
+  // String-backed: serbest yazıma izin verir ("0.", boş vb. ara durumlar snap-back
+  // yapmaz); sayıya parse edilip kullanılır, blur'da [0.80, 0.92] aralığına kelepçelenir.
+  const [threshold, setThreshold] = useState("0.88");
   const [statusFilter, setStatusFilter] = useState<"pending" | "all">("pending");
   // Smart Merge adımında "kapı" (gate): önce uyarı + Evet/Hayır. "Evet" → inceleme
   // açılır; "Hayır" → gizlenir (belirsiz çiftler ayrı kalır, merge olduğu gibi tamamlanır).
@@ -78,10 +80,12 @@ export function BorderlineReviewPanel({
   }
 
   function autoAcceptByThreshold() {
+    const thr = parseFloat(threshold);
+    const cutoff = Number.isFinite(thr) ? thr : 0.88;
     const next: Record<string, Decision> = { ...decisions };
     for (const item of items) {
       if (item.status !== "pending") continue;
-      if (item.jw_title >= threshold) next[item.pair_id] = "accept";
+      if (item.jw_title >= cutoff) next[item.pair_id] = "accept";
     }
     setDecisions(next);
   }
@@ -249,7 +253,11 @@ export function BorderlineReviewPanel({
                 min={0.80}
                 max={0.92}
                 value={threshold}
-                onChange={(e) => setThreshold(parseFloat(e.target.value) || 0.88)}
+                onChange={(e) => setThreshold(e.target.value)}
+                onBlur={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setThreshold(Number.isFinite(v) ? String(Math.min(0.92, Math.max(0.80, v))) : "0.88");
+                }}
                 className="w-20 rounded border border-border bg-white px-2 py-0.5 text-xs tabular-nums"
               />
             </label>

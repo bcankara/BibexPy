@@ -164,6 +164,17 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Sunucu sağlığı + aktif sürüm (footer'da "hangi sürüm çalışıyor" göstermek için).
+  health: () =>
+    http<{
+      status: string;
+      version: string;
+      codename: string;
+      storage: string;
+      disambiguation_enabled: boolean;
+      frontend_bundled: boolean;
+    }>("/health"),
+
   listProjects: () => http<Project[]>("/projects"),
   createProject: (name: string, description?: string) =>
     http<Project>("/projects", { method: "POST", body: JSON.stringify({ name, description }) }),

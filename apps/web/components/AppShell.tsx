@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { DOCS_URL } from "@/lib/api-client";
+import { api, DOCS_URL } from "@/lib/api-client";
 
 /**
  * AppShell — AutoCAD/Office ribbon paterni:
@@ -29,6 +29,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // ilk render'da "/docs" (SSR ile aynı), mount'tan sonra gerçek DOCS_URL.
   const [docsHref, setDocsHref] = useState("/docs");
   useEffect(() => { setDocsHref(DOCS_URL); }, []);
+
+  // Aktif sürüm — footer'da "hangi sürüm çalışıyor" göstermek için /api/health'ten.
+  const [appVersion, setAppVersion] = useState<{ version: string; codename: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.health()
+      .then((h) => { if (alive) setAppVersion({ version: h.version, codename: h.codename }); })
+      .catch(() => { /* health erişilemezse sürüm gösterilmez */ });
+    return () => { alive = false; };
+  }, []);
 
   return (
     <>
@@ -221,6 +231,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 GPL-3.0-or-later
               </a>{" "}
               · {t("common.footerRights")}
+              {appVersion && (
+                <>
+                  {" · "}
+                  <span className="font-semibold text-slate-500" title={t("common.footerVersionTitle")}>
+                    {appVersion.version === "dev"
+                      ? `dev · ${appVersion.codename}`
+                      : `v${appVersion.version} · ${appVersion.codename}`}
+                  </span>
+                </>
+              )}
             </span>
             <a
               href="https://doi.org/10.1016/j.softx.2025.102098"
