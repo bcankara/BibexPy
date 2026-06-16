@@ -13,7 +13,6 @@
   <a href="https://pypi.org/project/bibexpy/"><img src="https://img.shields.io/pypi/pyversions/bibexpy?color=0c2847" alt="Python"></a>
   <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPL--3.0-4f1964.svg" alt="License: GPL-3.0"></a>
   <a href="https://doi.org/10.1016/j.softx.2025.102098"><img src="https://img.shields.io/badge/DOI-10.1016%2Fj.softx.2025.102098-0f766e" alt="DOI"></a>
-  <a href="https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open BibexPy-Lite in Colab"></a>
 </p>
 
 <p align="center">
@@ -39,17 +38,17 @@ records with full provenance, and **never sends your licensed exports off your m
 | | What it is | Best for |
 |---|---|---|
 | **Full app** (this repo) | `pip install bibexpy` → a local web platform: merge → filter → harmonize → enrich → export → report. | The complete, reproducible workflow on your own machine. |
-| **[BibexPy-Lite](https://github.com/bcankara/BibexPy-Lite)** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb) | A lightweight notebook/terminal tool that runs the **same Smart Merge algorithm** — no web UI, no enrichment. | A quick WoS + Scopus **merge** in Google Colab or a terminal. |
+| **BibexPy-Lite** | A lightweight notebook/terminal tool that runs the **same Smart Merge algorithm** — no web UI, no enrichment. | A quick WoS + Scopus **merge** in Google Colab or a terminal. |
 
 Both share one merge algorithm, so results are identical.
 
 <p align="center">
   <a href="https://github.com/bcankara/BibexPy-Lite">
-    <img src=".github/assets/bibexpy-lite-header.png" alt="BibexPy-Lite — lightweight Smart Merge for Web of Science + Scopus, in Colab or a terminal" width="680">
+    <img src=".github/assets/bibexpy-lite-logo.png" alt="BibexPy-Lite" width="420">
   </a>
   <br>
-  <a href="https://github.com/bcankara/BibexPy-Lite"><b>BibexPy-Lite repository</b></a> ·
-  <a href="https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open BibexPy-Lite in Colab"></a>
+  <a href="https://github.com/bcankara/BibexPy-Lite"><b>BibexPy-Lite repo</b></a> ·
+  <a href="https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"></a>
 </p>
 
 ## Install
@@ -200,7 +199,6 @@ git tag v2.0.0 && git push origin v2.0.0
 
 [Website](https://bibexpy.com) ·
 [Docs](https://bibexpy.com/doc) ·
-[BibexPy-Lite (Colab)](https://github.com/bcankara/BibexPy-Lite) ·
 [YouTube](https://www.youtube.com/@BibexPy) ·
 [X / Twitter](https://twitter.com/BibexPy) ·
 [Instagram](https://www.instagram.com/bibexpy/) ·
