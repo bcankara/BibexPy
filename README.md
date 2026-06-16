@@ -13,6 +13,7 @@
   <a href="https://pypi.org/project/bibexpy/"><img src="https://img.shields.io/pypi/pyversions/bibexpy?color=0c2847" alt="Python"></a>
   <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPL--3.0-4f1964.svg" alt="License: GPL-3.0"></a>
   <a href="https://doi.org/10.1016/j.softx.2025.102098"><img src="https://img.shields.io/badge/DOI-10.1016%2Fj.softx.2025.102098-0f766e" alt="DOI"></a>
+  <a href="https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open BibexPy-Lite in Colab"></a>
 </p>
 
 <p align="center">
@@ -32,6 +33,11 @@ records with full provenance, and **never sends your licensed exports off your m
 <p align="center">
   <img src=".github/assets/bibexpy-home.png" alt="BibexPy v2 home screen" width="780">
 </p>
+
+> **Just need to merge in Google Colab?** [**BibexPy-Lite**](https://github.com/bcankara/BibexPy-Lite)
+> is a lightweight, no-install companion that runs the same Smart Merge algorithm
+> (WoS + Scopus deduplication) in a notebook or terminal — no web UI, no enrichment.
+> [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb)
 
 ## Install
 
