@@ -1,14 +1,8 @@
-"""DataFrame -> BibTeX (.bib) yazıcı.
+"""Write a DataFrame of bibliographic records to a BibTeX (.bib) file.
 
-BibexPy alan adlarını BibTeX'e eşler:
-    AU -> author (semicolon -> ' and ')
-    TI -> title
-    SO -> journal
-    PY -> year
-    VL -> volume, IS -> number, AR -> articleno
-    DI -> doi, URL -> url, AB -> abstract
-    DE -> keywords (semicolon -> ', ')
-    PU -> publisher
+Maps BibexPy field names to BibTeX fields (e.g. AU -> author, TI -> title,
+SO -> journal, PY -> year, DI -> doi, DE -> keywords), normalizes author and
+keyword lists, escapes LaTeX special characters, and generates unique entry keys.
 """
 
 from __future__ import annotations

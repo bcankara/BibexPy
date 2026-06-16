@@ -1,8 +1,9 @@
-"""Paketle gelen örnek verinin ilk açılışta "Simple Project" olarak yüklenmesi.
+"""Tests for first-run sample-project seeding.
 
-cli.py packaged çalıştırmada BIBEXPY_SAMPLES_DIR'i set eder; main.py startup'ı
-depo TAMAMEN boşken örnek projeyi BİR KEZ oluşturur (.sample_seeded işareti).
-Kullanıcı projeyi silerse yeniden oluşturulmaz; env yoksa hiç çalışmaz.
+Verifies that a bundled "Simple Project" is created once on startup when the
+storage directory is empty and the samples-directory env var is set, that only
+recognized sample files are imported, and that seeding never repeats once the
+marker exists or when projects already exist.
 """
 
 import sys

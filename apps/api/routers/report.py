@@ -1,8 +1,8 @@
-"""Rapor endpoint'leri — ham günlük (MD/TXT/PDF) + LLM metodoloji raporu (MD/TXT/PDF).
+"""Report endpoints for the operation log and the methodology report.
 
-Export adımından sonraki son adım. İki çıktı türü:
-  • Ham operasyon günlüğü — sürecin birebir kaydı.
-  • Metodoloji raporu — günlüğün LLM ile İngilizce makale metnine dönüştürülmüş hali.
+Serves two output types in Markdown, plain text, and PDF formats:
+  - Raw operation log: a faithful record of the processing pipeline.
+  - Methodology report: an English narrative generated from the log via an LLM.
 """
 
 from __future__ import annotations

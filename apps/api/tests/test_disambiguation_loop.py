@@ -1,10 +1,8 @@
-"""Regresyon: disambiguation pipeline event loop'u bloklamamalı (#7 freeze kök neden).
+"""Regression tests ensuring the disambiguation pipeline never blocks the event loop.
 
-ORCID çözümü (orcids_for_candidate → fetch_orcids_for_doi → requests) SENKRON ağ
-I/O yapar. Async worker içinde await'siz çağrılırsa event loop bloklanır → scan
-sırasında cancel/navigasyon/export DONAR. Bu yüzden ORCID çağrıları yalnız
-asyncio.to_thread ile çalıştırılan yardımcı fonksiyonlarda (_resolve_*) olmalı,
-async fonksiyon gövdesinde DOĞRUDAN değil.
+Synchronous ORCID network I/O must run only inside the threaded helpers
+(``_resolve_*``) so it is offloaded via ``asyncio.to_thread``, and never be
+called directly from the async pipeline functions.
 """
 
 import inspect

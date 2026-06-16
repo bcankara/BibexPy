@@ -1,7 +1,9 @@
-"""Ayarlar endpoint — .env dosyasını UI üzerinden oku/yaz.
+"""Settings endpoints for reading and writing the .env file from the UI.
 
-Yalnız self-hosted senaryo için tasarlandı. Backend ve frontend aynı makinedeyse
-kullanıcı API key ve email gibi alanları UI'dan girebilir.
+Exposes a FastAPI router that lists editable configuration fields (storage path,
+enrichment API keys, LLM provider/model), validates filesystem paths, and persists
+updates back to the .env file. Intended for self-hosted setups where the backend
+and frontend run on the same machine.
 """
 
 from __future__ import annotations

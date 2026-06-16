@@ -1,8 +1,8 @@
-"""BibexPy v2 — self-hosted bibliometric data preparation tool.
+"""BibexPy: self-hosted bibliometric data preparation tool.
 
-Son kullanıcı bu paketi `pip install bibexpy` ile kurar ve `bibexpy` komutuyla
-çalıştırır. Gömülü FastAPI sunucusu + Next.js static UI tek pakette gelir;
-Node.js / npm gerektirmez.
+Installed via ``pip install bibexpy`` and launched with the ``bibexpy`` command.
+Bundles an embedded FastAPI server and a prebuilt static UI in a single package,
+requiring no Node.js or npm at runtime.
 """
 
 __version__ = "2.0.0"

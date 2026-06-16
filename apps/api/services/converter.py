@@ -1,8 +1,9 @@
-"""bibex_core dönüşüm fonksiyonlarını web ortamında kullanmak için sarmal.
+"""Web-facing wrappers around the bibex_core file conversion routines.
 
-- Tüm çıktılar `<project>/processed/` altına yazılır
-- Stdout/stderr bastırılır (bibex_core print kullanıyor)
-- Hatalar HTTPException olarak fırlatılır
+Converts Scopus CSV and Web of Science TXT exports into consolidated XLSX
+files, and XLSX back into WoS-format TXT or plain TSV/CSV. All outputs are
+written under ``<project>/processed/``, stdout/stderr from the core routines
+is suppressed, and failures are raised as HTTPException.
 """
 
 from __future__ import annotations

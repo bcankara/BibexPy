@@ -1,4 +1,8 @@
-"""DataFrame -> RIS yazıcı."""
+"""Write a bibliographic DataFrame to a RIS reference file.
+
+Maps record fields to RIS tags, splitting multi-valued author and keyword
+fields, and serializes each row as a RIS entry via ``write_ris``.
+"""
 
 from __future__ import annotations
 

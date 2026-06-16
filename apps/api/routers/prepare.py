@@ -1,7 +1,8 @@
-"""Veri hazırlama orkestratörü.
+"""Data preparation orchestration endpoints.
 
-Tek butonla ham CSV/TXT'leri otomatik XLSX'e çevirir.
-Kullanıcı dönüşüm seçimleri yapmasına gerek kalmaz.
+Exposes API routes that automatically convert raw uploaded CSV/TXT
+files into merged XLSX outputs, report preparation status (including
+staleness), reset preparation, and delete individual processed files.
 """
 
 from pathlib import Path

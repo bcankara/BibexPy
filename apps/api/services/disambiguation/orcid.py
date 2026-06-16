@@ -1,13 +1,13 @@
-"""ORCID-öncelikli yazar disambiguation yardımcıları.
+"""ORCID-first helpers for author name disambiguation.
 
-Mantık: bir ambigu yazar grubu için kimlik kararını ÖNCE veride var olan ORCID
-(OI sütunu) ile, yoksa o grubun çalışmalarının DOI'lerinden OpenAlex'e ANLIK
-sorgu atarak verir. ORCID altın standarttır:
-  • Aynı ORCID  → kesin aynı kişi (alan/isim farkı önemsiz).
-  • Farklı ORCID → kesin farklı kişi (isim aynı olsa bile).
+Resolves author identity for an ambiguous group using ORCID identifiers,
+preferring values already present in the data (OI column) and falling back to
+live OpenAlex lookups by DOI. Matching ORCIDs imply the same person; disjoint
+ORCIDs imply different people.
 
-Bu modül framework-bağımsız tutulmaya çalışılır; yalnız api_utils'in HTTP
-yardımcısını (timeout + 429 backoff) ve similarity.normalize_name'i kullanır.
+Provides utilities to fetch ORCIDs and affiliations for a DOI, parse OI cells,
+collect a candidate's ORCID set, backfill empty rows from DOI metadata, and
+classify a group as merge/conflict/unknown.
 """
 
 from __future__ import annotations

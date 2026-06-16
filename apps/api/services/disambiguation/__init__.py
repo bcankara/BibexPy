@@ -1,4 +1,8 @@
-"""Deneysel LLM tabanlı yazar/affiliation disambiguation."""
+"""Author and affiliation disambiguation package.
+
+Provides blocking, name similarity, clustering, caching, and an LLM-backed
+client to group records referring to the same author or affiliation.
+Public entry points are re-exported for use elsewhere in the API."""
 
 from .blocking import build_author_blocks, build_affiliation_blocks
 from .similarity import jaro_winkler, normalize_name

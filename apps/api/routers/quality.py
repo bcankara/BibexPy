@@ -1,8 +1,9 @@
-"""Veri kalitesi & grafik endpoint'leri.
+"""Data quality and chart API endpoints.
 
-UI bu endpoint'leri:
-- Dashboard panelinde alan-bazlı doluluk yüzdelerini göstermek için
-- Records sayfası üstündeki chart'lar için kullanır.
+Exposes per-field fill-rate statistics and a weighted health score for a
+project's merged dataset, an exportable overview table (CSV/XLSX), and
+aggregated chart data (year, journal, document type, language, citation
+distributions) consumed by the dashboard and records pages.
 """
 
 from __future__ import annotations

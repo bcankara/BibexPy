@@ -1,22 +1,12 @@
-"""Smart Merge — BibexPy v2 birleştirme algoritması (3. seçenek).
+"""Smart Merge pipeline for deduplicating and combining bibliographic sources.
 
-bibex_core'a (`merge_db_sources`) dokunmadan, kendi pipeline'ını yürüten yeni
-servis modülü. Tasarım dokümanı: `docs/smart_merge_algorithm_design.docx`.
-
-6-fazlı pipeline:
+Runs a self-contained six-phase pipeline independent of the core merge path:
   1. Normalize  : DOI, title, year, surname, ISSN/PMID/UT
-  2. Block      : (year, surname[0]) bloklama
-  3. Match      : Stage 0-5 (negative rules → DOI → PMID/UT → JW title → J+V+P → borderline)
-  4. Field merge: Caputo 2024 sabit defaults (TC/CR→WoS, AB/AU→Scopus, DE/ID→union, ...)
-  5. Audit      : match_audit.xlsx, conflict_log.xlsx, borderline_queue.xlsx
-  6. Borderline : Manuel onay UI (Merge sayfası) + opsiyonel LLM (feature flag)
-
-Akademik temeller:
-  - Fellegi & Sunter (1969) — olasılıksal kayıt eşleştirme
-  - Hammerton et al. (2013) — kural tabanlı hiyerarşi + negative rules
-  - Jaro (1989) / Winkler (1990) — JW benzerlik metriği
-  - Caputo (2024) — Scopus+WoS field preferences
-  - Borissov et al. (2022) — Deduklick explainable
+  2. Block      : group candidates by (year, surname initial)
+  3. Match      : staged rules (negative rules, DOI, PMID/UT, title similarity, journal+volume+page, borderline)
+  4. Field merge: fixed per-field source preferences (WoS, Scopus, union, cross-fill)
+  5. Audit      : write match, conflict, and borderline-queue reports
+  6. Borderline : manual review UI plus optional LLM assistance behind a feature flag
 """
 
 from __future__ import annotations
@@ -213,21 +203,41 @@ def build_blocks(df: pd.DataFrame) -> dict[tuple[Optional[int], str], list[int]]
 # ════════════════════════════════════════════════════════════════════════
 
 def negative_rule_check(w: dict, s: dict) -> Optional[str]:
-    """Hammerton (2013): PMID/ISSN birbiriyle çelişiyorsa → reject.
+    """Belirleyici negatif kurallar: çelişen kimlikler → reject (asla aynı yayın).
 
-    Both sides have value AND they're different → reject (kayıtlar farklı yayın).
-    Hiçbir tarafta yoksa, sessizce geç.
+    DOI BELİRLEYİCİDİR. İki kaydın da normalize edilmiş DOI'si varsa ve FARKLIYSA,
+    bunlar kesinlikle farklı yayınlardır — DOI kalıcı, yayına-özgü tanımlayıcıdır.
+    Başlık/journal benzerliği ne olursa olsun eşleşmezler ve borderline (manuel onay)
+    kuyruğuna ASLA girmezler. Aynı çelişki mantığı PMID ve ISSN için de geçerlidir
+    (Hammerton 2013).
+
+    Both sides have value AND they're different → reject. Hiçbir tarafta yoksa geç
+    (ör. yalnız bir tarafta DOI varsa, başlık eşleştirmesine düşülür).
 
     NOT: UT/EID cross-database aynı değildir (WoS UT 'WOS:xxx', Scopus EID '2-s2.0-xxx').
     Bu yüzden UT negative rule olarak KULLANILMAZ. Sadece aynı kaynak içi olur.
     PMID ise cross-database aynıdır (PubMed Identifier).
     """
-    for key in ("_norm_pmid", "_norm_issn"):
+    for key in ("_norm_doi", "_norm_pmid", "_norm_issn"):
         wv = w.get(key)
         sv = s.get(key)
         if wv and sv and wv != sv:
             return f"{key.replace('_norm_', '').upper()} mismatch ({wv} ≠ {sv})"
     return None
+
+
+def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
+    """İki ham DOI normalize edilince ikisi de mevcut ve FARKLI mı?
+
+    DOI BELİRLEYİCİDİR: arındırılmış (normalize) DOI'ler farklıysa kayıtlar ASLA
+    aynı yayın değildir — borderline (manuel onay) listesinde bile gösterilmezler.
+    Bir tarafta DOI yoksa çelişki yoktur (False). `negative_rule_check` yeni
+    merge'lerde bu çiftleri zaten eler; bu yardımcı, eski kuyrukları okurken
+    (`list_borderline`) geriye dönük güvenlik katmanı sağlar.
+    """
+    a = normalize_doi(raw_a)
+    b = normalize_doi(raw_b)
+    return bool(a and b and a != b)
 
 
 def compute_match(w: dict, s: dict) -> Optional[dict]:
@@ -837,6 +847,11 @@ def list_borderline(project_id: str) -> list[dict]:
     items: list[dict] = []
     for _, row in df.iterrows():
         pair_id = str(row.get("pair_id", ""))
+        # DOI belirleyici: arındırılmış DOI'ler farklıysa asla aynı yayın değildir.
+        # Eski (düzeltme öncesi) kuyruklarda kalmış olsa bile bu çiftleri manuel
+        # onaya GÖSTERME — kullanıcıya yalnızca gerçekten belirsiz çiftler sorulur.
+        if doi_conflict(row.get("wos_doi"), row.get("scp_doi")):
+            continue
         st = state.get(pair_id, {"status": "pending"})
         items.append({
             "pair_id": pair_id,
@@ -899,6 +914,13 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         pair_id = d.get("pair_id")
         decision = d.get("decision")
         if not pair_id or decision not in ("accept", "reject", "skip"):
+            continue
+        # DOI belirleyici: arındırılmış DOI'leri farklı olan çift ASLA aynı yayın
+        # değildir. Eski (düzeltme öncesi) kuyruktan gelmiş olsa bile hiçbir karar
+        # uygulanmaz — kural display katmanında (list_borderline) olduğu gibi apply
+        # katmanında da yetkilidir; doğrudan API çağrısıyla yanlış birleştirme olmaz.
+        bq_row = bq_by_id.get(pair_id)
+        if bq_row is not None and doi_conflict(bq_row.get("wos_doi"), bq_row.get("scp_doi")):
             continue
         state[pair_id] = {
             **state.get(pair_id, {}),

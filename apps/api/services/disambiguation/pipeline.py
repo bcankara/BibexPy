@@ -1,4 +1,9 @@
-"""Disambiguation pipeline orchestration — blocking -> LLM -> sonuç."""
+"""Disambiguation pipeline orchestration: blocking, ORCID/LLM review, and apply.
+
+Generates merge, split, and standardization proposals for authors,
+affiliations, countries, and organizations, then applies approved
+changes to the merged dataset with snapshots and audit logging.
+"""
 
 from __future__ import annotations
 

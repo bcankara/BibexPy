@@ -1,4 +1,9 @@
-"""Filtre uygulanmış/uygulanmamış birleştirilmiş veriyi farklı formatlarda dışa aktar."""
+"""Export merged bibliographic data, optionally filtered, to various file formats.
+
+Supports WoS plain-text, VOSviewer tab-text, BibTeX, RIS, CSV, XLSX, and TSV
+output. The exported records are loaded from a project's merged dataset and an
+optional filter spec is applied before writing.
+"""
 
 from __future__ import annotations
 

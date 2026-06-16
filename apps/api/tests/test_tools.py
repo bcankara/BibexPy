@@ -1,8 +1,8 @@
-"""Tools (standalone format dönüştürücü) testleri — özellikle çıktı uzantısı (#9).
+"""Tests for the standalone format-conversion tool endpoint.
 
-Tester bulgusu: Excel→WoS / →VOSviewer TSV dönüşümlerinde dosya .wos / .vos
-uzantısıyla iniyordu; .txt olmalı. Burası exporter.py:_EXT ile aynı standardı
-(wos→txt, vos→txt) uygular; tsv/csv anahtar=uzantı olarak değişmeden kalır.
+Verifies the download filename extension returned by /api/tools/convert:
+WoS and VOSviewer outputs use .txt, while tsv/csv keep their own extension.
+Also checks the x-target-format response header.
 """
 
 import io

@@ -1,19 +1,11 @@
-"""Append-only audit log — kullanıcının her önemli işlemini kaydeder.
+"""Append-only audit log recording every significant operation in a project.
 
-Her event JSON Lines (`operations.jsonl`) dosyasına yazılır:
-    {ts, kind, title, details, user_action, snapshot, before, after}
-
-Kind örnekleri:
-    "upload"          — dosya yüklendi
-    "convert"         — CSV/TXT → XLSX
-    "merge"           — simple / enhanced
-    "filter_save"     — preset kaydedildi
-    "records_delete"  — toplu silme
-    "enrich_api"      — API enrichment çalıştı
-    "enrich_ml"       — ML enrichment çalıştı
-    "disambiguate"    — yazar/affiliation cluster uygulandı
-    "snapshot"        — snapshot alındı
-    "export"          — dosya export edildi
+Each event is appended as a line to a JSON Lines file (``operations.jsonl``)
+with fields such as ts, kind, title, details, before/after, snapshot, and
+user_action. Events are tagged with an analysis_id so each analysis keeps its
+own history, while project-level events remain visible across all analyses.
+Provides helpers to write and read entries, delete or clear logs, summarize
+activity, and render a Markdown operation report.
 """
 
 from __future__ import annotations

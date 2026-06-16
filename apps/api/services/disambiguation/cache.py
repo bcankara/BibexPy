@@ -1,4 +1,8 @@
-"""Hash tabanlı LLM yanıt cache'i — aynı blok 2. çağrıda LLM'e gitmesin."""
+"""SQLite-backed cache for LLM disambiguation responses.
+
+Stores responses keyed by a hash of the request payload so identical
+inputs are served from disk instead of re-querying the LLM.
+"""
 
 from __future__ import annotations
 

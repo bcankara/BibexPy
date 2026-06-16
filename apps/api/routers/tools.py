@@ -1,16 +1,10 @@
-"""Standalone format converter — proje gerektirmez.
+"""Standalone bibliometric file format converter (no project required).
 
-Kullanıcı tek bir bibliometrik dosya yükler (WoS TXT, Scopus CSV, plain CSV,
-TSV, Excel) ve istediği hedef formata (WoS / VOSviewer TSV / BibTeX / RIS /
-CSV / XLSX / TSV) dönüştürür. Sonuç dosyası geçici klasörde üretilir, response
-olarak stream edilir, sonra arka planda silinir.
-
-Tasarım kararları:
-- Project state'i yok — `/projects/...` URL ailesinden bağımsız.
-- Geçici dosyalar `STORAGE_DIR/tools_tmp/<uuid>/` altına yazılır, response
-  döndükten sonra `BackgroundTasks` ile temizlenir.
-- Source format kullanıcı tarafından seçilir (auto-detect kırılgan
-  olabileceği için manuel seçim daha güvenli).
+Exposes the ``/tools`` router. Accepts a single uploaded file (WoS plain text,
+Scopus CSV, plain CSV, TSV, or Excel) and converts it to a chosen target format
+(WoS / VOSviewer TSV / BibTeX / RIS / CSV / XLSX / TSV). The result is written to
+a temporary directory, streamed back in the response, then cleaned up in the
+background. The endpoint is stateless and independent of any project.
 """
 
 from __future__ import annotations

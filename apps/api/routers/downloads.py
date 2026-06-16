@@ -1,4 +1,9 @@
-"""Üretilen dosyalar için genel indirme endpoint'i."""
+"""Generic file download endpoint for generated project artifacts.
+
+Serves files from an allow-listed set of project subfolders (raw, processed,
+merged, exports, snapshots), validating the project and folder and guarding
+against path traversal before returning the file.
+"""
 
 from pathlib import Path
 

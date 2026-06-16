@@ -1,15 +1,10 @@
-"""C1 (adres) ayrıştırma + ülke / üst-kurum standartlaştırma yardımcıları.
+"""Helpers for parsing C1 address fields and standardizing countries and parent institutions.
 
-WoS C1 formatı tipik olarak özelden genele sıralıdır:
-    "[Yazarlar] Departman, Alt-birim, Üniversite, Şehir, Eyalet Posta, Ülke"
-
-Strateji (Harmonization / deterministik-önce):
-  - canonical_country: ülke adı varyantını ISO kanonik İngilizce ada eşler (USA -> United States)
-  - parse_c1_address: tek bir adres bileşeninden üst kurum + ülke çıkarır
-  - split_c1_addresses: çok-yazarlı C1'i ';' ile böler, "[yazar]" parantezini soyar
-  - extract_country_from_c1 / rollup_c1_to_parent: kayıt bazlı toplu yardımcılar
-
-Çözülemeyen / belirsiz durumlar LLM katmanına (Tier 2) bırakılır.
+Key functions:
+  - canonical_country: maps a country-name variant to its canonical English form (e.g. USA -> United States)
+  - parse_c1_address: extracts the parent institution and country from a single address component
+  - split_c1_addresses: splits a multi-author C1 field on ';' and strips the "[author]" prefix
+  - extract_country_from_c1 / rollup_c1_to_parent: record-level batch helpers
 """
 
 from __future__ import annotations

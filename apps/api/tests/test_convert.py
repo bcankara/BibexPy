@@ -1,4 +1,8 @@
-"""Faz 2 conversion testleri — gerçek sample data ile."""
+"""Integration tests for the file conversion API endpoints using real sample data.
+
+Covers CSV-to-XLSX, WoS-to-XLSX, and XLSX-to-WoS round-trip conversions,
+along with error handling for missing input files.
+"""
 
 import io
 import shutil

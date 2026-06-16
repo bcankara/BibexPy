@@ -1,7 +1,8 @@
-"""Belirli bir lokal klasöre kopyalama — self-hosted için.
+"""API routes for copying project export files to a local folder.
 
-Self-hosted tek kullanıcı senaryosunda backend ve kullanıcı aynı makinededir;
-backend'in yazma yetkisi olan herhangi bir klasöre çıktıyı bırakabilir.
+Intended for self-hosted single-user deployments where the backend and user
+share the same machine. Provides endpoints to copy selected export files into
+any backend-writable target folder and to suggest common output locations.
 """
 
 import shutil

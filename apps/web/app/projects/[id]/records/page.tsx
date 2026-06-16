@@ -9,7 +9,6 @@ import { RecordsTable } from "@/components/RecordsTable";
 import { RecordDetailDrawer } from "@/components/RecordDetailDrawer";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
-import { BorderlineReviewPanel } from "@/components/BorderlineReviewPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { ArrowRight, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
 import { useT } from "@/lib/i18n";
@@ -238,10 +237,6 @@ export default function RecordsPage() {
               spec={spec}
               onClear={() => setSpec(EMPTY)}
             />
-
-            {/* Belirsiz çiftler — Smart Merge'de otomatik ayrı tutuldu; isteyen
-                burada elle birleştirir (hiç belirsizlik yoksa görünmez). */}
-            <BorderlineReviewPanel projectId={id} onApplied={() => refresh(0)} />
 
             {data ? (
               <RecordsTable

@@ -1,8 +1,8 @@
-"""Pandas tabanlı filtre motoru — UI'dan gelen filter spec'i datasete uygular.
+"""Pandas-based filter engine that applies a filter spec to the merged dataset.
 
-Plan dosyasındaki şemayı izler:
-    year, doc_type, language, db_source, citation_count, journal, authors,
-    wc_categories, sc_categories, fulltext, quality
+Loads and caches the merged dataset (assigning stable per-row UIDs), applies
+range, set-membership, multi-value, full-text, and data-quality filters, and
+produces facets and paginated, projected result pages for the UI.
 """
 
 from __future__ import annotations

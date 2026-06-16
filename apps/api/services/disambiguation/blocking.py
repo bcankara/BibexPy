@@ -1,7 +1,8 @@
-"""Deterministik aday-grup üretimi (LLM çağrısından önce).
+"""Deterministic candidate-group generation for entity disambiguation.
 
-Yazar blocking: aynı soyadı + ilk harf (ilk ortak token bazlı)
-Affiliation blocking: ilk anlamlı token + benzerlik
+Builds blocked, tiered merge/split candidates before any LLM arbitration:
+author name blocking, author splitting, affiliation and organization
+clustering, and country-name standardization.
 """
 
 from __future__ import annotations

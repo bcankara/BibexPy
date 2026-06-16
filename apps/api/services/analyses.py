@@ -1,25 +1,10 @@
-"""Birleştirme analizleri (analysis runs) yönetimi.
+"""Management of merge analysis runs.
 
-Her birleştirme bağımsız bir analiz klasörü olarak saklanır. Bu sayede:
-- Eski birleştirmeler kaybolmaz
-- Farklı algoritmaların sonuçları yan yana saklanır
-- Aktif analiz değiştirilebilir (Records/Filter/Quality otomatik yansır)
-- Snapshot/rollback işlemleri daha güvenli
-
-Disk yapısı:
-    storage/<project_id>/
-        analyses/
-            active.json                              # {"id": "analysis_20260526_071505_smart"}
-            analysis_20260526_071505_smart/
-                meta.json                            # {id, created_at, method, label, file_count}
-                merged.xlsx                          # ana dataset
-                Statistic.xlsx
-                match_audit.xlsx                     # smart only
-                conflict_log.xlsx                    # smart only
-                borderline_queue.xlsx                # smart only
-                borderline_state.json                # smart only
-                Lost_Wos.xlsx
-                Lost_Scopus.xlsx
+Each merge is stored as a self-contained analysis folder, so previous runs
+are preserved, results from different algorithms coexist, the active analysis
+can be switched, and snapshot/rollback operations stay safe. Provides path
+helpers and CRUD operations over the per-project analyses directory, tracking
+the currently active analysis via an active.json pointer.
 """
 
 from __future__ import annotations

@@ -1,8 +1,9 @@
-"""Sistem dizini tarama — Settings'deki path picker için.
+"""Filesystem browsing endpoints for the Settings directory picker.
 
-Backend ve frontend aynı makinede çalıştığı için, kullanıcı backend'in
-gördüğü dizin ağacında gezinebilir. Path traversal kontrolü yok çünkü
-self-hosted ve kullanıcı kendi dosya sistemine erişiyor.
+Provides a FastAPI router that lets the frontend navigate the backend host's
+directory tree: listing drives and subfolders, resolving folder names to full
+paths, and exposing quick-access shortcuts. Designed for self-hosted use where
+backend and frontend share the same machine.
 """
 
 from __future__ import annotations

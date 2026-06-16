@@ -1,15 +1,8 @@
-"""Disk tabanlı basit proje deposu.
+"""Disk-based project storage.
 
-Yapı:
-    storage/
-        <project_id>/
-            meta.json
-            raw/          # yüklenen ham dosyalar
-            processed/    # CSV/TXT -> XLSX dönüşüm çıktıları
-            merged/       # birleştirme sonuçları
-            exports/      # WoS/BibTeX/RIS/... çıktıları
-            jobs.sqlite   # arka plan iş tablosu (Faz 3'te)
-            snapshots/    # disambiguation öncesi anlık görüntüler (Faz 7)
+Manages the on-disk layout for each project (raw uploads, processed
+conversions, merge results, exports, and snapshots) and provides CRUD
+helpers for project metadata persisted as meta.json.
 """
 
 from __future__ import annotations

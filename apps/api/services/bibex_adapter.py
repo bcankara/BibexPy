@@ -1,10 +1,8 @@
-"""Çekirdek bibex_core modüllerini web katmanından temiz çağırmak için sarmalayıcı.
+"""Adapter for invoking the core processing modules from the web layer.
 
-- CLI'a özgü print/input çağrılarını yutmaz; sadece stdout/stderr'i bastırır
-- DataFrame'leri JSON-friendly hale getirir
-- Hataları HTTPException olarak fırlatır
-
-Faz 1'de sadece yapı kuruluyor; gerçek çağrılar Faz 2-6'da eklenecek.
+Provides helpers to suppress library stdout/stderr, convert pandas
+DataFrames into JSON-serializable records, and raise errors as
+FastAPI HTTPExceptions.
 """
 
 from __future__ import annotations

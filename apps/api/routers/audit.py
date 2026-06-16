@@ -1,4 +1,9 @@
-"""Audit log endpoint'leri."""
+"""API endpoints for project audit logs.
+
+Provides routes to list, summarize, append, and clear audit entries for a
+project, plus a Markdown report export. Entries are scoped to the project's
+currently active analysis.
+"""
 
 from __future__ import annotations
 

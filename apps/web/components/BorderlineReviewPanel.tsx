@@ -5,7 +5,7 @@ import { Card, CardBody, CardHeader } from "./Card";
 import { Button } from "./Button";
 import {
   AlertTriangle, Check, X, SkipForward, CheckSquare, RefreshCw, Loader2,
-  Sparkles, ExternalLink, ShieldCheck, ChevronDown, ChevronRight, ListChecks,
+  Sparkles, ExternalLink, ListChecks,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { useConfirm, useToast } from "./Dialogs";
@@ -32,8 +32,10 @@ export function BorderlineReviewPanel({
   const [error, setError] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.88);
   const [statusFilter, setStatusFilter] = useState<"pending" | "all">("pending");
-  // #2: panel varsayılan KAPALI — ana kayıt listesi önde kalsın; isteyen açıp inceler.
-  const [open, setOpen] = useState(false);
+  // Smart Merge adımında "kapı" (gate): önce uyarı + Evet/Hayır. "Evet" → inceleme
+  // açılır; "Hayır" → gizlenir (belirsiz çiftler ayrı kalır, merge olduğu gibi tamamlanır).
+  const [reviewing, setReviewing] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -131,43 +133,71 @@ export function BorderlineReviewPanel({
     }
   }
 
-  // Records (filtre) sayfasına gömülü — yüklenirken veya hiç belirsiz çift
-  // yoksa sessizce gizlenir; kullanıcıyı meşgul etmez.
+  // Yüklenirken / hiç bekleyen belirsiz çift yokken / "Hayır" denmişken gizli kalır —
+  // Smart Merge zaten tamamlandı; kapı yalnızca gerçekten belirsizlik varsa görünür.
   if (loading) return null;
-  if (items.length === 0) return null;
+  if (counts.pending === 0) return null;
+  if (dismissed) return null;
 
+  // ── KAPI (gate): önce sor — "manuel kontrol etmek ister misiniz?" ──
+  if (!reviewing) {
+    return (
+      <Card className="ring-1 ring-warning/30">
+        <CardBody className="p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-warning-soft text-warning">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-sm text-ink">{t("borderline.gateTitle")}</h3>
+              <p className="mt-1 text-sm text-muted leading-relaxed">
+                {t("borderline.gatePrompt", { pending: counts.pending })}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => setReviewing(true)}
+                  className="bg-warning hover:bg-warning/90 text-white"
+                >
+                  <ListChecks className="h-3.5 w-3.5" /> {t("borderline.gateYes")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => { setDismissed(true); toast(t("borderline.gateDismissedToast"), { tone: "success" }); }}
+                >
+                  <Check className="h-3.5 w-3.5" /> {t("borderline.gateNo")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  // ── İNCELEME: "Evet" → çiftleri sor; "Kaydet ve tamamla" ile uygula ──
   return (
-    <Card>
+    <Card className="ring-1 ring-warning/30">
       <CardHeader>
-        {/* #2: başlık tıklanınca aç/kapa — varsayılan kapalı, sayaç rozetiyle */}
+        <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
+        <span className="font-semibold text-sm flex-1 truncate">{t("borderline.title")}</span>
         <button
-          onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-2 flex-1 text-left min-w-0"
-          aria-expanded={open}
+          onClick={refresh}
+          className="text-xs text-white/70 hover:text-white flex items-center gap-1 flex-shrink-0"
+          title={t("borderline.refresh")}
         >
-          {open ? <ChevronDown className="h-4 w-4 text-white/70 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-white/70 flex-shrink-0" />}
-          <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
-          <span className="font-semibold text-sm truncate">{t("borderline.title")}</span>
-          {counts.pending > 0 && (
-            <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-warning-soft text-amber-700">
-              {counts.pending}
-            </span>
-          )}
+          <RefreshCw className="h-3 w-3" /> {t("borderline.refresh")}
         </button>
-        {open ? (
-          <button
-            onClick={refresh}
-            className="text-xs text-white/70 hover:text-white flex items-center gap-1 flex-shrink-0"
-            title={t("borderline.refresh")}
-          >
-            <RefreshCw className="h-3 w-3" /> {t("borderline.refresh")}
-          </button>
-        ) : (
-          <span className="text-xs text-white/70 flex-shrink-0">{t("borderline.reviewToggle")}</span>
-        )}
+        <button
+          onClick={() => setReviewing(false)}
+          className="text-xs text-white/70 hover:text-white flex-shrink-0"
+        >
+          {t("borderline.gateBack")}
+        </button>
       </CardHeader>
-      {open && (
       <CardBody className="space-y-3">
+        <p className="text-xs text-muted leading-relaxed">{t("borderline.description")}</p>
         {error && (
           <div className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-red-700">
             {error}
@@ -246,7 +276,7 @@ export function BorderlineReviewPanel({
               className="ml-auto bg-success hover:bg-success/90"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-              {t("borderline.applySelection")} ({counts.decided})
+              {t("borderline.saveAndComplete")} ({counts.decided})
             </Button>
           </div>
         </div>
@@ -270,7 +300,6 @@ export function BorderlineReviewPanel({
           ))}
         </div>
       </CardBody>
-      )}
     </Card>
   );
 }

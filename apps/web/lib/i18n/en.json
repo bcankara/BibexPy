@@ -588,7 +588,7 @@
       "conflicts": "conflicts",
       "borderlinePending": "borderline pending",
       "borderlineTotal": "borderline total",
-      "borderlineNote": "{pending} uncertain pairs kept separate (total {total}). You can review them in the \"Uncertain Pairs\" panel of the Filter step.",
+      "borderlineNote": "{pending} uncertain pairs kept separate (total {total}). You can review them from the \"Uncertain Pairs\" prompt in this Smart Merge step.",
       "openAudit": "Open history panel",
       "detailedReport": "Detailed report",
       "detailedReportNote": "All match decisions, the stage and confidence each was made at, conflict resolutions and borderline pairs are written to the audit log. Keep for academic reproducibility."
@@ -645,6 +645,13 @@
   "borderline": {
     "title": "Uncertain Pairs — Review (optional)",
     "description": "Smart Merge could not match these pairs with certainty (JW 0.80–0.92) and kept them SEPARATE automatically. You can merge the ones that are the same publication here.",
+    "gateTitle": "Manual review may be needed",
+    "gatePrompt": "Smart Merge could not decide with certainty whether {pending} pairs are the same publication and kept them SEPARATE automatically. Do you want to manually review these uncertain pairs before completing the merge?",
+    "gateYes": "Yes, review",
+    "gateNo": "No, complete merge",
+    "gateBack": "← Back",
+    "gateDismissedToast": "Merge complete — uncertain pairs kept separate.",
+    "saveAndComplete": "Save & complete",
     "loading": "Loading borderline queue…",
     "refresh": "Refresh",
     "filterPending": "Pending",

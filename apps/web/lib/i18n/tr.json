@@ -588,7 +588,7 @@
       "conflicts": "çakışma",
       "borderlinePending": "bekleyen borderline",
       "borderlineTotal": "toplam borderline",
-      "borderlineNote": "{pending} belirsiz çift ayrı tutuldu (toplam {total}). İstersen Filtre adımındaki \"Belirsiz Çiftler\" panelinden inceleyebilirsin.",
+      "borderlineNote": "{pending} belirsiz çift ayrı tutuldu (toplam {total}). İstersen bu adımdaki \"Belirsiz Çiftler\" uyarısından inceleyebilirsin.",
       "openAudit": "Geçmiş panelini aç",
       "detailedReport": "Detaylı Rapor",
       "detailedReportNote": "Yapılan tüm eşleştirme kararları, hangi aşamada hangi güven ile alındığı, çakışma çözümleri ve borderline'a yollanan çiftler tam olarak audit log'a yazılır. Akademik tekrarlanabilirlik için saklayabilirsiniz."
@@ -645,6 +645,13 @@
   "borderline": {
     "title": "Belirsiz Çiftler — İncele (opsiyonel)",
     "description": "Smart Merge bu çiftleri kesin eşleştiremedi (JW 0.80–0.92) ve otomatik olarak AYRI tuttu. İstersen aynı yayın olanları burada birleştirebilirsin.",
+    "gateTitle": "Manuel kontrol gerekebilir",
+    "gatePrompt": "Smart Merge {pending} çiftin aynı yayın olup olmadığına kesin karar veremedi ve bunları otomatik olarak AYRI tuttu. Birleştirmeyi tamamlamadan önce bu belirsiz çiftleri manuel kontrol etmek ister misiniz?",
+    "gateYes": "Evet, kontrol et",
+    "gateNo": "Hayır, birleştirmeyi tamamla",
+    "gateBack": "← Geri",
+    "gateDismissedToast": "Birleştirme tamamlandı — belirsiz çiftler ayrı tutuldu.",
+    "saveAndComplete": "Kaydet ve tamamla",
     "loading": "Borderline kuyruğu yükleniyor…",
     "refresh": "Yenile",
     "filterPending": "Bekleyen",

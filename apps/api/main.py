@@ -1,14 +1,8 @@
-"""BibexPy v2 — FastAPI uygulama girişi.
+"""BibexPy FastAPI application entry point.
 
-Geliştirme:
-  cd apps/api && python -m uvicorn main:app --reload --port 8001
-  cd apps/web && npm run dev                                       # ayrı terminal
-
-Backend tüm router'ları `/api/` prefix altında mount eder; bu, ileride
-frontend ile aynı host'tan serve edilse bile URL çakışmasını önler.
-
-`_frontend_root()` — opsiyonel statik UI mount (varsa). Geliştirmede
-genelde frontend ayrı çalıştığı için `None` döner ve devre dışı kalır.
+Builds the FastAPI app, configures CORS, and mounts all API routers under
+the ``/api`` prefix. Optionally serves the static frontend export when one
+is present, otherwise runs in API-only mode.
 """
 
 from __future__ import annotations

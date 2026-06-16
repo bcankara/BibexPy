@@ -1,4 +1,9 @@
-"""Faz 4-5 testleri — gerçek sample data ile filter + export pipeline."""
+"""Integration tests for the filter and export pipeline using real sample data.
+
+Exercises filtering (year, full-text, presets), multi-format export, quality
+overview downloads, merge summaries, auto-prepare on merge, and per-analysis
+audit scoping against the live API.
+"""
 
 import sys
 from pathlib import Path

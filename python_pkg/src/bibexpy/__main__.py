@@ -1,4 +1,4 @@
-"""`python -m bibexpy` desteği — cli.main()'e yönlendirir."""
+"""Package entry point for ``python -m bibexpy``; delegates to the CLI ``main()``."""
 
 from bibexpy.cli import main
 

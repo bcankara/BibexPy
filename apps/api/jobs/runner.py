@@ -1,8 +1,9 @@
-"""Basit, tek-kullanıcılı job runner.
+"""Simple, single-user job runner.
 
-- Tek aktif iş + sıralı kuyruk (self-hosted için yeterli)
-- Bellekte log + progress; opsiyonel olarak proje klasörüne persist
-- SSE üzerinden canlı stream
+Runs background jobs as asyncio tasks with in-memory state, log, and progress
+tracking, streamed live to clients over SSE. Provides per-project exclusivity to
+prevent overlapping heavy jobs and a dedicated thread pool for cancellable
+CPU-bound work so the rest of the app stays responsive.
 """
 
 from __future__ import annotations

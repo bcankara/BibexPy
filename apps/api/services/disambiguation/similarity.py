@@ -1,4 +1,11 @@
-"""İsim/affiliation benzerlik fonksiyonları — saf Python, dış kütüphane yok."""
+"""String similarity helpers for author name disambiguation.
+
+Pure-Python utilities with no external dependencies:
+- normalize_name: ASCII-fold and lowercase a name into a single-spaced form.
+- jaro / jaro_winkler: compute string similarity scores in the range [0, 1].
+- name_initials: split a bibliographic author name (surname first) into
+  surname and initials.
+"""
 
 from __future__ import annotations
 

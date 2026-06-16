@@ -1,8 +1,8 @@
-"""bibex_core — Çekirdek bibliometrik veri işleme modülleri.
+"""bibex_core — Core bibliometric data-processing modules.
 
-Bu paket, orijinal BibexPy/Main klasöründeki modüllerin web v2 için yeniden
-ambalajlanmış halidir. Fonksiyon imzaları korunur; sadece import yolları
-düzeltilir.
+Bundles the converters and database tools used by the web app:
+Scopus and Web of Science file conversion to spreadsheets, spreadsheet
+export for visualization, and bibliographic database merging.
 """
 
 from . import scp2xlsx

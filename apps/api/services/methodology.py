@@ -1,8 +1,9 @@
-"""LLM ile metodoloji raporu üretimi.
+"""LLM-based methodology report generation.
 
-Operasyon günlüğü (audit log) bir LLM'e gönderilir; LLM, bibliometrik bir
-makalenin "Veri Hazırlama / Metodoloji" alt bölümüne yazılabilecek İngilizce
-bir anlatı döndürür. Sonuç projede saklanır ve MD/TXT/PDF olarak indirilebilir.
+Sends a project's operation audit log to an LLM, which returns an English
+narrative suitable for the data-preparation / methodology section of a
+bibliometric paper. The result is persisted with the project and can be
+exported as MD, TXT, or PDF.
 """
 
 from __future__ import annotations

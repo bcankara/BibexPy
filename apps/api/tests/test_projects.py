@@ -1,4 +1,8 @@
-"""Faz 1 smoke testleri: project CRUD + upload."""
+"""Smoke tests for the project API: CRUD operations and file upload.
+
+Covers the health check endpoint, the project create/list/get/delete
+lifecycle, and uploading, listing, and deleting project files.
+"""
 
 import io
 import sys

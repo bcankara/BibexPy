@@ -1,4 +1,8 @@
-"""DeepSeek API minimum istemcisi (OpenAI uyumlu chat completions)."""
+"""Minimal DeepSeek API client using OpenAI-compatible chat completions.
+
+Provides a thin wrapper around the chat completions endpoint with helpers for
+JSON-mode responses, free-form text responses, and async variants.
+"""
 
 from __future__ import annotations
 

@@ -1,19 +1,10 @@
-"""BibexPy v2 — komut satırı başlatıcı.
+"""Command-line launcher for BibexPy, the entry point for the ``bibexpy`` command.
 
-`pip install bibexpy` sonrası `bibexpy` komutu bu modülü çağırır:
-
-    bibexpy                      # ~/.bibexpy/storage, tarayıcı otomatik açılır, port 8001
-    bibexpy --port 8080          # özel port
-    bibexpy --no-browser         # sadece sunucu, tarayıcı açma
-    bibexpy --storage ./data     # bu çalıştırma için özel depolama klasörü
-    bibexpy --version            # sürüm
-
-Mimari:
-  • _web/    — Next.js static export (BIBEXPY_FRONTEND_DIST ile main.py'ye verilir)
-  • _server/ — FastAPI uygulaması; sys.path'e eklenince flat import'lar çözülür
-  • bibex_core — wheel'da ikinci top-level paket olarak kurulu
-
-Node.js / npm GEREKMEZ — UI önceden derlenmiş statik dosyalardır.
+Resolves configuration and storage directories, sets the environment variables the
+embedded FastAPI server reads, picks a free port, and starts the server with uvicorn.
+Bundles the pre-built static frontend (``_web/``) and server (``_server/``) so no
+Node.js or build step is required at runtime. Also handles optional browser launch and
+Windows PATH setup for the installed command.
 """
 
 from __future__ import annotations

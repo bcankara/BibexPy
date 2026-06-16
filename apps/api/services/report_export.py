@@ -1,11 +1,9 @@
-"""Rapor dışa aktarma yardımcıları.
+"""Report export helpers.
 
-İki tür çıktı:
-  • Ham operasyon günlüğü (audit log) → Markdown / düz metin / PDF
-  • LLM metodoloji raporu (İngilizce prose) → Markdown / düz metin / PDF
-
-PDF üretimi reportlab ile yapılır (saf Python, sistem bağımlılığı yok).
-Emoji ve markdown sembolleri PDF/TXT'de temizlenir; .md zaten zengin kalır.
+Produces two kinds of output, each available as Markdown, plain text, or PDF:
+the raw operation audit log and the LLM-generated methodology report. PDFs are
+rendered with reportlab; emoji and markdown symbols are stripped for the PDF
+and plain-text variants while Markdown output stays fully formatted.
 """
 
 from __future__ import annotations

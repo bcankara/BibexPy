@@ -1,6 +1,8 @@
-"""Kayıt seviyesinde işlemler — toplu silme, seçilenleri zenginleştirme.
+"""API router for record-level operations on a project's merged dataset.
 
-Her destrüktif işlem önce snapshot alır ve audit log'a yazılır.
+Provides endpoints to bulk-delete records, edit a single record, and list or
+restore dataset snapshots. Every destructive operation takes a snapshot first
+and writes an entry to the audit log.
 """
 
 from __future__ import annotations

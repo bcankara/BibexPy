@@ -1,11 +1,11 @@
-"""API enrichment sarmal — bibex_core'u kullanır.
+"""API-based field enrichment for the active dataset.
 
-Tek giriş noktası `run_fill_all`: aktif dataset'i bir kez okur, her DOI için API'yi
-TEK SEFER çağırıp dönen tüm boş alanları doldurur (fetch-once-fill-all) ve AKTİF
-dataset'e geri yazar. Böylece DOI başına ~7 yerine 1 API çağrısı yapılır ve sonuç
-dashboard'ın okuduğu aktif dataset'e yansır. ML geçişi YOKTUR — yalnız API ile doldurma.
+The entry point `run_fill_all` reads the active dataset once and, for each DOI,
+makes a single API call to fill all missing fields (fetch-once-fill-all), then
+writes the result back to the active dataset. This keeps API calls to one per
+DOI and surfaces the result in the dataset the dashboard reads.
 
-Tüm işler uzun sürer — job runner üzerinden çağrılır.
+These operations are long-running and are invoked through the job runner.
 """
 
 from __future__ import annotations

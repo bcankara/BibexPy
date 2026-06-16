@@ -1,9 +1,9 @@
-"""Birleştirme operasyonları sarmalı.
+"""Merge operations wrapper.
 
-v2'de her birleştirme bağımsız bir analiz klasörü olarak saklanır
-(`storage/<id>/analyses/analysis_<ts>_<method>/`). Bu modül kaynakları yükler ve
-smart_merger pipeline'ına yönlendirir; pipeline kendi analiz klasörünü açıp
-finalize eder.
+Each merge is stored as an independent analysis folder. This module loads the
+source datasets, handles the single-source passthrough case (no deduplication),
+and dispatches two-source merges to the smart_merger pipeline, which opens and
+finalizes its own analysis folder.
 """
 
 from __future__ import annotations
