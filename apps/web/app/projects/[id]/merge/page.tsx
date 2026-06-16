@@ -7,7 +7,7 @@ import { JobProgress } from "@/components/JobProgress";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Download, FileText, FileSpreadsheet, AlertTriangle, CheckCircle2,
-  Clock, Layers, Brain, Check, X, BookOpen, Cpu,
+  Clock, Layers, Brain, Check, X, BookOpen, Cpu, Loader2,
 } from "lucide-react";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
 import { ActiveAnalysisHero } from "@/components/ActiveAnalysisHero";
@@ -36,6 +36,9 @@ export default function MergePage() {
   const [showInfo, setShowInfo] = useState(false);
   /** "Yeni analiz" tıklandı → mevcut merge kompakt "old"a çekilir, UploadSection öne gelir */
   const [newAnalysisMode, setNewAnalysisMode] = useState(false);
+  /** İlk veri çekimi sürerken true — summary null "merge yok" değil "henüz bilinmiyor"
+   * demektir; bu olmadan boş upload ekranı yanıp sonra aktif merge'e atlardı. */
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -50,6 +53,8 @@ export default function MergePage() {
       setFiles(f);
     } catch (e) {
       setError(translateApiError(t, e));
+    } finally {
+      setInitialLoading(false);
     }
   }, [id]);
 
@@ -136,6 +141,15 @@ export default function MergePage() {
             onComplete={handleJobComplete}
             onClose={() => setJobId(null)}
           />
+        )}
+
+        {/* İlk veri çekimi sürerken loader — summary daha gelmeden boş upload
+            ekranını gösterip sonra aktif merge'e atlama (flash) sorununu önler. */}
+        {initialLoading && !jobId && (
+          <div className="rounded-xl border border-border bg-bg-card shadow-card px-6 py-16 flex flex-col items-center justify-center gap-3 text-muted">
+            <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
+            <span className="text-sm">{t("common.loading")}</span>
+          </div>
         )}
 
         {/* ── YÜKLEME ÖNDE: bayat (yeni ham dosya) VEYA "Yeni analiz" tıklandı →
@@ -232,8 +246,9 @@ export default function MergePage() {
           isActive={currentMethod === "smart"}
         />
 
-        {/* ── İlk merge YOK → yükle + Smart Merge (birleşik "Veri & Birleştirme" akışı) ── */}
-        {!hasMerge && !jobId && (
+        {/* ── İlk merge YOK → yükle + Smart Merge (birleşik "Veri & Birleştirme" akışı) ──
+            initialLoading bitene kadar gösterme: aksi halde "merge yok" sanıp boş ekran çıkar. */}
+        {!hasMerge && !jobId && !initialLoading && (
           <div id="add-data">
             <UploadSection
               projectId={id}
