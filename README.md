@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://bibexpy.com">
-    <img src="apps/web/public/images/bibexpy-logo-full.png" alt="BibexPy — V2.0.0 Helium — Bibliometrics Experience with Python" width="420">
+    <img src="apps/web/public/images/bibexpy-logo-full.png" alt="BibexPy — v2 Helium — Bibliometrics Experience with Python" width="420">
   </a>
 </p>
 
@@ -25,7 +25,7 @@
 
 ---
 
-**BibexPy v2.0.0 “Helium”** — the successor to v1.1.0 “Hydrogen” — turns the original
+**BibexPy v2 (“Helium”)** — the successor to v1 (“Hydrogen”) — turns the original
 command-line BibexPy into a **local web platform**, shipped as a single pip-installable
 package. It merges, filters, harmonizes, enriches and exports Web of Science + Scopus
 records with full provenance, and **never sends your licensed exports off your machine**.
@@ -34,10 +34,14 @@ records with full provenance, and **never sends your licensed exports off your m
   <img src=".github/assets/bibexpy-home.png" alt="BibexPy v2 home screen" width="780">
 </p>
 
-> **Just need to merge in Google Colab?** [**BibexPy-Lite**](https://github.com/bcankara/BibexPy-Lite)
-> is a lightweight, no-install companion that runs the same Smart Merge algorithm
-> (WoS + Scopus deduplication) in a notebook or terminal — no web UI, no enrichment.
-> [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb)
+### Two ways to use BibexPy
+
+| | What it is | Best for |
+|---|---|---|
+| **Full app** (this repo) | `pip install bibexpy` → a local web platform: merge → filter → harmonize → enrich → export → report. | The complete, reproducible workflow on your own machine. |
+| **[BibexPy-Lite](https://github.com/bcankara/BibexPy-Lite)** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb) | A lightweight notebook/terminal tool that runs the **same Smart Merge algorithm** — no web UI, no enrichment. | A quick WoS + Scopus **merge** in Google Colab or a terminal. |
+
+Both share one merge algorithm, so results are identical.
 
 ## Install
 
@@ -64,7 +68,7 @@ inside the wheel). Works on Windows, macOS and Linux.
 python -m bibexpy --port 8080        # custom port
 python -m bibexpy --no-browser       # server only
 python -m bibexpy --storage ./data   # custom storage folder
-python -m bibexpy --version          # → BibexPy 2.0.2 (Helium)
+python -m bibexpy --version          # → BibexPy 2.0.x (Helium)
 ```
 
 (The short `bibexpy` command accepts exactly the same options.)
@@ -99,9 +103,11 @@ On macOS/Linux the `bibexpy` command is normally on PATH right after `pip instal
 - **Built-in sample dataset** — the first launch creates a ready-to-explore **Simple
   Project** (real Web of Science + Scopus exports), so you can try the whole pipeline
   before uploading your own data.
-- **One-click Smart Merge** — multi-stage probabilistic record linkage: exact DOI/identifier
-  matching + Jaro–Winkler title similarity, confidence scoring, and an optional
-  borderline-review queue. The result includes a copy-ready methodology paragraph.
+- **One-click Smart Merge** — staged record linkage with a **DOI-determinative** rule
+  (records whose normalized DOIs differ are never merged), identifier matching, and
+  Jaro–Winkler title similarity with confidence scoring, plus field-level merging. Pairs
+  it cannot resolve with certainty are kept separate and offered for an optional review
+  right in the merge step. The result includes a copy-ready methodology paragraph.
 - **ORCID-first author disambiguation** — ORCID identifiers as deterministic evidence, with a
   constrained field-similarity fallback only when coverage is incomplete.
 - **Address harmonization** — organization roll-up to a canonical parent institution +
@@ -169,8 +175,8 @@ bash scripts/build_wheel.sh      # macOS / Linux
 pwsh scripts/build_wheel.ps1     # Windows
 ```
 
-→ `python_pkg/dist/bibexpy-2.0.2-py3-none-any.whl` — a pure-python `py3-none-any` wheel that
-installs on Windows / macOS / Linux with no compiler.
+→ `python_pkg/dist/bibexpy-<version>-py3-none-any.whl` — a pure-python `py3-none-any` wheel
+that installs on Windows / macOS / Linux with no compiler.
 
 ## Release
 
@@ -185,6 +191,7 @@ git tag v2.0.0 && git push origin v2.0.0
 
 [Website](https://bibexpy.com) ·
 [Docs](https://bibexpy.com/doc) ·
+[BibexPy-Lite (Colab)](https://github.com/bcankara/BibexPy-Lite) ·
 [YouTube](https://www.youtube.com/@BibexPy) ·
 [X / Twitter](https://twitter.com/BibexPy) ·
 [Instagram](https://www.instagram.com/bibexpy/) ·
