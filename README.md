@@ -43,6 +43,15 @@ records with full provenance, and **never sends your licensed exports off your m
 
 Both share one merge algorithm, so results are identical.
 
+<p align="center">
+  <a href="https://github.com/bcankara/BibexPy-Lite">
+    <img src=".github/assets/bibexpy-lite-header.png" alt="BibexPy-Lite — lightweight Smart Merge for Web of Science + Scopus, in Colab or a terminal" width="680">
+  </a>
+  <br>
+  <a href="https://github.com/bcankara/BibexPy-Lite"><b>BibexPy-Lite repository</b></a> ·
+  <a href="https://colab.research.google.com/github/bcankara/BibexPy-Lite/blob/main/BibexPy_Lite.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open BibexPy-Lite in Colab"></a>
+</p>
+
 ## Install
 
 ```bash
