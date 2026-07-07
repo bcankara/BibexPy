@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config import settings
+from config import reload_settings, settings
 
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -274,8 +274,8 @@ def get_settings():
         fields=fields,
         env_file=str(_env_path()),
         notes=[
-            "Ayarlar .env dosyasına yazılır.",
-            "Backend'in yeniden başlatılması bazı değişikliklerin uygulanması için gerekebilir.",
+            "Ayarlar .env dosyasına yazılır ve kaydedilince anında uygulanır (API anahtarları dahil).",
+            "Yalnızca Depolama Klasörü (STORAGE_DIR) değişikliği yeniden başlatma gerektirir.",
             "API anahtarları maskelenmiş gösterilir; aynı değer kalsın istiyorsanız alanı dokunmayın.",
         ],
         llm_providers=providers,
@@ -366,9 +366,12 @@ def update_settings(payload: UpdatePayload):
         meta = EDITABLE_KEYS[key]
         if val is None:
             continue
-        # Mask karakterlerinden oluşan değeri "değişmedi" olarak yorumla
+        # Maskeli değeri "değişmedi" olarak yorumla. _mask_secret son 4 karakteri
+        # açık bırakır ("•••••1234") — yalnız tamamı-bullet kontrolü bunu kaçırıp
+        # gerçek anahtarı maske diziyle EZİYORDU. Gerçek anahtarlarda "•" olamaz;
+        # içinde bullet geçen her değer maske round-trip'idir → atla.
         if isinstance(val, str) and meta.get("secret"):
-            if val.strip() == "" or set(val.strip()) <= {"•"}:
+            if val.strip() == "" or "•" in val:
                 continue  # değiştirme
         # Bool → "true/false"
         if meta.get("type") == "bool":
@@ -382,4 +385,9 @@ def update_settings(payload: UpdatePayload):
             clean[key] = str(val).strip()
 
     _write_env(clean)
+    # Çalışan sürecin ayarlarını anında tazele — API anahtarları vb. yeniden
+    # başlatma olmadan etkinleşsin. (Önceden yalnız .env'e yazılıyordu; modül
+    # yüklenirken okunan `settings` objesi eski kaldığından anahtarlar
+    # "kaydedildi ama çalışmıyor" görünüyordu.)
+    reload_settings()
     return get_settings()

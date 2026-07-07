@@ -259,6 +259,13 @@ export const api = {
     http<FilterResponse>(`/projects/${id}/filter`, {
       method: "POST", body: JSON.stringify(body), signal,
     }),
+  // Filtreyi veri setine KALICI uygula — eşleşmeyenler çıkarılır (snapshot alınır),
+  // sonraki adımlar (Harmonizasyon/Export) filtrelenmiş veriyle çalışır.
+  applyFilter: (id: string, spec: FilterSpec) =>
+    http<{ applied: boolean; kept: number; removed: number; total_before: number; snapshot: string | null }>(
+      `/projects/${id}/filter/apply`,
+      { method: "POST", body: JSON.stringify({ spec }) },
+    ),
   listPresets: (id: string) => http<Preset[]>(`/projects/${id}/filter/presets`),
   savePreset: (id: string, name: string, spec: FilterSpec) =>
     http<{ ok: boolean }>(`/projects/${id}/filter/presets`, {

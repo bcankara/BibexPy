@@ -56,6 +56,64 @@ def filter_records(project_id: str, payload: FilterRequest):
     return result
 
 
+class ApplyFilterRequest(BaseModel):
+    spec: FilterSpec = Field(default_factory=FilterSpec)
+
+
+@router.post("/apply")
+def apply_filter_permanently(project_id: str, payload: ApplyFilterRequest):
+    """Aktif filtreyi veri setine KALICI uygula: eşleşmeyen satırlar çıkarılır.
+
+    Böylece sonraki adımlar (Harmonizasyon, Export) filtrelenmiş veriyle
+    çalışır — filtre yalnızca görünüm olarak kalmaz. Önce snapshot alınır;
+    Geçmiş'ten geri yüklenebilir.
+    """
+    if storage.get_project(project_id) is None:
+        raise HTTPException(404, "project_not_found")
+    try:
+        df = filter_engine.load_merged(project_id)
+    except FileNotFoundError as e:
+        raise HTTPException(409, str(e))
+
+    spec_dict = {k: v for k, v in payload.spec.model_dump().items() if v is not None}
+    if not spec_dict:
+        raise HTTPException(400, "no_active_filters")
+
+    filtered = filter_engine.apply_filter(df, spec_dict)
+    total_before = int(len(df))
+    kept = int(len(filtered))
+    removed = total_before - kept
+    if removed == 0:
+        return {"applied": False, "kept": kept, "removed": 0,
+                "total_before": total_before, "snapshot": None}
+    if kept == 0:
+        raise HTTPException(400, "filter_matches_no_records")
+
+    # Snapshot + kalıcı yaz (records router'daki desenle aynı)
+    from routers.records import _save_dataset, _snapshot_dataset
+    snapshot = _snapshot_dataset(project_id, df, "filter_apply")
+    saved_path = _save_dataset(project_id, filtered.reset_index(drop=True))
+
+    audit.write(
+        project_id,
+        kind="filter_apply",
+        title=f"Filtre veri setine uygulandı: {kept} kayıt kaldı, {removed} çıkarıldı",
+        title_key="audit.titles.filterApplied",
+        title_params={"kept": kept, "removed": removed},
+        details={
+            "before": total_before, "after": kept, "removed": removed,
+            "filter_keys": list(spec_dict.keys()), "spec": spec_dict,
+            "saved_path": saved_path,
+        },
+        before={"total": total_before},
+        after={"total": kept},
+        snapshot=snapshot,
+        user_action="filter_apply",
+    )
+    return {"applied": True, "kept": kept, "removed": removed,
+            "total_before": total_before, "snapshot": snapshot}
+
+
 # --- Preset CRUD ---
 
 from pathlib import Path

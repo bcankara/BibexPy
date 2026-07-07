@@ -10,7 +10,7 @@ import { RecordDetailDrawer } from "@/components/RecordDetailDrawer";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
 import { PageHeader } from "@/components/PageHeader";
-import { ArrowRight, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
+import { ArrowRight, Check, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { useConfirm } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
@@ -121,6 +121,29 @@ export default function RecordsPage() {
   function loadPreset(p: Preset) {
     setSpec(p.spec);
     setActivePreset(p.name);
+  }
+
+  /** Filtreyi veri setine KALICI uygula — eşleşmeyen kayıtlar çıkarılır (snapshot
+   * alınır, Geçmiş'ten geri yüklenebilir). Böylece Harmonizasyon/Export filtreli
+   * veriyle çalışır; filtre yalnızca geçici bir görünüm olarak kalmaz. */
+  async function applyFilterToDataset() {
+    if (!data || activeCount === 0) return;
+    const totalAll = data.facets_all?.total ?? data.total;
+    const removed = totalAll - data.total;
+    if (removed <= 0) return;
+    const ok = await confirm({
+      message: t("records.filter.applyConfirm", { kept: data.total, removed }),
+      detail: t("records.filter.applyDetail"),
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await api.applyFilter(id, spec);
+      setSpec(EMPTY);          // filtre artık veri setinin kendisi — spec sıfırlanır
+      setActivePreset(null);   // (spec değişimi effect üzerinden listeyi tazeler)
+    } catch (e) {
+      setError(translateApiError(t, e, "records.queryFailed"));
+    }
   }
 
   async function handleDeleteRow(row: Record<string, string | null>) {
@@ -236,6 +259,7 @@ export default function RecordsPage() {
               loading={loading}
               spec={spec}
               onClear={() => setSpec(EMPTY)}
+              onApply={applyFilterToDataset}
             />
 
             {data ? (
@@ -288,12 +312,13 @@ export default function RecordsPage() {
   );
 }
 
-function StatsBar({ data, activeCount, loading, spec, onClear }: {
+function StatsBar({ data, activeCount, loading, spec, onClear, onApply }: {
   data: FilterResponse | null;
   activeCount: number;
   loading: boolean;
   spec: FilterSpec;
   onClear: () => void;
+  onApply: () => void;
 }) {
   const t = useT();
   if (!data) return null;
@@ -322,6 +347,17 @@ function StatsBar({ data, activeCount, loading, spec, onClear }: {
       {activeCount > 0 && (
         <>
           <ActiveFilterChips spec={spec} />
+          {/* Filtreyi kalıcılaştır — sonraki adımlar (Harmonizasyon/Export) bu
+              alt-kümeyle çalışsın. Filtre her şeyi kapsıyorsa gizli (no-op olurdu). */}
+          {data.total < totalAll && (
+            <button
+              onClick={onApply}
+              className="text-xs font-semibold px-2 py-1 rounded-md border border-success/40 bg-success-soft text-emerald-700 hover:bg-success-soft/70 flex items-center gap-1"
+              title={t("records.filter.applyDetail")}
+            >
+              <Check className="h-3 w-3" /> {t("records.filter.applyToDataset")}
+            </button>
+          )}
           <button onClick={onClear} className="text-xs text-muted hover:text-danger flex items-center gap-1">
             <X className="h-3 w-3" /> {t("records.filter.clearAll")}
           </button>

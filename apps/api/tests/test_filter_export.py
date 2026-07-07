@@ -5,6 +5,7 @@ overview downloads, merge summaries, auto-prepare on merge, and per-analysis
 audit scoping against the live API.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -12,7 +13,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-SAMPLE_DATA = Path(__file__).resolve().parents[3] / "BibexPy" / "Workspace" / "Sample Project" / "Data"
+# Örnek veri: BIBEXPY_SAMPLE_DATA env var ile override edilebilir (örn. repo
+# içindeki python_pkg/src/bibexpy/_samples/simple_project). Yoksa eski varsayılan.
+SAMPLE_DATA = Path(
+    os.environ.get("BIBEXPY_SAMPLE_DATA")
+    or (Path(__file__).resolve().parents[3] / "BibexPy" / "Workspace" / "Sample Project" / "Data")
+)
 
 
 @pytest.fixture
@@ -90,6 +96,55 @@ def test_filter_presets(client, project_with_merged):
     # sil
     assert client.delete(f"/api/projects/{pid}/filter/presets/p1").status_code == 204
     assert client.get(f"/api/projects/{pid}/filter/presets").json() == []
+
+
+def test_filter_apply_permanent_and_restore(client, project_with_merged):
+    """Filtreyi veri setine KALICI uygulama: eşleşmeyenler çıkarılır, snapshot
+    alınır ve Geçmiş'ten geri yüklenebilir. (Harmonizasyon/Export'un filtreli
+    veriyle çalışması bu endpoint'e dayanır.)"""
+    pid = project_with_merged
+    base = client.post(f"/api/projects/{pid}/filter",
+                       json={"spec": {}, "limit": 1, "include_facets": True}).json()
+    total = base["total"]
+    assert total > 0
+
+    # Hem tutan hem çıkaran bir yıl eşiği bul (veriye bağımlı olmasın)
+    years = sorted(h["year"] for h in base["facets_all"]["year"]["histogram"])
+    chosen = None
+    for y in years:
+        t = client.post(f"/api/projects/{pid}/filter",
+                        json={"spec": {"year": {"min": y}}, "limit": 1,
+                              "include_facets": False}).json()["total"]
+        if 0 < t < total:
+            chosen = (y, t)
+            break
+    if chosen is None:
+        pytest.skip("Örnek veride kısmi eşleşen yıl eşiği yok")
+    y, kept_expect = chosen
+
+    # Boş spec → 400 (yanlışlıkla no-op çağrı koruması)
+    assert client.post(f"/api/projects/{pid}/filter/apply", json={"spec": {}}).status_code == 400
+
+    # Uygula → dataset kalıcı daralır
+    r = client.post(f"/api/projects/{pid}/filter/apply",
+                    json={"spec": {"year": {"min": y}}})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["applied"] is True
+    assert d["kept"] == kept_expect
+    assert d["removed"] == total - kept_expect
+    assert d["snapshot"]
+    after = client.post(f"/api/projects/{pid}/filter",
+                        json={"spec": {}, "limit": 1, "include_facets": False}).json()
+    assert after["total"] == kept_expect
+
+    # Snapshot'tan geri yükleme tam sayıya döndürür
+    r = client.post(f"/api/projects/{pid}/records/restore-snapshot",
+                    json={"snapshot": d["snapshot"]})
+    assert r.status_code == 200, r.text
+    back = client.post(f"/api/projects/{pid}/filter",
+                       json={"spec": {}, "limit": 1, "include_facets": False}).json()
+    assert back["total"] == total
 
 
 @pytest.mark.parametrize("fmt", ["csv", "xlsx", "bib", "ris", "tsv", "vos", "wos"])

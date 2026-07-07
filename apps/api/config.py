@@ -8,11 +8,18 @@ def _resolve_env_file() -> str:
 
     `BIBEXPY_CONFIG_DIR` env var'ı set ise oradaki `.env` kullanılır (paket
     modu: ~/.bibexpy/.env gibi yazılabilir bir konum). Aksi halde CWD'deki
-    `.env` (geliştirme: uvicorn apps/api'den çalışır, CWD = apps/api).
+    `.env` (geliştirme: uvicorn apps/api'den çalışır, CWD = apps/api);
+    o da yoksa ~/.bibexpy/.env (settings router'ın yazma yoluyla hizalı —
+    aksi halde UI'dan kaydedilen anahtarlar farklı dosyadan okunurdu).
     """
     cfg_dir = os.environ.get("BIBEXPY_CONFIG_DIR")
     if cfg_dir:
         return str(Path(cfg_dir).expanduser() / ".env")
+    if Path(".env").exists():
+        return ".env"
+    home_env = Path.home() / ".bibexpy" / ".env"
+    if home_env.exists():
+        return str(home_env)
     return ".env"
 
 
@@ -90,3 +97,20 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def reload_settings() -> None:
+    """`.env` yeniden okunup GLOBAL `settings` objesi YERİNDE güncellenir.
+
+    Ayarlar UI'dan kaydedildiğinde çağrılır — böylece API anahtarları vb.
+    sunucu yeniden başlatılmadan anında etkinleşir. Diğer modüller
+    `from config import settings` ile AYNI objeyi tuttuğundan, yeni bir obje
+    atamak yerine alan değerleri mevcut objeye kopyalanır.
+
+    Not: pydantic önceliği gereği gerçek ortam değişkenleri .env'i ezer;
+    launcher'ın süreç başında set ettiği STORAGE_DIR bu yüzden yalnızca
+    yeniden başlatmayla değişir (UI'da da öyle belirtilir).
+    """
+    fresh = Settings()
+    for name in Settings.model_fields:
+        setattr(settings, name, getattr(fresh, name))
