@@ -437,6 +437,12 @@ export const api = {
   // Sistem dizin gezgini
   browseFolder: (path = "") =>
     http<BrowseResponse>(`/system/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  // Sunucu tarafında bilinen bir klasörü OS dosya yöneticisinde aç (self-hosted:
+  // sunucu + tarayıcı aynı makine). Yol istemciden gönderilmez, sunucu çözer.
+  openFolder: (target: "storage" | "project", projectId?: string) =>
+    http<{ opened: boolean; path: string }>("/system/open-folder", {
+      method: "POST", body: JSON.stringify({ target, project_id: projectId ?? null }),
+    }),
   findFolderByName: (name: string, limit = 8) =>
     http<{ name: string; matches: { path: string; depth: number; parent: string }[] }>(
       `/system/find-by-name?name=${encodeURIComponent(name)}&limit=${limit}`
@@ -511,6 +517,10 @@ export type SettingsResponse = {
   env_file: string;
   notes: string[];
   llm_providers: LLMProviderPreset[];
+  /** Sunucunun ŞU AN kullandığı depolama klasörü. */
+  active_storage?: string;
+  /** .env'deki STORAGE_DIR aktif olandan farklı — yeniden başlatma bekliyor. */
+  storage_pending_restart?: boolean;
 };
 
 export type QualityField = {

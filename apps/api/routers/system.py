@@ -185,6 +185,47 @@ def browse(path: str = ""):
     }
 
 
+class OpenFolderPayload(BaseModel):
+    target: str  # "storage" | "project"
+    project_id: str | None = None
+
+
+@router.post("/open-folder")
+def open_folder(payload: OpenFolderPayload):
+    """Sunucu tarafında BİLİNEN bir klasörü OS dosya yöneticisinde aç.
+
+    Güvenlik: istemciden yol alınmaz — yalnız hedef adı gelir, yol sunucuda
+    çözülür (depolama kökü veya proje klasörü). Self-hosted araç: sunucu ve
+    tarayıcı aynı makinede olduğundan Explorer/Finder açmak anlamlıdır.
+    """
+    from config import settings as _settings
+    from services import storage as _storage
+
+    if payload.target == "storage":
+        p = _settings.storage_path
+    elif payload.target == "project":
+        if not payload.project_id or _storage.get_project(payload.project_id) is None:
+            raise HTTPException(404, "project_not_found")
+        p = _storage.project_dir(payload.project_id)
+    else:
+        raise HTTPException(400, "invalid_target")
+
+    if not p.exists():
+        raise HTTPException(404, "folder_not_found")
+    try:
+        if _is_windows():
+            os.startfile(str(p))  # noqa: S606 — yerel tek-kullanıcı araç
+        elif sys.platform == "darwin":
+            import subprocess
+            subprocess.Popen(["open", str(p)])
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", str(p)])
+    except Exception as e:
+        raise HTTPException(500, f"open_failed: {e}")
+    return {"opened": True, "path": str(p)}
+
+
 def _shortcuts(home: Path) -> list[dict[str, str]]:
     """Soldan hızlı erişim kısayolları — OS'a göre uyarlı."""
     items: list[dict[str, str]] = [

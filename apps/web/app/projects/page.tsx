@@ -5,7 +5,7 @@ import { api, formatBytes, type Project, translateApiError} from "@/lib/api-clie
 import { Button } from "@/components/Button";
 import { Card, CardBody } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
-import { FolderOpen, Plus, Trash2, FileText, ArrowRight, Loader2 } from "lucide-react";
+import { FolderOpen, FolderSymlink, Plus, Trash2, FileText, ArrowRight, Loader2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { useConfirm } from "@/components/Dialogs";
 
@@ -124,6 +124,16 @@ export default function ProjectsPage() {
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </Link>
+                  {/* Projenin gerçek disk klasörünü Explorer/Finder'da aç —
+                      kullanıcı verinin nereye kaydedildiğini görebilsin. */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => api.openFolder("project", p.id).catch((e) => setError(translateApiError(t, e)))}
+                    title={t("projects.openFolder")}
+                  >
+                    <FolderSymlink className="h-4 w-4 text-muted hover:text-brand-600" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

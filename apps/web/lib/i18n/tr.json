@@ -240,6 +240,7 @@
     "create": "Oluştur",
     "deleteConfirm": "Proje silinsin mi?",
     "deleteWarning": "Bu işlem yüklenmiş tüm veriyi, analizleri ve çıktıları kalıcı olarak siler.",
+    "openFolder": "Klasörü aç (Explorer)",
     "fileCount": "{n} dosya",
     "lastUpdated": "Son güncelleme"
   },
@@ -1136,6 +1137,9 @@
     "disambiguationPipeline": "Disambiguation Pipeline",
     "pathPlaceholder": "C:\\Users\\sen\\BibexPyData",
     "browseFolder": "Gözat",
+    "activeStorage": "Aktif depolama",
+    "openFolder": "Klasörü aç",
+    "storagePendingRestart": "Yeni depolama klasörü kaydedildi ama henüz AKTİF DEĞİL — uygulamayı yeniden başlattığında geçerli olur. Mevcut projeler otomatik taşınmaz; görünmeye devam etmeleri için onları yeni klasöre elle taşı.",
     "validatePath": "Doğrula",
     "check": "Kontrol et",
     "createThisFolder": "Bu klasörü oluştur",

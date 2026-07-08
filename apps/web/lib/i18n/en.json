@@ -240,6 +240,7 @@
     "create": "Create",
     "deleteConfirm": "Delete project?",
     "deleteWarning": "This permanently removes all uploaded data, analyses and exports.",
+    "openFolder": "Open folder (Explorer)",
     "fileCount": "{n} files",
     "lastUpdated": "Last updated"
   },
@@ -1136,6 +1137,9 @@
     "disambiguationPipeline": "Disambiguation Pipeline",
     "pathPlaceholder": "C:\\Users\\you\\BibexPyData",
     "browseFolder": "Browse",
+    "activeStorage": "Active storage",
+    "openFolder": "Open folder",
+    "storagePendingRestart": "The new storage folder is saved but NOT ACTIVE yet — it takes effect when you restart the app. Existing projects are not moved automatically; move them to the new folder manually to keep seeing them.",
     "validatePath": "Validate",
     "check": "Check",
     "createThisFolder": "Create this folder",

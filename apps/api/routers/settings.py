@@ -227,6 +227,10 @@ class SettingsResponse(BaseModel):
     env_file: str
     notes: list[str]
     llm_providers: list[LLMProviderPreset] = []
+    # Depolama şeffaflığı: sunucunun ŞU AN kullandığı klasör + .env'deki
+    # yapılandırma henüz uygulanmadıysa (restart bekliyor) uyarı bayrağı.
+    active_storage: str = ""
+    storage_pending_restart: bool = False
 
 
 @router.get("", response_model=SettingsResponse)
@@ -269,7 +273,20 @@ def get_settings():
     providers = [
         LLMProviderPreset(id=pid, **pdata) for pid, pdata in LLM_PROVIDERS.items()
     ]
+    # Aktif depolama vs .env'de yapılandırılan: farklıysa restart bekliyor demektir
+    # (launcher STORAGE_DIR'i süreç başında ortam değişkeni olarak set eder;
+    # .env'deki yeni değer ancak yeniden başlatmada okunur).
+    active_storage = str(settings.storage_path)
+    configured = env.get("STORAGE_DIR", "").strip()
+    pending_restart = False
+    if configured:
+        try:
+            pending_restart = Path(configured).expanduser().resolve() != settings.storage_path
+        except OSError:
+            pending_restart = configured != active_storage
     return SettingsResponse(
+        active_storage=active_storage,
+        storage_pending_restart=pending_restart,
         groups=GROUP_LABELS,
         fields=fields,
         env_file=str(_env_path()),

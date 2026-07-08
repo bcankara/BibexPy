@@ -8,7 +8,7 @@ import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { FolderPickerModal } from "@/components/FolderPickerModal";
 import {
-  Save, Eye, EyeOff, Database, Sparkles, AlertCircle, CheckCircle2, RotateCcw, Info, KeyRound,
+  Save, Eye, EyeOff, Database, Sparkles, AlertCircle, AlertTriangle, CheckCircle2, RotateCcw, Info, KeyRound,
   FolderOpen, HardDrive, Loader2, ExternalLink, Cpu, FolderInput, Languages,
 } from "lucide-react";
 import { useT, useI18n, type Locale } from "@/lib/i18n";
@@ -226,13 +226,42 @@ export default function SettingsPage() {
                 />
               ) : grouped[groupKey].map((f) => (
                 f.key === "STORAGE_DIR" ? (
-                  <PathField
-                    key={f.key}
-                    field={f}
-                    value={values[f.key] ?? ""}
-                    touched={touched.has(f.key)}
-                    onChange={(v) => setVal(f.key, v)}
-                  />
+                  <div key={f.key} className="space-y-2">
+                    <PathField
+                      field={f}
+                      value={values[f.key] ?? ""}
+                      touched={touched.has(f.key)}
+                      onChange={(v) => setVal(f.key, v)}
+                    />
+                    {/* Şeffaflık: sunucunun ŞU AN kullandığı klasör + Explorer'da aç.
+                        Yapılandırılan klasör farklıysa (restart bekliyor) belirgin uyarı —
+                        "seçtim ama oraya kaydetmiyor" karışıklığını önler. */}
+                    {data?.active_storage && (
+                      <div className="rounded-lg border border-border bg-bg-soft/50 px-3 py-2 space-y-2">
+                        <div className="flex items-center gap-2 text-xs">
+                          <HardDrive className="h-3.5 w-3.5 text-muted flex-shrink-0" />
+                          <span className="text-muted flex-shrink-0">{t("settings.activeStorage")}:</span>
+                          <code className="font-mono text-[11px] text-ink truncate flex-1" title={data.active_storage}>
+                            {data.active_storage}
+                          </code>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => api.openFolder("storage").catch(() => {})}
+                            title={t("settings.openFolder")}
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" /> {t("settings.openFolder")}
+                          </Button>
+                        </div>
+                        {data.storage_pending_restart && (
+                          <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-warning-soft border border-warning/30 rounded-md px-2 py-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                            <span>{t("settings.storagePendingRestart")}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <FieldRow
                     key={f.key}
