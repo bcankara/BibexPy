@@ -1137,6 +1137,7 @@
     "disambiguationPipeline": "Disambiguation Pipeline",
     "pathPlaceholder": "C:\\Users\\you\\BibexPyData",
     "browseFolder": "Browse",
+    "applyNow": "Apply",
     "activeStorage": "Active storage",
     "openFolder": "Open folder",
     "storagePendingRestart": "The new storage folder is saved but NOT ACTIVE yet — it takes effect when you restart the app. Existing projects are not moved automatically; move them to the new folder manually to keep seeing them.",
@@ -1166,7 +1167,7 @@
     "fields": {
       "STORAGE_DIR": {
         "label": "Project Storage Folder",
-        "hint": "All projects are stored here. The new folder becomes active IMMEDIATELY on save — no restart needed. Existing projects are not moved automatically; move them to the new folder manually to keep seeing them."
+        "hint": "All projects are stored here. Picking a folder via Browse (or pressing Apply) activates it IMMEDIATELY — no Save button, no restart. Existing projects are not moved automatically; move them to the new folder manually to keep seeing them."
       },
       "SCOPUS_API_KEY": {
         "label": "Scopus API Key",

@@ -1137,6 +1137,7 @@
     "disambiguationPipeline": "Disambiguation Pipeline",
     "pathPlaceholder": "C:\\Users\\sen\\BibexPyData",
     "browseFolder": "Gözat",
+    "applyNow": "Uygula",
     "activeStorage": "Aktif depolama",
     "openFolder": "Klasörü aç",
     "storagePendingRestart": "Yeni depolama klasörü kaydedildi ama henüz AKTİF DEĞİL — uygulamayı yeniden başlattığında geçerli olur. Mevcut projeler otomatik taşınmaz; görünmeye devam etmeleri için onları yeni klasöre elle taşı.",
@@ -1166,7 +1167,7 @@
     "fields": {
       "STORAGE_DIR": {
         "label": "Proje Depolama Klasörü",
-        "hint": "Tüm projeler burada saklanır. Kaydedilince yeni klasör ANINDA aktif olur — yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; görünmeye devam etmeleri için onları yeni klasöre elle taşıyın."
+        "hint": "Tüm projeler burada saklanır. Gözat ile klasör seçilince (veya Uygula deyince) ANINDA aktif olur — Kaydet düğmesi ve yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; görünmeye devam etmeleri için onları yeni klasöre elle taşıyın."
       },
       "SCOPUS_API_KEY": {
         "label": "Scopus API Key",

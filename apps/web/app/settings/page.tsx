@@ -71,6 +71,26 @@ export default function SettingsPage() {
     setTouched((prev) => new Set(prev).add(key));
   }
 
+  /** Depolama klasörü ANINDA uygulanır — global Save akışına girmez.
+   * Browse'tan seçim veya alandaki "Uygula" butonu/Enter tetikler; backend
+   * klasörü oluşturup yazılabilirliği doğrular (başarısızsa 400, geçiş olmaz). */
+  const [storageApplying, setStorageApplying] = useState(false);
+  async function applyStorageDir(path: string) {
+    const p = path.trim();
+    if (!p || storageApplying) return;
+    setStorageApplying(true);
+    setError(null);
+    try {
+      await api.updateSettings({ STORAGE_DIR: p });
+      setSavedAt(Date.now());
+      await reload(); // active_storage + alan değeri tazelenir
+    } catch (e) {
+      setError(translateApiError(t, e, "settings.saveFailed"));
+    } finally {
+      setStorageApplying(false);
+    }
+  }
+
   async function save() {
     if (touched.size === 0) return;
     setSaving(true);
@@ -230,8 +250,12 @@ export default function SettingsPage() {
                     <PathField
                       field={f}
                       value={values[f.key] ?? ""}
-                      touched={touched.has(f.key)}
-                      onChange={(v) => setVal(f.key, v)}
+                      touched={false}
+                      /* Save akışına GİRMEZ: yazım touched işaretlemez; Browse
+                         seçimi ve "Uygula" anında uygular. */
+                      onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+                      onApply={applyStorageDir}
+                      applying={storageApplying}
                     />
                     {/* Şeffaflık: sunucunun ŞU AN kullandığı klasör + Explorer'da aç.
                         Yapılandırılan klasör farklıysa (restart bekliyor) belirgin uyarı —
@@ -526,11 +550,15 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
 }
 
 
-function PathField({ field, value, touched, onChange }: {
+function PathField({ field, value, touched, onChange, onApply, applying = false }: {
   field: SettingField;
   value: string;
   touched: boolean;
   onChange: (v: string) => void;
+  /** Verilirse alan ANINDA-uygula modundadır: Browse seçimi direkt uygular,
+   * elle yazımda "Uygula" butonu/Enter uygular (global Save devre dışı). */
+  onApply?: (v: string) => void;
+  applying?: boolean;
 }) {
   const t = useT();
   const [validation, setValidation] = useState<PathValidation | null>(null);
@@ -573,6 +601,7 @@ function PathField({ field, value, touched, onChange }: {
           type="text"
           value={value}
           onChange={(e) => { onChange(e.target.value); setValidation(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && onApply) onApply(value); }}
           placeholder={field.default ?? t("settings.pathPlaceholder")}
           className={cn(
             "flex-1 rounded-md border bg-white px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 transition",
@@ -598,13 +627,30 @@ function PathField({ field, value, touched, onChange }: {
           {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
           {t("settings.check")}
         </Button>
+        {onApply && (
+          <Button
+            size="sm"
+            onClick={() => onApply(value)}
+            disabled={!value.trim() || applying}
+            title={t("settings.applyNow")}
+          >
+            {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {t("settings.applyNow")}
+          </Button>
+        )}
       </div>
 
       <FolderPickerModal
         open={pickerOpen}
         initialPath={validation?.exists ? value : ""}
         onClose={() => setPickerOpen(false)}
-        onSelect={(p) => { onChange(p); setValidation(null); setAutoChecked(false); }}
+        onSelect={(p) => {
+          onChange(p);
+          setValidation(null);
+          setAutoChecked(false);
+          // Anında-uygula modunda klasör seçimi bilinçli bir eylemdir — Save'siz uygula.
+          if (onApply) onApply(p);
+        }}
       />
 
       {validation && (

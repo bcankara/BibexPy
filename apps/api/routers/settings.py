@@ -69,7 +69,7 @@ EDITABLE_KEYS = {
     "STORAGE_DIR":              {"label": "Proje Depolama Klasörü",    "secret": False, "group": "storage",
                                  "type": "path",
                                  "default": "./storage",
-                                 "hint": "Tüm projeler burada saklanır. Kaydedilince yeni klasör anında aktif olur — yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; elle taşıyın."},
+                                 "hint": "Tüm projeler burada saklanır. Klasör seçilince anında aktif olur — Kaydet ve yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; elle taşıyın."},
     # API anahtarları / e-postaları — zenginleştirme kaynakları.
     # Önemli: Crossref, OpenAlex ve Unpaywall ÜCRETSİZdir; yalnızca Scopus anahtar ister.
     "SCOPUS_API_KEY":           {"label": "Scopus API Key",            "secret": True,  "group": "api",
