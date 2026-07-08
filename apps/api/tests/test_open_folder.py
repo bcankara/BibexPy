@@ -36,19 +36,36 @@ def test_open_folder_unknown_project_404(monkeypatch, tmp_path):
     assert r.status_code == 404
 
 
-def test_settings_reports_active_storage_and_pending_restart(monkeypatch, tmp_path):
+def test_storage_dir_change_applies_live(monkeypatch, tmp_path):
+    """Depolama klasörü kaydedilince ANINDA aktif olmalı — restart yok."""
     client = _client(monkeypatch, tmp_path)
     d = client.get("/api/settings").json()
     # Aktif depolama = süreçteki STORAGE_DIR (env var) → tmp/storage
     assert str(tmp_path / "storage") in d["active_storage"]
     assert d["storage_pending_restart"] is False
 
-    # .env'e FARKLI bir klasör yaz → env var süreçte eskisini tuttuğundan
-    # "restart bekliyor" bayrağı yükselmeli
+    # Yeni klasöre geç → canlı uygulanmalı (env var + reload)
     new_dir = tmp_path / "elsewhere"
-    new_dir.mkdir()
     r = client.put("/api/settings", json={"updates": {"STORAGE_DIR": str(new_dir)}})
     assert r.status_code == 200
     d2 = r.json()
-    assert d2["storage_pending_restart"] is True
-    assert str(tmp_path / "storage") in d2["active_storage"]  # hâlâ eski aktif
+    assert d2["storage_pending_restart"] is False
+    assert str(new_dir) in d2["active_storage"]
+
+    # Bundan sonra oluşturulan proje YENİ klasöre düşmeli
+    pid = client.post("/api/projects", json={"name": "LiveSwitch"}).json()["id"]
+    assert (new_dir / pid / "meta.json").exists()
+    # Eski klasörde bu proje yok
+    assert not (tmp_path / "storage" / pid).exists()
+
+
+def test_storage_dir_unwritable_rejected(monkeypatch, tmp_path):
+    """Oluşturulamayan klasör 400 ile reddedilir; aktif depolama değişmez."""
+    client = _client(monkeypatch, tmp_path)
+    # Bir DOSYA oluştur ve onu klasör olarak kullanmaya çalış → mkdir başarısız
+    blocker = tmp_path / "not_a_dir"
+    blocker.write_text("x", encoding="utf-8")
+    r = client.put("/api/settings", json={"updates": {"STORAGE_DIR": str(blocker)}})
+    assert r.status_code == 400
+    d = client.get("/api/settings").json()
+    assert str(tmp_path / "storage") in d["active_storage"]  # değişmedi

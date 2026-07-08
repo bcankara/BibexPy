@@ -1166,7 +1166,7 @@
     "fields": {
       "STORAGE_DIR": {
         "label": "Proje Depolama Klasörü",
-        "hint": "Tüm projeler burada saklanır. Değiştirirseniz eski projeleri yeni klasöre manuel taşıyın. Backend yeniden başlatılmalı."
+        "hint": "Tüm projeler burada saklanır. Kaydedilince yeni klasör ANINDA aktif olur — yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; görünmeye devam etmeleri için onları yeni klasöre elle taşıyın."
       },
       "SCOPUS_API_KEY": {
         "label": "Scopus API Key",
@@ -1210,7 +1210,7 @@
     },
     "infoNotes": [
       "Ayarlar .env dosyasına yazılır.",
-      "Backend'in yeniden başlatılması bazı değişikliklerin uygulanması için gerekebilir.",
+      "Değişiklikler kaydedilince anında uygulanır — yeniden başlatma gerekmez.",
       "API anahtarları maskelenmiş gösterilir; aynı değer kalsın istiyorsanız alana dokunmayın."
     ],
     "pathStatus": {

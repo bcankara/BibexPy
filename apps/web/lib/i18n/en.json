@@ -1166,7 +1166,7 @@
     "fields": {
       "STORAGE_DIR": {
         "label": "Project Storage Folder",
-        "hint": "All projects are stored here. If you change it, move existing projects to the new folder manually. A backend restart is required."
+        "hint": "All projects are stored here. The new folder becomes active IMMEDIATELY on save — no restart needed. Existing projects are not moved automatically; move them to the new folder manually to keep seeing them."
       },
       "SCOPUS_API_KEY": {
         "label": "Scopus API Key",
@@ -1210,7 +1210,7 @@
     },
     "infoNotes": [
       "Settings are written to the .env file.",
-      "A backend restart may be required for some changes to take effect.",
+      "Changes apply immediately on save — no restart needed.",
       "API keys are shown masked; to keep a value unchanged, leave its field untouched."
     ],
     "pathStatus": {

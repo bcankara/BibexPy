@@ -69,7 +69,7 @@ EDITABLE_KEYS = {
     "STORAGE_DIR":              {"label": "Proje Depolama Klasörü",    "secret": False, "group": "storage",
                                  "type": "path",
                                  "default": "./storage",
-                                 "hint": "Tüm projeler burada saklanır. Değiştirirseniz eski projeleri yeni klasöre manuel taşıyın. Backend yeniden başlatılmalı."},
+                                 "hint": "Tüm projeler burada saklanır. Kaydedilince yeni klasör anında aktif olur — yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; elle taşıyın."},
     # API anahtarları / e-postaları — zenginleştirme kaynakları.
     # Önemli: Crossref, OpenAlex ve Unpaywall ÜCRETSİZdir; yalnızca Scopus anahtar ister.
     "SCOPUS_API_KEY":           {"label": "Scopus API Key",            "secret": True,  "group": "api",
@@ -291,8 +291,8 @@ def get_settings():
         fields=fields,
         env_file=str(_env_path()),
         notes=[
-            "Ayarlar .env dosyasına yazılır ve kaydedilince anında uygulanır (API anahtarları dahil).",
-            "Yalnızca Depolama Klasörü (STORAGE_DIR) değişikliği yeniden başlatma gerektirir.",
+            "Ayarlar .env dosyasına yazılır ve kaydedilince anında uygulanır (depolama klasörü dahil).",
+            "Depolama klasörü değişince mevcut projeler otomatik taşınmaz — elle taşıyın.",
             "API anahtarları maskelenmiş gösterilir; aynı değer kalsın istiyorsanız alanı dokunmayın.",
         ],
         llm_providers=providers,
@@ -401,10 +401,34 @@ def update_settings(payload: UpdatePayload):
         else:
             clean[key] = str(val).strip()
 
+    # Depolama klasörü CANLI geçiş: yeniden başlatma GEREKMEZ. Launcher
+    # STORAGE_DIR'i süreç başında env var olarak sabitler ve pydantic'te env
+    # var .env'i ezer — bu yüzden yalnız .env'e yazmak yetmiyordu ("seçtim ama
+    # değişmiyor"). Env var'ı burada güncelleyince reload yeni değeri okur;
+    # tüm yol erişimleri settings.storage_path üzerinden geçtiği için geçiş
+    # anında etkilidir. Yazılamayan klasör 400 ile reddedilir (yarım geçiş olmaz).
+    if "STORAGE_DIR" in clean and clean["STORAGE_DIR"].strip():
+        import os
+        new_dir = Path(clean["STORAGE_DIR"].strip()).expanduser()
+        try:
+            new_dir.mkdir(parents=True, exist_ok=True)
+            probe = new_dir / ".bibex_writable_check"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except Exception as e:
+            raise HTTPException(400, f"storage_dir_not_writable: {e}")
+        os.environ["STORAGE_DIR"] = str(new_dir)
+
     _write_env(clean)
     # Çalışan sürecin ayarlarını anında tazele — API anahtarları vb. yeniden
     # başlatma olmadan etkinleşsin. (Önceden yalnız .env'e yazılıyordu; modül
     # yüklenirken okunan `settings` objesi eski kaldığından anahtarlar
     # "kaydedildi ama çalışmıyor" görünüyordu.)
     reload_settings()
+
+    if "STORAGE_DIR" in clean:
+        # Eski depodaki dataset cache'i yeni depoyla karışmasın
+        from services import filter_engine
+        filter_engine._DF_CACHE.clear()
+
     return get_settings()
