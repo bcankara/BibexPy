@@ -7,6 +7,7 @@ import {
 } from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "@/components/Card";
 import { Button } from "@/components/Button";
+import { DataFlowDiagram } from "@/components/DataFlowDiagram";
 import { PageHeader } from "@/components/PageHeader";
 import {
   History, Download, FileText, Camera, RotateCcw, Upload, Combine, Sparkles,
@@ -158,6 +159,9 @@ export default function ReportPage() {
           <RawLogsCard id={id} />
           <MethodologyCard projectId={id} hasOps={(summary?.total ?? 0) > 0} />
         </div>
+
+        {/* PRISMA-tarzı veri akış şeması — audit log'dan otomatik; SVG/PNG indirilebilir */}
+        <DataFlowDiagram projectId={id} />
 
         {/* Kronoloji — en altta */}
         <Card>

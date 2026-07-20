@@ -1238,6 +1238,24 @@
     "categoryDist": "Kategori dağılımı",
     "chronological": "Kronolojik liste",
     "downloadLog": "Günlüğü indir",
+    "flow": {
+      "title": "Veri Akış Şeması (PRISMA-tarzı)",
+      "desc": "Kayıtlı işlemlerden (audit log) otomatik üretilen kayıt-sayısı akışı — makalenin veri hazırlama şeması olarak SVG/PNG indirilebilir.",
+      "note": "Bu şema, bu analizde kayıtlı işlemlerden otomatik türetilmiştir; sayılar operasyon günlüğüyle birebir aynıdır.",
+      "identification": "Tanımlama (ham girdi)",
+      "sources": "WoS {wos} + Scopus {scopus}",
+      "records": "{n} kayıt",
+      "dedup": "Tekilleştirme — Smart Merge",
+      "pairsMerged": "{n} çift birleştirildi",
+      "intraRemoved": "kaynak-içi kopya: {n}",
+      "removed": "−{n} kayıt çıkarıldı",
+      "unique": "Benzersiz kayıt kümesi",
+      "borderlineKept": "{n} belirsiz çift ayrı tutuldu",
+      "stepFilter": "Filtre uygulandı: {keys}",
+      "stepDelete": "Elle kayıt silme",
+      "stepBorderline": "Belirsiz çift onayı (birleştirildi)",
+      "final": "Nihai veri seti"
+    },
     "rawLogs": {
       "title": "Ham Değişiklik Günlüğü",
       "desc": "Tüm işlem günlüğü olduğu gibi — her birleştirme, filtre, düzenleme ve zenginleştirme, sırasıyla. Markdown, düz metin veya PDF olarak indir."

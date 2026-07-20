@@ -1238,6 +1238,24 @@
     "categoryDist": "Category distribution",
     "chronological": "Chronological list",
     "downloadLog": "Download log",
+    "flow": {
+      "title": "Data Flow Diagram (PRISMA-style)",
+      "desc": "Record-count flow generated automatically from the recorded operations (audit log) — downloadable as SVG/PNG for your manuscript's data-preparation figure.",
+      "note": "This diagram is derived automatically from the operations recorded for this analysis; the numbers match the operation log exactly.",
+      "identification": "Identification (raw input)",
+      "sources": "WoS {wos} + Scopus {scopus}",
+      "records": "{n} records",
+      "dedup": "Deduplication — Smart Merge",
+      "pairsMerged": "{n} pairs merged",
+      "intraRemoved": "intra-source duplicates: {n}",
+      "removed": "−{n} records removed",
+      "unique": "Unique record set",
+      "borderlineKept": "{n} uncertain pairs kept separate",
+      "stepFilter": "Filter applied: {keys}",
+      "stepDelete": "Manual record deletion",
+      "stepBorderline": "Uncertain pairs accepted (merged)",
+      "final": "Final dataset"
+    },
     "rawLogs": {
       "title": "Raw Change Logs",
       "desc": "The complete, untouched operation log — every merge, filter, edit and enrichment, in order. Download as Markdown, plain text or PDF."

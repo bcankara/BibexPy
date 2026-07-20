@@ -418,6 +418,8 @@ export const api = {
   // Rapor (Export sonrası son adım) — ham günlük + LLM metodoloji raporu
   reportLogUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/log.${fmt}`,
+  // Audit log'dan türetilen PRISMA-tarzı veri akışı (Report sayfası şema çizer)
+  reportFlow: (id: string) => http<ReportFlow>(`/projects/${id}/report/flow`),
   methodologyUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/methodology.${fmt}`,
   getMethodology: (id: string) =>
@@ -447,6 +449,19 @@ export const api = {
     http<{ name: string; matches: { path: string; depth: number; parent: string }[] }>(
       `/system/find-by-name?name=${encodeURIComponent(name)}&limit=${limit}`
     ),
+};
+
+export type ReportFlow = {
+  analysis_id: string | null;
+  has_merge: boolean;
+  inputs: { wos: number; scopus: number; total: number } | null;
+  intra_removed: number;
+  matched_pairs: number;
+  stages: Record<string, number>;
+  borderline_total: number;
+  after_merge: number | null;
+  steps: { kind: string; removed: number; after: number | null; criteria: string[]; ts: number }[];
+  final_total: number | null;
 };
 
 export type MethodologyReport = {

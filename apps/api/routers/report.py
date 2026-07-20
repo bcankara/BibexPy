@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 
-from services import audit, methodology, report_export, storage
+from services import audit, methodology, report_export, report_flow, storage
 
 router = APIRouter(prefix="/projects/{project_id}/report", tags=["report"])
 
@@ -57,6 +57,16 @@ def log_pdf(project_id: str):
     title = f"Operation Report — {meta.name if meta else project_id}"
     pdf = report_export.render_pdf(title, audit.format_markdown_report(project_id))
     return _pdf(pdf, "operation_log.pdf")
+
+
+# ───────────────────────── Veri akış şeması (PRISMA-tarzı) ─────────────────
+
+@router.get("/flow")
+def data_flow(project_id: str):
+    """Audit log'dan türetilen kayıt-sayısı akışı — Report sayfası bunu
+    indirilebilir bir akış şeması (SVG/PNG) olarak çizer."""
+    _require(project_id)
+    return report_flow.build_flow(project_id)
 
 
 # ───────────────────────── Metodoloji raporu (LLM) ─────────────────────────
