@@ -20,7 +20,7 @@ from services.smart_merger import (  # noqa: E402
     dedup_within_source,
     doi_conflict,
     generate_candidates,
-    negative_rule_check,
+    normalize_doi,
 )
 
 
@@ -38,21 +38,41 @@ def _rec(doi=None, title="deep learning bibliometric analysis", year=2020,
     }
 
 
-# ── negative_rule_check ───────────────────────────────────────────────────
+# ── Kimlik hiyerarşisi: DOI > PMID > ISSN ─────────────────────────────────
+# Üst seviyedeki KESİN eşitlik alt seviyedeki çelişkiyi geçersiz kılar.
 
-def test_negrule_different_doi_rejects():
-    msg = negative_rule_check(_rec(doi="10.1/aaa"), _rec(doi="10.1/bbb"))
-    assert msg is not None and "DOI" in msg
+def test_same_doi_overrides_issn_conflict():
+    """GERÇEK VAKA: WoS print-ISSN, Scopus e-ISSN verir — aynı DOI'li çiftte
+    ISSN çelişkisi merge'i vetolayamaz (eski davranış: sessiz duplike)."""
+    w = _rec(doi="10.1/same", issn="12345678")
+    s = _rec(doi="10.1/same", issn="87654321")
+    m = compute_match(w, s)
+    assert m is not None and m["stage"] == "1_doi_exact"
 
 
-def test_negrule_same_doi_passes():
-    assert negative_rule_check(_rec(doi="10.1/aaa"), _rec(doi="10.1/aaa")) is None
+def test_same_doi_overrides_pmid_conflict():
+    w = _rec(doi="10.1/same", pmid="111")
+    s = _rec(doi="10.1/same", pmid="222")
+    m = compute_match(w, s)
+    assert m is not None and m["stage"] == "1_doi_exact"
 
 
-def test_negrule_one_side_missing_doi_passes():
-    # Yalnız bir tarafta DOI → çelişki yok, başlık eşleştirmesine düşülmeli
-    assert negative_rule_check(_rec(doi="10.1/aaa"), _rec(doi=None)) is None
-    assert negative_rule_check(_rec(doi=None), _rec(doi=None)) is None
+def test_same_pmid_overrides_issn_conflict():
+    w = _rec(pmid="333", issn="11112222")
+    s = _rec(pmid="333", issn="33334444")
+    m = compute_match(w, s)
+    assert m is not None and m["stage"] == "2_pmid_exact"
+
+
+def test_issn_conflict_still_blocks_title_stages():
+    """DOI/PMID karşılaştırılamıyorsa ISSN çelişkisi başlık aşamalarını korur."""
+    w = _rec(issn="11112222")
+    s = _rec(issn="33334444")
+    assert compute_match(w, s) is None
+
+
+def test_pmid_conflict_rejects_without_doi():
+    assert compute_match(_rec(pmid="1"), _rec(pmid="2")) is None
 
 
 # ── compute_match: DOI belirleyici ────────────────────────────────────────
@@ -125,6 +145,48 @@ def test_doi_conflict_one_or_both_missing_is_false():
 def test_doi_conflict_invalid_doi_is_false():
     """'10.' ile başlamayan geçersiz değerler normalize'da None olur → çelişki yok."""
     assert doi_conflict("not-a-doi", "10.1/aaa") is False
+
+
+# ── Jenerik kısa başlık koruması ──────────────────────────────────────────
+
+def test_generic_short_title_not_auto_merged():
+    """'Editorial' x2 — aynı yıl/yazar ama FARKLI cilt+sayfa: derginin editörü
+    her sayıya bir editorial yazar; otomatik Stage 3 birleşmesi YANLIŞ olurdu."""
+    w = {**_rec(title="editorial", journal="journal x"), "VL": "1", "BP": "1"}
+    s = {**_rec(title="editorial", journal="journal x"), "VL": "2", "BP": "55"}
+    assert compute_match(w, s) is None
+
+
+def test_short_title_still_merges_via_stage4():
+    """Kısa başlık + AYNI dergi+cilt+sayfa → Stage 4 hâlâ birleştirir."""
+    w = {**_rec(title="editorial", journal="journal x"), "VL": "7", "BP": "1"}
+    s = {**_rec(title="editorial", journal="journal x"), "VL": "7", "BP": "1"}
+    m = compute_match(w, s)
+    assert m is not None and m["stage"] == "4_journal_vol_page"
+
+
+def test_informative_title_still_stage3():
+    """Bilgilendirici başlıklar Stage 3'te birleşmeye devam eder (regresyon)."""
+    m = compute_match(_rec(), _rec())
+    assert m is not None and m["stage"] == "3_title_year_surname"
+
+
+# ── Sayısal alan / DOI normalize kenar durumları ──────────────────────────
+
+def test_numeric_vl_bp_float_vs_string_stage4():
+    """xlsx float (100.0) vs WoS txt string ('100') — Stage 4 kaçırmamalı."""
+    w = {**_rec(title="totally different alpha", journal="chem eng journal"), "VL": "100", "BP": "55"}
+    s = {**_rec(title="unrelated beta heading", journal="chem eng journal"), "VL": 100.0, "BP": 55.0}
+    m = compute_match(w, s)
+    assert m is not None and m["stage"] == "4_journal_vol_page"
+
+
+def test_normalize_doi_prefix_variants():
+    assert normalize_doi("doi:10.1234/ABC") == "10.1234/abc"
+    assert normalize_doi("DOI: 10.1234/abc") == "10.1234/abc"
+    assert normalize_doi("https://doi.org/https://doi.org/10.1/x") == "10.1/x"
+    assert normalize_doi("doi.org/10.1/y") == "10.1/y"
+    assert normalize_doi("not-a-doi") is None
 
 
 # ── generate_candidates: kimlik-öncelikli (blocking'i atlar) ──────────────

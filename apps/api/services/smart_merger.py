@@ -91,6 +91,14 @@ def _to_str(v: Any) -> str:
     return str(v).strip()
 
 
+def _clean_num(v: Any) -> str:
+    """Sayısal alan (VL/BP/PG) karşılaştırma formu: '100.0' → '100'."""
+    s = _to_str(v)
+    if re.fullmatch(r"\d+\.0+", s):
+        return s.split(".", 1)[0]
+    return s
+
+
 def normalize_doi(raw: Any) -> Optional[str]:
     """Bir DOI'yi kanonik biçime indir.
 
@@ -103,7 +111,15 @@ def normalize_doi(raw: Any) -> Optional[str]:
     if not s:
         return None
     s = s.lower()
-    s = _DOI_PREFIX_RE.sub("", s)
+    # Kirli veride önekler üst üste binebilir ('doi:', çift 'https://doi.org/');
+    # değişmez hale gelene dek soy. 4 tur pratikte tüm kombinasyonları kapsar.
+    for _ in range(4):
+        prev = s
+        s = _DOI_PREFIX_RE.sub("", s)
+        s = re.sub(r"^doi\s*:\s*", "", s)
+        s = re.sub(r"^doi\.org/", "", s)
+        if s == prev:
+            break
     s = s.rstrip("/. \t")
     if not s.startswith("10."):
         return None
@@ -240,30 +256,6 @@ def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 #  FAZ 3 — Multi-stage matching
 # ════════════════════════════════════════════════════════════════════════
 
-def negative_rule_check(w: dict, s: dict) -> Optional[str]:
-    """Belirleyici negatif kurallar: çelişen kimlikler → reject (asla aynı yayın).
-
-    DOI BELİRLEYİCİDİR. İki kaydın da normalize edilmiş DOI'si varsa ve FARKLIYSA,
-    bunlar kesinlikle farklı yayınlardır — DOI kalıcı, yayına-özgü tanımlayıcıdır.
-    Başlık/journal benzerliği ne olursa olsun eşleşmezler ve borderline (manuel onay)
-    kuyruğuna ASLA girmezler. Aynı çelişki mantığı PMID ve ISSN için de geçerlidir
-    (Hammerton 2013).
-
-    Both sides have value AND they're different → reject. Hiçbir tarafta yoksa geç
-    (ör. yalnız bir tarafta DOI varsa, başlık eşleştirmesine düşülür).
-
-    NOT: UT/EID cross-database aynı değildir (WoS UT 'WOS:xxx', Scopus EID '2-s2.0-xxx').
-    Bu yüzden UT negative rule olarak KULLANILMAZ. Sadece aynı kaynak içi olur.
-    PMID ise cross-database aynıdır (PubMed Identifier).
-    """
-    for key in ("_norm_doi", "_norm_pmid", "_norm_issn"):
-        wv = w.get(key)
-        sv = s.get(key)
-        if wv and sv and wv != sv:
-            return f"{key.replace('_norm_', '').upper()} mismatch ({wv} ≠ {sv})"
-    return None
-
-
 def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
     """İki ham DOI normalize edilince ikisi de mevcut ve FARKLI mı?
 
@@ -283,15 +275,19 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
 
     Dönüş: None (no match) veya {stage, confidence, reason, jw_title, year_diff, surname_match}
     """
-    # Stage 0 — Negative rules (reject)
-    neg = negative_rule_check(w, s)
-    if neg:
-        return None
+    # ── Kimlik HİYERARŞİSİ: DOI > PMID > ISSN ─────────────────────────────
+    # Bir üst seviyedeki KESİN eşitlik, alt seviyedeki çelişkiyi geçersiz kılar.
+    # Örn. WoS print-ISSN, Scopus e-ISSN verir — aynı DOI'li çiftte ISSN
+    # çelişkisi vetolayamaz (eski davranış: negative_rule_check tüm seviyeleri
+    # birden uygulayıp aynı-DOI çifti sessizce duplike bırakıyordu). Alt-seviye
+    # çelişki yalnız üst seviyede eşitlik YOKKEN reddeder.
 
-    # Stage 1 — DOI exact
+    # DOI: çelişki → asla aynı yayın; eşitlik → kesin merge
     w_doi = w.get("_norm_doi")
     s_doi = s.get("_norm_doi")
-    if w_doi and s_doi and w_doi == s_doi:
+    if w_doi and s_doi:
+        if w_doi != s_doi:
+            return None
         return {
             "stage": "1_doi_exact",
             "stage_label": "DOI exact",
@@ -302,10 +298,13 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             "surname_match": None,
         }
 
-    # Stage 2 — PMID exact (UT cross-database aynı değildir, sadece PMID)
+    # PMID (DOI karşılaştırılamadıysa): çelişki → reject; eşitlik → merge
+    # (UT cross-database aynı değildir, sadece PMID)
     w_pmid = w.get("_norm_pmid")
     s_pmid = s.get("_norm_pmid")
-    if w_pmid and s_pmid and w_pmid == s_pmid:
+    if w_pmid and s_pmid:
+        if w_pmid != s_pmid:
+            return None
         return {
             "stage": "2_pmid_exact",
             "stage_label": "PMID exact",
@@ -315,6 +314,12 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             "year_diff": None,
             "surname_match": None,
         }
+
+    # ISSN (dergi-seviyesi koruma): yalnız başlık aşamalarını veto eder
+    w_issn = w.get("_norm_issn")
+    s_issn = s.get("_norm_issn")
+    if w_issn and s_issn and w_issn != s_issn:
+        return None
 
     # Stage 3 — Title JW ≥ 0.92 + Year ±1 + Surname match
     w_title = w.get("_norm_title", "")
@@ -328,8 +333,16 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
         s_surname = s.get("_norm_surname", "")
         surname_match = bool(w_surname and s_surname and w_surname == s_surname)
 
+        # Jenerik/kısa başlık koruması: "Editorial", "Erratum", "Preface" gibi
+        # başlıklar aynı yazar+yılda BİRDEN ÇOK farklı yayına ait olabilir
+        # (derginin editörü her sayıya bir editorial yazar). Bu tür başlıklar
+        # otomatik Stage 3'e giremez; yalnız kimlik (DOI/PMID) veya Stage 4
+        # (dergi+cilt+sayfa) ile birleşir.
+        informative_title = len(w_title.split()) >= 3 or len(w_title) >= 15
+
         if (
-            jw_title >= TITLE_EXACT_THRESHOLD
+            informative_title
+            and jw_title >= TITLE_EXACT_THRESHOLD
             and year_diff is not None
             and year_diff <= YEAR_TOLERANCE
             and surname_match
@@ -349,12 +362,14 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
         s_journal = s.get("_norm_journal", "")
         if w_journal and s_journal:
             jw_journal = jaro_winkler(w_journal, s_journal)
-            w_vol = _to_str(w.get("VL", ""))
-            s_vol = _to_str(s.get("VL", ""))
-            w_bp = _to_str(w.get("BP", ""))
-            s_bp = _to_str(s.get("BP", ""))
-            w_pg = _to_str(w.get("PG", ""))
-            s_pg = _to_str(s.get("PG", ""))
+            # xlsx yolu sayısal alanları float yapar ("100.0"); WoS txt string
+            # ("100"). ".0" kuyruğu temizlenmeden karşılaştırma hep ıskalardı.
+            w_vol = _clean_num(w.get("VL", ""))
+            s_vol = _clean_num(s.get("VL", ""))
+            w_bp = _clean_num(w.get("BP", ""))
+            s_bp = _clean_num(s.get("BP", ""))
+            w_pg = _clean_num(w.get("PG", ""))
+            s_pg = _clean_num(s.get("PG", ""))
             page_match = (w_bp and s_bp and w_bp == s_bp) or (w_pg and s_pg and w_pg == s_pg)
             if (
                 jw_journal >= JOURNAL_SIMILARITY
