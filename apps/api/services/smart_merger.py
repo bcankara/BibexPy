@@ -198,6 +198,44 @@ def build_blocks(df: pd.DataFrame) -> dict[tuple[Optional[int], str], list[int]]
     return blocks
 
 
+def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Aynı kaynak İÇİNDEKİ kimlik-duplikelerini ele (UT/EID ve DOI).
+
+    Üst üste binen export dosyaları aynı kaydı iki kez getirebilir (aynı WoS UT)
+    ya da aynı DOI'li iki satır bulunabilir. Cross-source eşleştirme yalnız
+    WoS↔Scopus baktığından bunlar yakalanmıyordu; ayrıca kaynak-içi kopya varken
+    greedy 1-1 eşleşme ikinci kopyayı açıkta bırakıyordu. Her kimlik grubunda
+    EN DOLU satır (boş olmayan hücre sayısı en yüksek) tutulur.
+
+    Dönüş: (dedup edilmiş df — orijinal index korunur, çıkarılan satır sayısı)
+    """
+    if df.empty:
+        return df, 0
+    richness = df.notna().sum(axis=1) + (df.astype(str) != "").sum(axis=1)
+    drop: set = set()
+    for key_col in ("_norm_ut", "_norm_doi"):
+        if key_col not in df.columns:
+            continue
+        best_for: dict[str, Any] = {}
+        for idx in df.index:
+            if idx in drop:
+                continue
+            v = df.at[idx, key_col]
+            if not v:
+                continue
+            prev = best_for.get(v)
+            if prev is None:
+                best_for[v] = idx
+            elif richness[idx] > richness[prev]:
+                drop.add(prev)
+                best_for[v] = idx
+            else:
+                drop.add(idx)
+    if not drop:
+        return df, 0
+    return df.loc[~df.index.isin(drop)], len(drop)
+
+
 # ════════════════════════════════════════════════════════════════════════
 #  FAZ 3 — Multi-stage matching
 # ════════════════════════════════════════════════════════════════════════
@@ -348,6 +386,61 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             }
 
     return None
+
+
+def generate_candidates(
+    wos_df: pd.DataFrame, scp_df: pd.DataFrame,
+) -> list[tuple[float, int, int, dict]]:
+    """Aday (WoS, Scopus) çiftlerini üret — KİMLİK-ÖNCELİKLİ + blocking.
+
+    Kritik kural: aynı normalize DOI'yi (veya PMID'yi) paylaşan her çift,
+    blocking'e BAKILMAKSIZIN değerlendirilir. Eski davranışta adaylar yalnız
+    (yıl, soyad ilk harfi) bloklarından geliyordu; WoS ile Scopus soyadı farklı
+    ayrıştırınca (örn. 'RAHIM ZA' vs 'ABDUL RAHIM NR') veya yıl farklıysa
+    (early-access 2024 vs basılı 2025) aynı DOI'li çift HİÇ karşılaştırılmıyor,
+    DOI-exact aşamasına sıra gelmiyordu → duplike kayıtlar dataset'te kalıyordu.
+    Blocking artık yalnız başlık-benzerliği aşamaları için aday sınırlar.
+
+    Dönüş: confidence azalan sırada [(confidence, w_idx, s_idx, match), ...]
+    """
+    candidates: list[tuple[float, int, int, dict]] = []
+    seen_pairs: set[tuple[int, int]] = set()
+
+    def consider(w_idx: int, s_idx: int) -> None:
+        pair = (int(w_idx), int(s_idx))
+        if pair in seen_pairs:
+            return
+        seen_pairs.add(pair)
+        m = compute_match(wos_df.loc[w_idx].to_dict(), scp_df.loc[s_idx].to_dict())
+        if m is not None:
+            candidates.append((m["confidence"], pair[0], pair[1], m))
+
+    # 1) Kimlik indeksleri — DOI ve PMID paylaşan çiftler blok bağımsız
+    for key_col in ("_norm_doi", "_norm_pmid"):
+        if key_col not in wos_df.columns or key_col not in scp_df.columns:
+            continue
+        w_index: dict[str, list[int]] = {}
+        for idx in wos_df.index:
+            v = wos_df.at[idx, key_col]
+            if v:
+                w_index.setdefault(v, []).append(int(idx))
+        for idx in scp_df.index:
+            v = scp_df.at[idx, key_col]
+            if not v:
+                continue
+            for w_idx in w_index.get(v, ()):
+                consider(w_idx, int(idx))
+
+    # 2) Blocking — başlık-benzerliği aşamaları için aday uzayı
+    wos_blocks = build_blocks(wos_df)
+    scp_blocks = build_blocks(scp_df)
+    for key in set(wos_blocks.keys()) & set(scp_blocks.keys()):
+        for w_idx in wos_blocks[key]:
+            for s_idx in scp_blocks[key]:
+                consider(w_idx, s_idx)
+
+    candidates.sort(key=lambda x: -x[0])
+    return candidates
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -620,15 +713,18 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         df["_norm_journal"] = df.get("SO", pd.Series([""] * len(df))).apply(normalize_title)
     ctx.progress(0.20)
 
-    # 3. Blocking
-    wos_blocks = build_blocks(wos_df)
-    scp_blocks = build_blocks(scp_df)
-    common_keys = set(wos_blocks.keys()) & set(scp_blocks.keys())
-    ctx.log(f"Blocking: {len(wos_blocks)} WoS blocks × {len(scp_blocks)} Scopus blocks -> {len(common_keys)} common blocks")
+    # 2b. Kaynak-İÇİ dedup — aynı UT/EID veya aynı DOI'li satırlardan en dolusu
+    # kalır (üst üste binen export dosyaları; cross-source eşleşme bunları görmez).
+    wos_raw_n, scp_raw_n = len(wos_df), len(scp_df)
+    wos_df, intra_wos_removed = dedup_within_source(wos_df)
+    scp_df, intra_scp_removed = dedup_within_source(scp_df)
+    if intra_wos_removed or intra_scp_removed:
+        ctx.log(f"Intra-source dedup: {intra_wos_removed} WoS + {intra_scp_removed} Scopus duplicate rows removed")
     ctx.progress(0.25)
 
-    # 4. Multi-stage matching (greedy assignment)
-    # Her WoS satırı en yüksek confidence Scopus satırıyla eşleşir (one-to-one)
+    # 3-4. Aday üretimi (KİMLİK-ÖNCELİKLİ: aynı DOI/PMID'li çiftler blocking'e
+    # bakılmaksızın değerlendirilir; blocking yalnız başlık aşamalarını sınırlar)
+    # + greedy one-to-one atama.
     matches: list[dict] = []           # match_audit rows
     borderline: list[dict] = []        # borderline_queue rows
     matched_wos: set[int] = set()
@@ -636,22 +732,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
     # Sayaçlar
     stage_counts: dict[str, int] = {}
-
-    # Tüm aday çiftleri topla, confidence descending sırala
-    candidates: list[tuple[float, int, int, dict]] = []
     pair_counter = 0
-    for key in common_keys:
-        for w_idx in wos_blocks[key]:
-            w_row = wos_df.loc[w_idx].to_dict()
-            for s_idx in scp_blocks[key]:
-                s_row = scp_df.loc[s_idx].to_dict()
-                m = compute_match(w_row, s_row)
-                if m is None:
-                    continue
-                candidates.append((m["confidence"], w_idx, s_idx, m))
 
-    # Confidence descending
-    candidates.sort(key=lambda x: -x[0])
+    candidates = generate_candidates(wos_df, scp_df)
     ctx.log(f"Candidate pairs: {len(candidates)}")
     ctx.progress(0.40)
 
@@ -775,7 +858,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         await asyncio.to_thread(_write_lost_records, scp_not_matched, lost_scp_xlsx)
         await asyncio.to_thread(
             _write_statistic_smart,
-            len(final_df), len(wos_df), len(scp_df), final_df, stat_xlsx,
+            len(final_df), wos_raw_n, scp_raw_n, final_df, stat_xlsx,
         )
     except Exception:
         # Yazma sırasında hata — yarım analiz klasörünü temizle
@@ -803,10 +886,12 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     summary = {
         "method": "smart",
         "analysis_id": analysis_id,
-        "scopus_input": int(len(scp_df)),
-        "wos_input": int(len(wos_df)),
+        "scopus_input": int(scp_raw_n),
+        "wos_input": int(wos_raw_n),
         "merged_count": int(len(final_df)),
         "matched_pairs": int(len(matches)),
+        "intra_wos_removed": int(intra_wos_removed),
+        "intra_scopus_removed": int(intra_scp_removed),
         "borderline_count": int(len(borderline)),
         "borderline_pending": int(len(borderline)),
         "conflict_count": int(len(conflicts)),

@@ -13,7 +13,15 @@ from pathlib import Path
 _API_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_API_ROOT))
 
-from services.smart_merger import compute_match, doi_conflict, negative_rule_check  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from services.smart_merger import (  # noqa: E402
+    compute_match,
+    dedup_within_source,
+    doi_conflict,
+    generate_candidates,
+    negative_rule_check,
+)
 
 
 def _rec(doi=None, title="deep learning bibliometric analysis", year=2020,
@@ -117,6 +125,81 @@ def test_doi_conflict_one_or_both_missing_is_false():
 def test_doi_conflict_invalid_doi_is_false():
     """'10.' ile başlamayan geçersiz değerler normalize'da None olur → çelişki yok."""
     assert doi_conflict("not-a-doi", "10.1/aaa") is False
+
+
+# ── generate_candidates: kimlik-öncelikli (blocking'i atlar) ──────────────
+
+def _frame(rows):
+    return pd.DataFrame([{
+        "_norm_doi": None, "_norm_title": "", "_norm_year": None,
+        "_norm_surname": "", "_norm_pmid": None, "_norm_issn": None,
+        "_norm_ut": None, "_norm_journal": "", **r,
+    } for r in rows])
+
+
+def test_same_doi_escapes_blocking_regression():
+    """GERÇEK VAKA (39 duplike grup): aynı DOI ama soyad FARKLI ayrışmış
+    ('RAHIM' vs 'ABDUL RAHIM') ve/veya yıl farklı (early-access) → eski
+    blocking-yalnız aday üretimi çifti hiç karşılaştırmıyordu. Kimlik-öncelikli
+    üretimde Stage 1 (DOI exact) adayı MUTLAKA çıkmalı."""
+    wos = _frame([{"_norm_doi": "10.1002/ceat.1", "_norm_title": "hydrogen fuel cell triz",
+                   "_norm_year": 2024, "_norm_surname": "RAHIM"}])
+    scp = _frame([{"_norm_doi": "10.1002/ceat.1", "_norm_title": "hydrogen fuel cell triz",
+                   "_norm_year": 2025, "_norm_surname": "ABDUL RAHIM"}])
+    cands = generate_candidates(wos, scp)
+    assert len(cands) == 1
+    assert cands[0][3]["stage"] == "1_doi_exact"
+
+
+def test_same_pmid_escapes_blocking():
+    wos = _frame([{"_norm_pmid": "12345", "_norm_title": "alpha", "_norm_year": 2020, "_norm_surname": "SMITH"}])
+    scp = _frame([{"_norm_pmid": "12345", "_norm_title": "beta study", "_norm_year": 2021, "_norm_surname": "JONES"}])
+    cands = generate_candidates(wos, scp)
+    assert len(cands) == 1
+    assert cands[0][3]["stage"] == "2_pmid_exact"
+
+
+def test_blocking_pairs_not_duplicated_by_identifier_pass():
+    """Aynı çift hem DOI indeksinden hem bloktan gelirse TEK aday üretilmeli."""
+    wos = _frame([{"_norm_doi": "10.1/x", "_norm_title": "same title here",
+                   "_norm_year": 2020, "_norm_surname": "SMITH"}])
+    scp = _frame([{"_norm_doi": "10.1/x", "_norm_title": "same title here",
+                   "_norm_year": 2020, "_norm_surname": "SMITH"}])
+    cands = generate_candidates(wos, scp)
+    assert len(cands) == 1
+
+
+# ── dedup_within_source ───────────────────────────────────────────────────
+
+def test_dedup_within_source_same_ut_keeps_richest():
+    """GERÇEK VAKA: aynı WoS UT'li iki ISI satırı (üst üste binen export'lar).
+    En dolu satır kalmalı."""
+    df = _frame([
+        {"_norm_ut": "wos:1", "TI": "Title", "AB": ""},
+        {"_norm_ut": "wos:1", "TI": "Title", "AB": "An abstract makes this row richer"},
+    ])
+    out, removed = dedup_within_source(df)
+    assert removed == 1 and len(out) == 1
+    assert out.iloc[0]["AB"] != ""
+
+
+def test_dedup_within_source_same_doi():
+    df = _frame([
+        {"_norm_doi": "10.1/dup", "TI": "A"},
+        {"_norm_doi": "10.1/dup", "TI": "B"},
+        {"_norm_doi": "10.1/other", "TI": "C"},
+    ])
+    out, removed = dedup_within_source(df)
+    assert removed == 1 and len(out) == 2
+
+
+def test_dedup_within_source_no_duplicates_untouched():
+    df = _frame([
+        {"_norm_ut": "wos:1", "_norm_doi": "10.1/a"},
+        {"_norm_ut": "wos:2", "_norm_doi": "10.1/b"},
+    ])
+    out, removed = dedup_within_source(df)
+    assert removed == 0 and len(out) == 2
 
 
 def test_different_doi_blocks_stage4_journal_match():
