@@ -69,6 +69,16 @@ def data_flow(project_id: str):
     return report_flow.build_flow(project_id)
 
 
+@router.get("/flow.pdf")
+def data_flow_pdf(project_id: str, lang: str = "en"):
+    """Aynı şemanın vektörel (yayına hazır) PDF sürümü — lang: en|tr."""
+    _require(project_id)
+    if not report_flow.build_flow(project_id).get("has_merge"):
+        raise HTTPException(409, "no_merge_for_flow")
+    pdf = report_flow.render_flow_pdf(project_id, lang=lang)
+    return _pdf(pdf, "bibexpy_data_flow.pdf")
+
+
 # ───────────────────────── Metodoloji raporu (LLM) ─────────────────────────
 
 @router.get("/methodology")

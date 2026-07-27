@@ -67,6 +67,18 @@ def test_flow_from_recorded_operations(monkeypatch, tmp_path):
     # merged.xlsx yok -> final_total None'a düşer (canlı sayım opsiyonel)
     assert flow["final_total"] is None
 
+    # Vektörel PDF çıktısı — EN ve TR
+    r = client.get(f"/api/projects/{pid}/report/flow.pdf")
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF")
+    assert len(r.content) > 1500
+    assert "application/pdf" in r.headers["content-type"]
+
+    r_tr = client.get(f"/api/projects/{pid}/report/flow.pdf?lang=tr")
+    assert r_tr.status_code == 200
+    assert r_tr.content.startswith(b"%PDF")
+    assert len(r_tr.content) > 1500
+
 
 def test_flow_without_merge_is_empty(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
@@ -75,3 +87,5 @@ def test_flow_without_merge_is_empty(monkeypatch, tmp_path):
     assert flow["has_merge"] is False
     assert flow["inputs"] is None
     assert flow["steps"] == []
+    # Merge yoksa çizilecek şema da yok -> 409
+    assert client.get(f"/api/projects/{pid}/report/flow.pdf").status_code == 409

@@ -1240,7 +1240,7 @@
     "downloadLog": "Download log",
     "flow": {
       "title": "Data Flow Diagram",
-      "desc": "Record-count flow generated automatically from the recorded operations (audit log) — downloadable as SVG/PNG for your manuscript's data-preparation figure.",
+      "desc": "Record-count flow generated automatically from the recorded operations (audit log) — downloadable as SVG, 300-DPI PNG, or vector PDF for your manuscript's data-preparation figure.",
       "note": "This diagram is derived automatically from the operations recorded for this analysis; the numbers match the operation log exactly.",
       "identification": "Identification (raw input)",
       "sources": "WoS {wos} + Scopus {scopus}",

@@ -1240,7 +1240,7 @@
     "downloadLog": "Günlüğü indir",
     "flow": {
       "title": "Veri Akış Şeması",
-      "desc": "Kayıtlı işlemlerden (audit log) otomatik üretilen kayıt-sayısı akışı — makalenin veri hazırlama şeması olarak SVG/PNG indirilebilir.",
+      "desc": "Kayıtlı işlemlerden (audit log) otomatik üretilen kayıt-sayısı akışı — makalenin veri hazırlama şeması olarak SVG / 300 DPI PNG / vektörel PDF indirilebilir.",
       "note": "Bu şema, bu analizde kayıtlı işlemlerden otomatik türetilmiştir; sayılar operasyon günlüğüyle birebir aynıdır.",
       "identification": "Tanımlama (ham girdi)",
       "sources": "WoS {wos} + Scopus {scopus}",
