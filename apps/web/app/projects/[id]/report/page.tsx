@@ -160,7 +160,7 @@ export default function ReportPage() {
           <MethodologyCard projectId={id} hasOps={(summary?.total ?? 0) > 0} />
         </div>
 
-        {/* PRISMA-tarzı veri akış şeması — audit log'dan otomatik; SVG/PNG indirilebilir */}
+        {/* Veri akış şeması — audit log'dan otomatik; SVG/PNG indirilebilir */}
         <DataFlowDiagram projectId={id} />
 
         {/* Kronoloji — en altta */}

@@ -1,4 +1,4 @@
-"""Tests for the PRISMA-style data-flow builder (services.report_flow).
+"""Tests for the data-flow builder (services.report_flow).
 
 The flow is derived from audit-log entries; tests write synthetic entries
 mirroring a real pipeline (merge -> borderline accept -> filter apply ->

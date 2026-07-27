@@ -461,7 +461,7 @@
       "useCases": [
         "Studies requiring academic reproducibility (SCI/SSCI manuscript writing)",
         "Old publications without DOI (pre-2000) / inconsistent metadata",
-        "Systematic review data preparation (PRISMA-ScR compliant audit)",
+        "Systematic review data preparation (audit trail aligned with reporting standards)",
         "Studies open to audit trail / reviewer scrutiny"
       ],
       "outputs": [
@@ -1239,7 +1239,7 @@
     "chronological": "Chronological list",
     "downloadLog": "Download log",
     "flow": {
-      "title": "Data Flow Diagram (PRISMA-style)",
+      "title": "Data Flow Diagram",
       "desc": "Record-count flow generated automatically from the recorded operations (audit log) — downloadable as SVG/PNG for your manuscript's data-preparation figure.",
       "note": "This diagram is derived automatically from the operations recorded for this analysis; the numbers match the operation log exactly.",
       "identification": "Identification (raw input)",

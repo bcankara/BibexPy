@@ -6,7 +6,7 @@ import { Download, GitBranch } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
 /**
- * PRISMA-tarzı veri akış şeması — audit log'dan otomatik (api.reportFlow).
+ * Veri akış şeması — audit log'dan otomatik (api.reportFlow).
  * SVG tamamen self-contained çizilir (inline renk/font, CSS sınıfı yok) ki
  * indirilen SVG/PNG makalede olduğu gibi kullanılabilsin.
  */

@@ -461,7 +461,7 @@
       "useCases": [
         "Akademik tekrarlanabilirlik gereken çalışmalar (SCI/SSCI makale yazımı)",
         "DOI'siz eski yayınlar (pre-2000) / tutarsız metadata",
-        "Sistematik review veri hazırlama (PRISMA-ScR uyumlu audit)",
+        "Sistematik review veri hazırlama (raporlama standartlarına uygun audit izi)",
         "Audit trail / hakem denetimine açık çalışmalar"
       ],
       "outputs": [
@@ -1239,7 +1239,7 @@
     "chronological": "Kronolojik liste",
     "downloadLog": "Günlüğü indir",
     "flow": {
-      "title": "Veri Akış Şeması (PRISMA-tarzı)",
+      "title": "Veri Akış Şeması",
       "desc": "Kayıtlı işlemlerden (audit log) otomatik üretilen kayıt-sayısı akışı — makalenin veri hazırlama şeması olarak SVG/PNG indirilebilir.",
       "note": "Bu şema, bu analizde kayıtlı işlemlerden otomatik türetilmiştir; sayılar operasyon günlüğüyle birebir aynıdır.",
       "identification": "Tanımlama (ham girdi)",

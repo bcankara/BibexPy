@@ -1,4 +1,4 @@
-"""Builds a PRISMA-style data-flow summary from the audit log.
+"""Builds a publication-ready data-flow summary from the audit log.
 
 Derives the record-count pipeline for the ACTIVE analysis — identification
 (raw inputs), deduplication (intra-source + cross-source matches with stage

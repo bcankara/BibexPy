@@ -418,7 +418,7 @@ export const api = {
   // Rapor (Export sonrası son adım) — ham günlük + LLM metodoloji raporu
   reportLogUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/log.${fmt}`,
-  // Audit log'dan türetilen PRISMA-tarzı veri akışı (Report sayfası şema çizer)
+  // Audit log'dan türetilen veri akışı (Report sayfası şema çizer)
   reportFlow: (id: string) => http<ReportFlow>(`/projects/${id}/report/flow`),
   methodologyUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/methodology.${fmt}`,

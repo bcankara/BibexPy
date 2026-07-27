@@ -59,7 +59,7 @@ def log_pdf(project_id: str):
     return _pdf(pdf, "operation_log.pdf")
 
 
-# ───────────────────────── Veri akış şeması (PRISMA-tarzı) ─────────────────
+# ───────────────────────── Veri akış şeması ─────────────────
 
 @router.get("/flow")
 def data_flow(project_id: str):
