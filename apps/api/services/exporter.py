@@ -7,6 +7,7 @@ optional filter spec is applied before writing.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -19,6 +20,11 @@ from services.bibex_adapter import _suppress_stdio
 
 
 VALID_FORMATS = {"wos", "vos", "bib", "ris", "csv", "xlsx", "tsv"}
+
+# Structured-table formats that biblioshiny/bibliometrix can import directly.
+# Their loader assumes an SR column already exists (wcTable/countryTable do
+# rep(M$SR, ...) with no guard), so these exports must carry SR.
+_SR_FORMATS = {"xlsx", "csv", "tsv"}
 
 # Format anahtarı → gerçek dosya uzantısı (anahtardan farklı olanlar). WoS plain-text
 # ve VOSviewer tab-text çıktıları .txt'dir (.wos/.vos standart değil; WoS = savedrecs.txt).
@@ -40,6 +46,106 @@ def _load_filtered(project_id: str, spec: Optional[dict[str, Any]]) -> pd.DataFr
     if spec:
         df = filter_engine.apply_filter(df, spec)
     return df
+
+
+# ── SR (Short Reference) — bibliometrix/biblioshiny uyumu ────────────────
+
+def _blank(v: Any) -> bool:
+    s = str(v).strip()
+    return s == "" or s.upper() in ("NAN", "NONE", "NA")
+
+
+def _fmt_year(v: Any) -> str:
+    """PY hücresini R'ın paste()'inin yazacağı gibi yaz: 2020.0 → "2020"."""
+    if _blank(v):
+        return "NA"
+    try:
+        f = float(v)
+        if f.is_integer():
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip()
+
+
+def _first_author(au: Any) -> str:
+    """AU'nun ilk ';' parçası, virgüller boşluğa çevrilmiş (bibliometrix SR())."""
+    if _blank(au):
+        return "NA"
+    first = str(au).split(";")[0].strip().replace(",", " ")
+    first = re.sub(r"\s+", " ", first).strip()
+    return first or "NA"
+
+
+def _sr_source(row: pd.Series, has_j9: bool, has_ji: bool, has_so: bool) -> str:
+    """Kaynak kısaltması: J9 → (J9+JI boşsa SO) → (kalan boş J9 için JI, noktalar
+    boşluğa). J9 kolonu hiç yoksa JI (boşsa SO) kullanılır — bibliometrix SR()
+    ile aynı öncelik zinciri."""
+    j9 = row.get("J9") if has_j9 else None
+    ji = row.get("JI") if has_ji else None
+    so = row.get("SO") if has_so else None
+    if has_j9:
+        if not _blank(j9):
+            return str(j9).strip()
+        if _blank(ji):
+            return "" if _blank(so) else str(so).strip()
+        return re.sub(r"\s+", " ", str(ji).replace(".", " ")).strip()
+    val = ji if not _blank(ji) else so
+    if _blank(val):
+        return ""
+    return re.sub(r"\s+", " ", str(val).replace(".", " ")).strip()
+
+
+def ensure_sr(df: pd.DataFrame) -> pd.DataFrame:
+    """SR / SR_FULL kolonlarını yoksa üret (bibliometrix `metaTagExtraction`
+    Field="SR" algoritmasına sadık).
+
+    biblioshiny, xlsx/csv import'unda convert2df ÇAĞIRMAZ: dosyayı ham okur ve
+    SR'nin zaten var olduğunu varsayar (`wcTable` içinde korumasız
+    `rep(M$SR, lengths(WC))` — SR yoksa "differing number of rows: 0, N" ile
+    yükleme çöker). Format: "SOYAD AD, YIL, KAYNAK-KISALTMASI"; duplikeler
+    bibliometrix'in İTERATİF kuralıyla ayrıştırılır (3 kopya → X, X-a, X-a-b).
+    """
+    if "SR" in df.columns and df["SR"].astype(str).str.strip().ne("").any():
+        return df
+    if "AU" not in df.columns:
+        return df  # SR üretilemez; biblioshiny'ye ham veri de zaten yetmezdi
+
+    has_j9 = "J9" in df.columns
+    has_ji = "JI" in df.columns
+    has_so = "SO" in df.columns
+
+    parts = []
+    for _, row in df.iterrows():
+        fa = _first_author(row.get("AU"))
+        py = _fmt_year(row.get("PY")) if "PY" in df.columns else "NA"
+        src = _sr_source(row, has_j9, has_ji, has_so)
+        sr = f"{fa}, {py}, {src}" if src else f"{fa}, {py}"
+        parts.append(re.sub(r"\s+", " ", sr).strip())
+
+    sr_full = list(parts)
+    # Bibliometrix'in birleşik (compounding) süffiks döngüsü: her turda
+    # duplicated() sonrası kalanlara -a, sonra -b ... eklenir.
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    sr = list(parts)
+    for i in range(len(letters)):
+        seen: set = set()
+        dup_idx = []
+        for idx, v in enumerate(sr):
+            if v in seen:
+                dup_idx.append(idx)
+            else:
+                seen.add(v)
+        if not dup_idx:
+            break
+        for idx in dup_idx:
+            sr[idx] = f"{sr[idx]}-{letters[i]}"
+
+    out = df.copy(deep=False)
+    out["SR"] = sr
+    if "SR_FULL" not in out.columns:
+        out["SR_FULL"] = sr_full
+    return out
 
 
 def export(
@@ -70,6 +176,9 @@ def export(
         # wos/vos gibi anahtar≠uzantı durumunda formatı isimde tut: export_..._wos.txt
         name = f"export_{stamp}_{fmt}.{ext}" if ext != fmt else f"export_{stamp}.{ext}"
     output = exports / Path(name).name
+
+    if fmt in _SR_FORMATS:
+        df = ensure_sr(df)
 
     if fmt == "xlsx":
         df.to_excel(output, index=False)
