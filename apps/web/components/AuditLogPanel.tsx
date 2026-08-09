@@ -4,7 +4,7 @@ import Link from "next/link";
 import {
   X, FileText, History, ExternalLink, RotateCcw, Download,
   Upload, Combine, Sparkles, Brain, Trash2, Save, Star, Camera,
-  Layers, Database, Check, AlertCircle,
+  Layers, Database, Check, AlertCircle, Loader2,
 } from "lucide-react";
 import { api, translateTitle, translateApiError, type AuditEntry } from "@/lib/api-client";
 import { useT } from "@/lib/i18n";
@@ -43,6 +43,9 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // Hangi snapshot şu an geri yükleniyor — o satırın butonu spinner'a döner + kilitlenir.
+  const [restoringSnapshot, setRestoringSnapshot] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
   // onClose'u ref'te tut — parent her render'da yeni closure verse de efekt yeniden
   // çalışıp listeyi tekrar çekmesin / animasyonu sıfırlamasın.
   const onCloseRef = useRef(onClose);
@@ -73,6 +76,7 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
   }
 
   async function handleRestore(snapshot: string) {
+    if (restoringSnapshot) return;
     const ok = await confirm({
       title: t("audit.restoreTitle"),
       message: t("audit.restoreConfirm"),
@@ -80,21 +84,28 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
       tone: "danger",
     });
     if (!ok) return;
+    setRestoringSnapshot(snapshot);
     try {
       const r = await api.restoreRecordSnapshot(projectId, snapshot);
       toast(t("audit.restoredToast", { n: r.restored }), { tone: "success" });
       await refresh();
     } catch (e) {
       toast(translateApiError(t, e, "audit.restoreFailed"), { tone: "danger" });
+    } finally {
+      setRestoringSnapshot(null);
     }
   }
 
   async function clearAll() {
+    if (clearing) return;
     if (!(await confirm({ message: t("audit.clearConfirm"), tone: "danger" }))) return;
+    setClearing(true);
     try {
       await api.clearAudit(projectId);
       await refresh();
-    } catch {}
+    } catch {} finally {
+      setClearing(false);
+    }
   }
 
   if (!open) return null;
@@ -151,7 +162,12 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
           ) : (
             <ol className="relative">
               {entries.map((e, i) => (
-                <AuditEntryRow key={i} entry={e} onRestore={handleRestore} />
+                <AuditEntryRow
+                  key={i}
+                  entry={e}
+                  onRestore={handleRestore}
+                  restoring={!!e.snapshot && restoringSnapshot === e.snapshot}
+                />
               ))}
             </ol>
           )}
@@ -161,9 +177,11 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
           <div className="px-5 py-3 border-t border-border flex items-center justify-between">
             <button
               onClick={clearAll}
-              className="text-[11px] text-muted hover:text-danger flex items-center gap-1"
+              disabled={clearing}
+              className="text-[11px] text-muted hover:text-danger flex items-center gap-1 disabled:opacity-60"
             >
-              <Trash2 className="h-3 w-3" /> {t("audit.clearAll")}
+              {clearing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+              {t("audit.clearAll")}
             </button>
           </div>
         )}
@@ -272,7 +290,7 @@ function SummaryCell({ label, value, sub, tone }: {
 }
 
 
-function AuditEntryRow({ entry, onRestore }: { entry: AuditEntry; onRestore: (snapshot: string) => void }) {
+function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onRestore: (snapshot: string) => void; restoring?: boolean }) {
   const t = useT();
   const iconMeta = KIND_ICONS[entry.kind] ?? { icon: <FileText className="h-3.5 w-3.5" />, color: "text-muted", labelKey: "" };
   const label = iconMeta.labelKey ? t(iconMeta.labelKey) : entry.kind;
@@ -334,10 +352,12 @@ function AuditEntryRow({ entry, onRestore }: { entry: AuditEntry; onRestore: (sn
               </span>
               <button
                 onClick={() => onRestore(entry.snapshot!)}
-                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition"
+                disabled={restoring}
+                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60"
                 title={t("audit.restoreTitle")}
               >
-                <RotateCcw className="h-3 w-3" /> {t("audit.restore")}
+                {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                {t("audit.restore")}
               </button>
             </div>
           )}

@@ -14,6 +14,7 @@ type Props = {
 export function JobProgress({ jobId, onComplete, onClose }: Props) {
   const t = useT();
   const [job, setJob] = useState<JobInfo | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   // Ref pattern: onComplete prop değişimi useEffect'i tetiklemez, böylece
   // EventSource her render'da kapanıp açılmaz ve "completed" event'i kaçırılmaz.
   const onCompleteRef = useRef(onComplete);
@@ -45,6 +46,13 @@ export function JobProgress({ jobId, onComplete, onClose }: Props) {
   const pct = Math.round(job.progress * 100);
   const isRunning = job.status === "queued" || job.status === "running";
 
+  async function handleCancel() {
+    if (cancelling || !job) return;
+    setCancelling(true);
+    try { await api.cancelJob(job.id); } catch { /* yut */ }
+    finally { setCancelling(false); }
+  }
+
   return (
     <div className="rounded-xl border border-border bg-bg-card shadow-card p-4 space-y-3">
       <div className="flex items-center gap-2">
@@ -66,8 +74,8 @@ export function JobProgress({ jobId, onComplete, onClose }: Props) {
         <span className="font-semibold text-ink">{translateTitle(t, job)}</span>
         <span className="ml-auto text-sm font-medium text-ink tabular-nums">{pct}%</span>
         {isRunning && (
-          <Button size="sm" variant="ghost" onClick={() => api.cancelJob(job.id)} title={t("jobs.cancel")}>
-            <X className="h-4 w-4" />
+          <Button size="sm" variant="ghost" onClick={handleCancel} disabled={cancelling} title={t("jobs.cancel")}>
+            {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
           </Button>
         )}
         {!isRunning && onClose && (

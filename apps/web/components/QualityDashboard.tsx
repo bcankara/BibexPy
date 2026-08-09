@@ -41,6 +41,10 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   // Geçmiş 'Fill all' raporu (audit'ten) — sayfa yenilense bile kalır.
   const [savedReport, setSavedReport] = useState<FillReport | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  // Job başlatma isteği (job_id dönene kadar) ve iptal isteği için ayrı in-flight
+  // durumları — SSE üzerinden gelen 'running' durumundan önceki kısa ağ gecikmesini kapsar.
+  const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const refreshStats = useCallback(async () => {
     try {
@@ -67,7 +71,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   const running = !!job && (job.status === "running" || job.status === "queued");
 
   async function startFillAll() {
-    if (running || !stats) return;
+    if (running || !stats || starting) return;
     const ok = await confirm({
       title: t("records.quality.startAllTitle"),
       message: t("records.quality.startAllConfirm", { n: fillableCount }),
@@ -75,6 +79,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
       confirmLabel: t("records.quality.startAll"),
     });
     if (!ok) return;
+    setStarting(true);
     try {
       const { job_id } = await api.startFillAll(projectId);
       setJob({ jobId: job_id, progress: 0, status: "queued", log_tail: [] });
@@ -108,11 +113,14 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
         refreshStats();
       };
     } catch { /* sessiz */ }
+    finally { setStarting(false); }
   }
 
   async function cancelFillAll() {
-    if (!job) return;
+    if (!job || cancelling) return;
+    setCancelling(true);
     try { await api.cancelJob(job.jobId); } catch { /* yut */ }
+    finally { setCancelling(false); }
   }
 
   if (loading) {
@@ -180,19 +188,21 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                   <span className="text-2xl font-extrabold tabular-nums">%{jobPct}</span>
                   <button
                     onClick={cancelFillAll}
-                    className="flex items-center gap-1.5 rounded-lg bg-white/15 hover:bg-white/25 px-3 py-2 text-sm font-semibold transition"
+                    disabled={cancelling}
+                    className="flex items-center gap-1.5 rounded-lg bg-white/15 hover:bg-white/25 px-3 py-2 text-sm font-semibold transition disabled:opacity-60"
                   >
-                    <X className="h-4 w-4" /> {t("records.quality.stopAll")}
+                    {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                    {t("records.quality.stopAll")}
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={startFillAll}
-                  disabled={fillableCount === 0}
+                  disabled={fillableCount === 0 || starting}
                   title={t("records.quality.startAllHint")}
                   className="group flex items-center gap-2.5 rounded-xl bg-white px-5 py-3 text-cyan-700 font-extrabold shadow-md ring-1 ring-white/60 transition hover:scale-[1.03] hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 flex-shrink-0"
                 >
-                  <Play className="h-5 w-5 fill-current" />
+                  {starting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5 fill-current" />}
                   <span>{t("records.quality.startAll")}</span>
                   {fillableCount > 0 && <span className="ml-1 rounded-lg bg-cyan-100 px-2 py-0.5 text-sm tabular-nums">{fillableCount}</span>}
                 </button>
@@ -228,9 +238,10 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={startFillAll} disabled={fillableCount === 0}
+                  <button onClick={startFillAll} disabled={fillableCount === 0 || starting}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 disabled:opacity-50 flex items-center gap-1.5">
-                    <Play className="h-3 w-3 fill-current" /> {t("records.quality.runAgain")}
+                    {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
+                    {t("records.quality.runAgain")}
                     {fillableCount > 0 && <span className="rounded bg-white/20 px-1 tabular-nums">{fillableCount}</span>}
                   </button>
                 </div>

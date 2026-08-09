@@ -10,7 +10,7 @@ import { Button } from "./Button";
 import { JobProgress } from "./JobProgress";
 import {
   AlertTriangle, Sparkles, ShieldQuestion,
-  SplitSquareHorizontal, Combine,
+  SplitSquareHorizontal, Combine, Loader2,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { useConfirm, useToast } from "./Dialogs";
@@ -37,7 +37,11 @@ export function DisambiguatePanel({
   const [approvedMerges, setApprovedMerges] = useState<Set<string>>(new Set());
   const [approvedSplits, setApprovedSplits] = useState<Set<string>>(new Set());
   const [canonicalEdits, setCanonicalEdits] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+  // Üç ayrı buton (Tara / Yenile / Onayla & uygula), üç ayrı in-flight durumu —
+  // her biri kendi spinner'ını gösterir ve kendi başına yeniden-giriş'e kapalıdır.
+  const [scanning, setScanning] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => { api.disambiguateStatus(projectId).then(setStatus).catch(() => {}); }, [projectId]);
 
@@ -54,10 +58,14 @@ export function DisambiguatePanel({
   }
 
   async function loadProposals() {
+    if (refreshing) return;
+    setRefreshing(true);
     try {
       applyProposalSet(await api.getProposals(projectId, kind));
     } catch (e) {
       setError(translateApiError(t, e));
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -80,7 +88,8 @@ export function DisambiguatePanel({
   }, [kind, projectId]);
 
   async function start() {
-    setError(null); setBusy(true);
+    if (scanning || jobId) return;
+    setError(null); setScanning(true);
     try {
       const starter =
         kind === "authors" ? api.startAuthorDisambiguation
@@ -91,7 +100,7 @@ export function DisambiguatePanel({
       setJobId(job_id);
     } catch (e) {
       setError(translateApiError(t, e, "disambiguate.startFailed"));
-    } finally { setBusy(false); }
+    } finally { setScanning(false); }
   }
 
   const splits = (kind === "authors" ? proposals?.splits : []) || [];
@@ -109,9 +118,9 @@ export function DisambiguatePanel({
   }
 
   async function applyApproved() {
-    if (totalApproved === 0) return;
+    if (totalApproved === 0 || applying) return;
     if (!(await confirm({ message: t("disambiguate.applyConfirm", { n: totalApproved }) }))) return;
-    setBusy(true); setError(null);
+    setApplying(true); setError(null);
     try {
       // YALNIZ görünür (filtrelenmiş) kümelerden onaylananları uygula — gizli tek-varyant
       // kümeler (ör. tek yazılışlı ülke/kurum) sessizce uygulanmaz.
@@ -126,7 +135,7 @@ export function DisambiguatePanel({
       await loadProposals();
     } catch (e) {
       setError(translateApiError(t, e, "disambiguate.applyFailed"));
-    } finally { setBusy(false); }
+    } finally { setApplying(false); }
   }
 
   const subject = t(`disambiguate.subjects.${kind}`);
@@ -162,12 +171,17 @@ export function DisambiguatePanel({
 
       {/* Tara */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Button onClick={start} disabled={busy || !!jobId} size="sm">
-          <Sparkles className="h-4 w-4" /> {t("disambiguate.scan")}
+        <Button onClick={start} disabled={scanning || !!jobId} size="sm">
+          {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {t("disambiguate.scan")}
         </Button>
-        <Button onClick={loadProposals} variant="secondary" size="sm">{t("common.refresh")}</Button>
+        <Button onClick={loadProposals} disabled={refreshing} variant="secondary" size="sm">
+          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {t("common.refresh")}
+        </Button>
         {totalApproved > 0 && (
-          <Button onClick={applyApproved} disabled={busy} variant="success" size="sm" className="ml-auto">
+          <Button onClick={applyApproved} disabled={applying} variant="success" size="sm" className="ml-auto">
+            {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("disambiguate.approveApply", { n: totalApproved })}
           </Button>
         )}

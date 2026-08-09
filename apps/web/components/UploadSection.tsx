@@ -36,6 +36,8 @@ export function UploadSection({
   const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Silinmekte olan dosya adı — o satırın Trash butonu spinner'a döner + kilitlenir.
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   const scopus = files.filter((f) => f.kind === "scopus_csv");
   const wos = files.filter((f) => f.kind === "wos_txt");
@@ -53,13 +55,17 @@ export function UploadSection({
   }
 
   async function handleDelete(name: string) {
+    if (deletingFile) return;
     if (!(await confirm({ message: t("data.deleteFileConfirm", { name }), tone: "danger" }))) return;
     setError(null);
+    setDeletingFile(name);
     try {
       await api.deleteFile(projectId, name);
       onChanged();
     } catch (e) {
       setError(translateApiError(t, e));
+    } finally {
+      setDeletingFile(null);
     }
   }
 
@@ -99,8 +105,8 @@ export function UploadSection({
           <UploadZone onUpload={handleUpload} />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            <RawColumn title={t("data.scopus")} sub="CSV" files={scopus} projectId={projectId} onDelete={handleDelete} t={t} />
-            <RawColumn title={t("data.wos")} sub="TXT" files={wos} projectId={projectId} onDelete={handleDelete} t={t} />
+            <RawColumn title={t("data.scopus")} sub="CSV" files={scopus} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} />
+            <RawColumn title={t("data.wos")} sub="TXT" files={wos} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} />
           </div>
         )}
 
@@ -122,12 +128,13 @@ export function UploadSection({
   );
 }
 
-function RawColumn({ title, sub, files, projectId, onDelete, t }: {
+function RawColumn({ title, sub, files, projectId, onDelete, deletingFile, t }: {
   title: string;
   sub: string;
   files: UploadedFile[];
   projectId: string;
   onDelete: (name: string) => void;
+  deletingFile: string | null;
   t: (k: string, vars?: Record<string, string | number>) => string;
 }) {
   return (
@@ -154,10 +161,11 @@ function RawColumn({ title, sub, files, projectId, onDelete, t }: {
               </a>
               <button
                 onClick={() => onDelete(f.name)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:text-danger"
+                disabled={deletingFile === f.name}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:text-danger disabled:opacity-60"
                 title={t("common.delete")}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                {deletingFile === f.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               </button>
             </li>
           ))}

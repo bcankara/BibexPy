@@ -52,6 +52,9 @@ export default function ReportPage() {
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [stats, setStats] = useState<QualityStats | null>(null);
   const [loading, setLoading] = useState(true);
+  // Hangi snapshot şu an geri yükleniyor — o satırın "Restore" butonu spinner'a
+  // döner + kilitlenir (yeniden-giriş engellenir).
+  const [restoringSnapshot, setRestoringSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -82,6 +85,7 @@ export default function ReportPage() {
   }, [id]);
 
   async function handleRestore(snapshot: string) {
+    if (restoringSnapshot) return;
     const ok = await confirm({
       title: t("audit.restoreTitle"),
       message: t("audit.restoreConfirm"),
@@ -89,12 +93,15 @@ export default function ReportPage() {
       tone: "danger",
     });
     if (!ok) return;
+    setRestoringSnapshot(snapshot);
     try {
       const r = await api.restoreRecordSnapshot(id, snapshot);
       toast(t("audit.restoredToast", { n: r.restored }), { tone: "success" });
       await reload();
     } catch (err) {
       toast(translateApiError(t, err, "audit.restoreFailed"), { tone: "danger" });
+    } finally {
+      setRestoringSnapshot(null);
     }
   }
 
@@ -180,7 +187,13 @@ export default function ReportPage() {
               <ol className="relative space-y-0">
                 <div className="absolute left-[18px] top-2 bottom-2 w-px bg-border" />
                 {entries.map((e, i) => (
-                  <ReportEntry key={i} entry={e} idx={entries.length - i} onRestore={handleRestore} />
+                  <ReportEntry
+                    key={i}
+                    entry={e}
+                    idx={entries.length - i}
+                    onRestore={handleRestore}
+                    restoring={!!e.snapshot && restoringSnapshot === e.snapshot}
+                  />
                 ))}
               </ol>
             )}
@@ -348,7 +361,7 @@ function SummaryCard({ icon, label, value, tone = "brand", small }: {
   );
 }
 
-function ReportEntry({ entry, idx, onRestore }: { entry: AuditEntry; idx: number; onRestore: (snapshot: string) => void }) {
+function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; idx: number; onRestore: (snapshot: string) => void; restoring?: boolean }) {
   const t = useT();
   const meta = KIND_ICONS[entry.kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral", labelKey: "" };
   const label = meta.labelKey ? t(meta.labelKey) : entry.kind;
@@ -384,10 +397,12 @@ function ReportEntry({ entry, idx, onRestore }: { entry: AuditEntry; idx: number
               </span>
               <button
                 onClick={() => onRestore(entry.snapshot!)}
-                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition"
+                disabled={restoring}
+                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60"
                 title={t("audit.restoreTitle")}
               >
-                <RotateCcw className="h-3 w-3" /> {t("audit.restore")}
+                {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                {t("audit.restore")}
               </button>
             </>
           )}

@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [openingFolder, setOpeningFolder] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -89,6 +90,13 @@ export default function SettingsPage() {
     } finally {
       setStorageApplying(false);
     }
+  }
+
+  async function openStorageFolder() {
+    if (openingFolder) return;
+    setOpeningFolder(true);
+    try { await api.openFolder("storage"); } catch { /* sessiz */ }
+    finally { setOpeningFolder(false); }
   }
 
   async function save() {
@@ -271,10 +279,12 @@ export default function SettingsPage() {
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => api.openFolder("storage").catch(() => {})}
+                            onClick={openStorageFolder}
+                            disabled={openingFolder}
                             title={t("settings.openFolder")}
                           >
-                            <FolderOpen className="h-3.5 w-3.5" /> {t("settings.openFolder")}
+                            {openingFolder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+                            {t("settings.openFolder")}
                           </Button>
                         </div>
                         {data.storage_pending_restart && (

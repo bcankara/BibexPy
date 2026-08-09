@@ -16,6 +16,10 @@ export default function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  // Silinmekte / klasörü açılmakta olan proje id'si — o kartın butonu spinner'a
+  // döner + kilitlenir (yeniden-giriş engellenir).
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   async function load() {
     try { setProjects(await api.listProjects()); }
@@ -39,6 +43,7 @@ export default function ProjectsPage() {
   }
 
   async function handleDelete(id: string, name: string) {
+    if (deletingId) return;
     const ok = await confirm({
       title: t("projects.deleteConfirm"),
       message: `"${name}"`,
@@ -46,8 +51,18 @@ export default function ProjectsPage() {
       tone: "danger",
     });
     if (!ok) return;
+    setDeletingId(id);
     try { await api.deleteProject(id); await load(); }
     catch (e) { setError(translateApiError(t, e)); }
+    finally { setDeletingId(null); }
+  }
+
+  async function handleOpenFolder(id: string) {
+    if (openingId) return;
+    setOpeningId(id);
+    try { await api.openFolder("project", id); }
+    catch (e) { setError(translateApiError(t, e)); }
+    finally { setOpeningId(null); }
   }
 
   return (
@@ -129,18 +144,24 @@ export default function ProjectsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => api.openFolder("project", p.id).catch((e) => setError(translateApiError(t, e)))}
+                    onClick={() => handleOpenFolder(p.id)}
+                    disabled={openingId === p.id}
                     title={t("projects.openFolder")}
                   >
-                    <FolderSymlink className="h-4 w-4 text-muted hover:text-brand-600" />
+                    {openingId === p.id
+                      ? <Loader2 className="h-4 w-4 animate-spin text-muted" />
+                      : <FolderSymlink className="h-4 w-4 text-muted hover:text-brand-600" />}
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(p.id, p.name)}
+                    disabled={deletingId === p.id}
                     title={t("common.delete")}
                   >
-                    <Trash2 className="h-4 w-4 text-muted hover:text-danger" />
+                    {deletingId === p.id
+                      ? <Loader2 className="h-4 w-4 animate-spin text-muted" />
+                      : <Trash2 className="h-4 w-4 text-muted hover:text-danger" />}
                   </Button>
                 </CardBody>
               </Card>
