@@ -153,6 +153,29 @@ async def _run_single_source(
     }
 
 
+class _ScaledJobContext:
+    """Alt-fazın 0-1 ilerlemesini üst işin [lo, hi] aralığına haritalar.
+
+    Hazırlık (auto_prepare) çubuğu %18'e kadar getiriyor; Smart Merge kendi
+    ölçeğinde 0.02'den başlıyordu — sarmalanmadan ilerleme 12-18%'den 2%'ye
+    GERİ sarıyor ve iş donmuş gibi görünüyordu. log/cancelled aynen delege.
+    """
+
+    def __init__(self, ctx: JobContext, lo: float, hi: float):
+        self._ctx, self._lo, self._hi = ctx, lo, hi
+
+    def log(self, line: str) -> None:
+        self._ctx.log(line)
+
+    def progress(self, value: float) -> None:
+        v = max(0.0, min(1.0, value))
+        self._ctx.progress(self._lo + v * (self._hi - self._lo))
+
+    @property
+    def cancelled(self) -> bool:
+        return self._ctx.cancelled
+
+
 async def run_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     """Birleştirme jobu — tek algoritma: Smart Merge.
 
@@ -182,9 +205,10 @@ async def run_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         return await _run_single_source(ctx, project_id, scp_df, wos_df)
 
     # İki kaynak da var → Smart Merge (bağımsız pipeline, kendi klasörünü açar
-    # ve kaynakları KENDİSİ yükler — tek kopya).
+    # ve kaynakları KENDİSİ yükler — tek kopya). İlerlemesi hazırlığın bittiği
+    # %18'den itibaren ölçeklenir ki çubuk geri sarmasın.
     from services import smart_merger
-    return await smart_merger.run_smart_merge(ctx, project_id)
+    return await smart_merger.run_smart_merge(_ScaledJobContext(ctx, 0.18, 1.0), project_id)
 
 
 def list_merged(project_id: str) -> list[dict]:

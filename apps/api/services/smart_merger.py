@@ -706,6 +706,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     # 1. Veriyi yükle (merger.py'dan reuse)
     from services.merger import _load_inputs
 
+    # Büyük konsolide workbook'ların okunması dakikalar sürebilir ve bu sırada
+    # başka ilerleme yayını yok — kullanıcı donma sanmasın.
+    ctx.log("Loading consolidated sources — large workbooks can take a few minutes...")
     try:
         scp_df, wos_df = await asyncio.to_thread(_load_inputs, project_id, ctx)
     except Exception:
