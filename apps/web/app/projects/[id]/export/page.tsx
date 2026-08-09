@@ -113,7 +113,10 @@ export default function ExportPage() {
   const [folderSuggest, setFolderSuggest] = useState<FolderSuggest | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string>("");
   const [outputFolder, setOutputFolder] = useState<string>("");
-  const [busy, setBusy] = useState<ExportFormat | "copy" | null>(null);
+  // Aynı anda birden çok format export edilebilir — tek slot'lu busy, ikinci
+  // tıklamada ilkinin spinner'ını "iptal edilmiş" gibi söndürüyordu.
+  const [busyFmts, setBusyFmts] = useState<Set<ExportFormat>>(new Set());
+  const [, setCopyBusy] = useState(false);  // klasöre kopyalama akışının ayrı meşgul durumu
   const [error, setError] = useState<string | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -155,7 +158,7 @@ export default function ExportPage() {
   }
 
   async function doExport(fmt: ExportFormat, if_exists: "rename" | "replace" | "abort") {
-    setBusy(fmt); setError(null);
+    setBusyFmts((prev) => new Set(prev).add(fmt)); setError(null);
     setDupDialog(null);
     try {
       const result = await api.createExport(id, fmt, activeSpec, undefined, if_exists);
@@ -172,7 +175,10 @@ export default function ExportPage() {
       }
     } catch (e) {
       setError(translateApiError(t, e, "export.exportFailed"));
-    } finally { setBusy(null); }
+    } finally {
+      // Yalnız KENDİ formatını temizle — paralel export'un göstergesine dokunma.
+      setBusyFmts((prev) => { const n = new Set(prev); n.delete(fmt); return n; });
+    }
   }
 
   async function deleteOneExport(name: string) {
@@ -194,7 +200,7 @@ export default function ExportPage() {
 
   async function copyToFolder() {
     if (selected.size === 0 || !outputFolder.trim()) return;
-    setBusy("copy"); setError(null);
+    setCopyBusy(true); setError(null);
     try {
       const r = await api.copyToFolder(id, [...selected], outputFolder.trim());
       if (r.skipped.length > 0) {
@@ -208,7 +214,7 @@ export default function ExportPage() {
       setSelected(new Set());
     } catch (e) {
       setError(translateApiError(t, e, "export.copyFailed"));
-    } finally { setBusy(null); }
+    } finally { setCopyBusy(false); }
   }
 
   async function pickFolder() {
@@ -230,7 +236,7 @@ export default function ExportPage() {
 
   async function copyToBrowserFolder() {
     if (!dirHandle || selected.size === 0) return;
-    setBusy("copy"); setError(null);
+    setCopyBusy(true); setError(null);
     const files = [...selected];
     setCopyProgress({ done: 0, total: files.length });
 
@@ -288,7 +294,7 @@ export default function ExportPage() {
     } catch (e) {
       setError(translateApiError(t, e, "export.copyFailed"));
     } finally {
-      setBusy(null);
+      setCopyBusy(false);
     }
   }
 
@@ -349,7 +355,7 @@ export default function ExportPage() {
               <FormatCard
                 key={f.fmt}
                 f={{ ...f, info: t(`export.formatInfo.${f.fmt}`) }}
-                busy={busy === f.fmt}
+                busy={busyFmts.has(f.fmt)}
                 onClick={() => runExport(f.fmt)}
               />
             ))}
@@ -368,7 +374,7 @@ export default function ExportPage() {
               <FormatCard
                 key={f.fmt}
                 f={{ ...f, info: t(`export.formatInfo.${f.fmt}`) }}
-                busy={busy === f.fmt}
+                busy={busyFmts.has(f.fmt)}
                 onClick={() => runExport(f.fmt)}
               />
             ))}
