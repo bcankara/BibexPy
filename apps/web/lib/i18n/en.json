@@ -1501,6 +1501,7 @@
     "output_file_missing": "Output produced but file not found",
     "job_not_found_or_uncancelable": "Job not found or cannot be canceled",
     "job_not_found": "Job not found",
+    "job_already_running": "A job is already running for this project — wait for it to finish.",
     "no_files_to_process": "No CSV or TXT files to process (XLSX is used directly)",
     "unknown_key": "Unknown key",
     "unknown_source_format": "Unknown source format",

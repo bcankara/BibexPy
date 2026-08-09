@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   api, type Cluster, type AuthorSplit, type DisambiguationStatus,
-  type ProposalSet, translateApiError,
+  type JobInfo, type ProposalSet, translateApiError,
 } from "@/lib/api-client";
 import { Card, CardBody } from "./Card";
 import { Button } from "./Button";
@@ -16,6 +16,19 @@ import { useT } from "@/lib/i18n";
 import { useConfirm, useToast } from "./Dialogs";
 
 type Kind = "authors" | "affiliations" | "countries" | "organizations";
+
+/**
+ * Bir job'ın backend `kind`'ı, panelin gösterdiği `Kind`'a ait mi? Backend authors/
+ * affiliations için ayrı job.kind kullanır ("disambiguate_authors" / "disambiguate_
+ * affiliations"); countries ve organizations ise TEK ortak job.kind ("disambiguate")
+ * paylaşır (bkz. apps/api/routers/disambiguate.py) — ikisi backend'de ayırt edilemez,
+ * zaten proje başına aynı anda yalnız bir exclusive job çalışabildiği için bu yeterli.
+ */
+function jobMatchesKind(job: JobInfo, kind: Kind): boolean {
+  if (kind === "authors") return job.kind === "disambiguate_authors";
+  if (kind === "affiliations") return job.kind === "disambiguate_affiliations";
+  return job.kind === "disambiguate";
+}
 
 /**
  * Yazar Ayrıştırma paneli — tek "Tara" akışı, iki tür öneri:
@@ -83,6 +96,21 @@ export function DisambiguatePanel({
     api.getProposals(projectId, kind)
       .then((p) => { if (alive) applyProposalSet(p); })
       .catch((e) => { if (alive) setError(translateApiError(t, e)); });
+    // Devam eden bir taramayı yeniden bağla: kullanıcı "Tara"yı başlatıp başka bir
+    // araca/sayfaya geçip geri dönerse (component unmount/remount) `jobId` state'i
+    // kaybolur ve panel BOŞTA görünür — oysa backend'de iş hâlâ çalışıyordur, hatta
+    // "Tara"ya tekrar basınca "job_already_running" hatası alınır. Mount'ta bu proje
+    // için hâlâ kuyrukta/çalışan bir job var mı diye sor; varsa aynı ilerleme UI'sine
+    // (JobProgress) yeniden bağlan — sanki "Tara" az önce başlatılmış gibi.
+    api.listJobs(projectId)
+      .then((jobs) => {
+        if (!alive) return;
+        const active = jobs.find(
+          (j) => (j.status === "queued" || j.status === "running") && jobMatchesKind(j, kind),
+        );
+        if (active) setJobId(active.id);
+      })
+      .catch(() => {}); // sessiz — bu iyimser bir kontrol, panel yine de idle çalışabilir
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, projectId]);

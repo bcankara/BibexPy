@@ -1501,6 +1501,7 @@
     "output_file_missing": "Çıktı üretildi ama dosya bulunamadı",
     "job_not_found_or_uncancelable": "İş bulunamadı veya iptal edilemiyor",
     "job_not_found": "İş bulunamadı",
+    "job_already_running": "Bu projede zaten çalışan bir işlem var — bitmesini bekleyin.",
     "no_files_to_process": "İşlenecek CSV veya TXT dosyası yok (XLSX zaten direkt kullanılır)",
     "unknown_key": "Bilinmeyen anahtar",
     "unknown_source_format": "Bilinmeyen kaynak formatı",
