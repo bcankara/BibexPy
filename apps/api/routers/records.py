@@ -10,12 +10,13 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services import analyses, audit, filter_engine, merger, storage
+from services import analyses, audit, dataset_io, filter_engine, merger, storage
 
 
 router = APIRouter(prefix="/projects/{project_id}/records", tags=["records"])
@@ -25,19 +26,19 @@ def _snapshot_dataset(project_id: str, df: pd.DataFrame, reason: str) -> str:
     """Mevcut datasetin bir kopyasını AKTİF analizin snapshots/ klasörüne yaz. Path döndür."""
     snaps = analyses.work_dir(project_id) / "snapshots"
     snaps.mkdir(exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    p = snaps / f"pre_{reason}_{stamp}.xlsx"
-    df.to_excel(p, index=False)
+    stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
+    p = snaps / f"pre_{reason}_{stamp}.parquet"
+    dataset_io.atomic_write_dataset(df, p)
     rel = str(p.relative_to(storage.settings.storage_path))
     return rel
 
 
 def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
-    """Aktif merged_*.xlsx dosyasını ATOMİK yaz, cache'i temizle."""
+    """Aktif dataset dosyasını ATOMİK yaz, cache'i temizle."""
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise HTTPException(409, "no_active_merged_dataset")
-    filter_engine.atomic_write_excel(df, p)
+    dataset_io.atomic_write_dataset(df, p)
     # cache invalidate
     filter_engine._DF_CACHE.clear()
     return str(p.relative_to(storage.settings.storage_path))
@@ -55,7 +56,10 @@ def delete_records(project_id: str, payload: DeletePayload):
     """UID, DOI veya satır indekslerine göre toplu silme. Snapshot alınır."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    df = filter_engine.load_merged(project_id)
+    try:
+        df = filter_engine.load_merged(project_id)
+    except FileNotFoundError as e:
+        raise HTTPException(409, str(e))
     total_before = int(len(df))
 
     if not payload.uids and not payload.dois and not payload.indices:
@@ -127,7 +131,8 @@ def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
     snap_path = storage.settings.storage_path / payload.snapshot
     if not snap_path.exists():
         raise HTTPException(404, f"snapshot_not_found: {payload.snapshot}")
-    df = pd.read_excel(snap_path)
+    # Format dönüştürücü: xlsx dönemi snapshot'ları parquet dataset'e yüklenebilir.
+    df = dataset_io.read_dataset(snap_path)
     saved_path = _save_dataset(project_id, df)
     audit.write(
         project_id,
@@ -151,7 +156,8 @@ def list_snapshots(project_id: str):
         return []
     items = []
     for f in sorted(snaps_dir.iterdir(), reverse=True):
-        if f.is_file() and f.suffix.lower() == ".xlsx":
+        # Legacy (xlsx) snapshot'lar listede kalır — geri yükleme format dönüştürür.
+        if f.is_file() and f.suffix.lower() in {".xlsx", ".parquet"}:
             items.append({
                 "name": f.name,
                 "relative_path": str(f.relative_to(storage.settings.storage_path)),
@@ -174,7 +180,10 @@ def update_record(project_id: str, payload: UpdatePayload):
         raise HTTPException(404, "project_not_found")
     if not payload.fields:
         raise HTTPException(400, "no_fields_to_update")
-    df = filter_engine.load_merged(project_id)
+    try:
+        df = filter_engine.load_merged(project_id)
+    except FileNotFoundError as e:
+        raise HTTPException(409, str(e))
 
     mask = pd.Series(False, index=df.index)
     if payload.uid and "UID" in df.columns:

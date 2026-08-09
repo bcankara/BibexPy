@@ -15,7 +15,7 @@ import pandas as pd
 from fastapi import HTTPException
 
 from jobs.runner import JobContext
-from services import analyses, converter, storage
+from services import analyses, converter, dataset_io, storage
 
 
 def _project_paths(project_id: str) -> tuple[Path, Path, Path]:
@@ -109,8 +109,8 @@ async def _run_single_source(
 
     analysis_id, adir = analyses.create_analysis(project_id, "single")
     ctx.log(f"Analysis folder: {analysis_id}")
-    output_xlsx = adir / "merged.xlsx"
-    await asyncio.to_thread(lambda: df.to_excel(output_xlsx, index=False))
+    output_dataset = adir / "merged.parquet"
+    await asyncio.to_thread(dataset_io.atomic_write_dataset, df, output_dataset)
     ctx.progress(0.7)
 
     scp_count = int(len(scp_df)) if scp_df is not None else 0
@@ -141,7 +141,7 @@ async def _run_single_source(
         "wos_input": wos_count,
         "merged_count": int(len(df)),
         "duplicates_removed": 0,
-        "output_xlsx": str(output_xlsx.relative_to(storage.settings.storage_path)),
+        "output_dataset": str(output_dataset.relative_to(storage.settings.storage_path)),
         "stats": {},
     }
 
@@ -185,6 +185,8 @@ def list_merged(project_id: str) -> list[dict]:
     for f in sorted(adir.iterdir()):
         if not f.is_file() or f.name == "meta.json":
             continue
+        if f.name.endswith(".tmp~"):
+            continue
         out.append({
             "name": f.name,
             "size": f.stat().st_size,
@@ -194,7 +196,7 @@ def list_merged(project_id: str) -> list[dict]:
 
 
 def merged_dataset_path(project_id: str) -> Path | None:
-    """Filter/export için ana birleştirilmiş XLSX'i bul.
+    """Filter/export için ana birleştirilmiş dataset'i bul (merged.parquet).
 
     Aktif analiz klasöründen okur. Records / Filter / Quality / Disambiguation
     otomatik olarak aktif analizin dataset'ini görür.

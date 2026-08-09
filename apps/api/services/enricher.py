@@ -14,13 +14,14 @@ import asyncio
 import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import HTTPException
 
 from config import settings
 from jobs.runner import JobContext
-from services import analyses, filter_engine, merger, storage
+from services import analyses, dataset_io, filter_engine, merger, storage
 from services.bibex_adapter import _suppress_stdio
 
 
@@ -37,9 +38,9 @@ def _snapshot(project_id: str, df: pd.DataFrame, tag: str) -> str:
     # snapshot'larını taşır, yeni analiz eskileri devralmaz.
     snaps = analyses.work_dir(project_id) / "snapshots"
     snaps.mkdir(exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    p = snaps / f"pre_{tag}_{stamp}.xlsx"
-    df.to_excel(p, index=False)
+    stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
+    p = snaps / f"pre_{tag}_{stamp}.parquet"
+    dataset_io.atomic_write_dataset(df, p)
     return str(p.relative_to(storage.settings.storage_path))
 
 
@@ -180,8 +181,8 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ML geçişi YOKTUR. df bir kez okunur, API ile yerinde doldurulur, aktif dataset'e yazılır.
     İptal edilse bile o ana dek elde edilen API kazanımları korunur.
     """
-    src = _active_path(project_id)
-    df = await asyncio.to_thread(pd.read_excel, src)
+    src = await asyncio.to_thread(_active_path, project_id)
+    df = await asyncio.to_thread(dataset_io.read_dataset, src)
     ctx.log(f"Loaded: {len(df)} records")
     snap = _snapshot(project_id, df, "fill_all")
     ctx.log("Snapshot taken")
@@ -215,8 +216,11 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     finally:
         _mirror_wc_sc(df)  # API tek alanı doldurduysa WC/SC eşitle
         # Atomik yaz — iptal/kesinti anında ya da eşzamanlı poll okumasında
-        # aktif dataset asla yarım kalmasın (bkz. atomic_write_excel)
-        await asyncio.to_thread(filter_engine.atomic_write_excel, df, src)
+        # aktif dataset asla yarım kalmasın (bkz. dataset_io.atomic_write_dataset)
+        # Aktif path'i yeniden çöz — uzun süren job boyunca migration .xlsx'ten
+        # .parquet'e geçmiş olabilir; eski src'ye yazmak zombi dosya üretir.
+        dst = await asyncio.to_thread(_active_path, project_id) or src
+        await asyncio.to_thread(dataset_io.atomic_write_dataset, df, dst)
         filter_engine._DF_CACHE.clear()
         storage.touch_project(project_id)
     if cancelled:
@@ -327,13 +331,16 @@ async def _complete_addresses_pass(ctx: JobContext, df: pd.DataFrame, email: str
 
 async def run_api_enrichment(ctx: JobContext, project_id: str, sources: list[str] | None = None) -> dict[str, Any]:
     """Yalnız API geçişi — aktif dataset'e yazar."""
-    src = _active_path(project_id)
-    df = await asyncio.to_thread(pd.read_excel, src)
+    src = await asyncio.to_thread(_active_path, project_id)
+    df = await asyncio.to_thread(dataset_io.read_dataset, src)
     ctx.log(f"Loaded: {len(df)} records")
     snap = _snapshot(project_id, df, "api")
     ctx.progress(0.05)
     stats = await _api_pass(ctx, df, lo=0.05, hi=0.95)
-    await asyncio.to_thread(filter_engine.atomic_write_excel, df, src)
+    # Aktif path'i yeniden çöz — job boyunca migration .xlsx'ten .parquet'e
+    # geçmiş olabilir; eski src'ye yazmak zombi dosya üretir.
+    dst = await asyncio.to_thread(_active_path, project_id) or src
+    await asyncio.to_thread(dataset_io.atomic_write_dataset, df, dst)
     filter_engine._DF_CACHE.clear()
     storage.touch_project(project_id)
     ctx.progress(1.0)

@@ -12,13 +12,14 @@ import json
 import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import HTTPException
 
 from config import settings
 from jobs.runner import JobContext, run_cpu
-from services import analyses, merger, storage
+from services import analyses, dataset_io, merger, storage
 from .blocking import (
     build_author_blocks, build_affiliation_blocks, build_author_splits,
     build_country_blocks, build_org_rollup,
@@ -51,7 +52,7 @@ def _load_merged(project_id: str) -> pd.DataFrame:
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise HTTPException(409, "no_merged_data")
-    return pd.read_excel(p)
+    return dataset_io.read_dataset(p)
 
 
 def _distinct_variants(cluster: dict) -> set[str]:
@@ -148,9 +149,9 @@ def _client() -> DeepSeekClient:
 def _snapshot(project_dir: Path, df: pd.DataFrame, kind: str) -> Path:
     snaps = project_dir / "snapshots"
     snaps.mkdir(exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    p = snaps / f"pre_{kind}_{stamp}.xlsx"
-    df.to_excel(p, index=False)
+    stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
+    p = snaps / f"pre_{kind}_{stamp}.parquet"
+    dataset_io.atomic_write_dataset(df, p)
     return p
 
 
@@ -472,11 +473,10 @@ async def run_author_disambiguation(
             orcid_stats["rows_filled"] = wb["rows_filled"]
             orcid_stats["dois_fetched"] = wb["dois_fetched"]
             if wb["rows_filled"]:
-                src = merger.merged_dataset_path(project_id)
+                src = await asyncio.to_thread(merger.merged_dataset_path, project_id)
                 if src is not None:
                     snap_rel = _snapshot(project_dir, df_before, "orcid_enrich")
-                    from services.filter_engine import atomic_write_excel
-                    await asyncio.to_thread(atomic_write_excel, df, src)
+                    await asyncio.to_thread(dataset_io.atomic_write_dataset, df, src)
                     try:
                         from services.filter_engine import _DF_CACHE
                         _DF_CACHE.clear()
@@ -728,7 +728,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     src = merger.merged_dataset_path(project_id)
     if src is None:
         raise HTTPException(409, "no_merged_data")
-    df = pd.read_excel(src)
+    df = dataset_io.read_dataset(src)
 
     # NOT: snapshot işin SONUNDA, yalnız gerçekten değişiklik yapılacaksa (affected>0)
     # alınır — 'sıfır değişiklik' apply'ları boş snapshot çöplüğü üretmesin.
@@ -845,9 +845,8 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         return {"kind": kind, "approved_count": len(approved), "replacements": 0, "snapshot": None}
 
     # Değişiklik var → ÖNCE snapshot (df'in güncel hâli yazımdan önce yedeklenir), sonra yaz.
-    snap = _snapshot(project_dir, pd.read_excel(src), kind)
-    from services.filter_engine import atomic_write_excel
-    atomic_write_excel(df, src)
+    snap = _snapshot(project_dir, dataset_io.read_dataset(src), kind)
+    dataset_io.atomic_write_dataset(df, src)
     # Filter cache temizle
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
@@ -893,7 +892,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     src = merger.merged_dataset_path(project_id)
     if src is None:
         raise HTTPException(409, "no_merged_data")
-    df = pd.read_excel(src)
+    df = dataset_io.read_dataset(src)
     if "AU" not in df.columns:
         raise HTTPException(400, "no_au_column")
 
@@ -940,9 +939,8 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     if affected == 0:
         return {"kind": "authors_split", "approved_count": len(approved), "replacements": 0, "snapshot": None}
 
-    snap = _snapshot(project_dir, pd.read_excel(src), "authors_split")
-    from services.filter_engine import atomic_write_excel
-    atomic_write_excel(df, src)
+    snap = _snapshot(project_dir, dataset_io.read_dataset(src), "authors_split")
+    dataset_io.atomic_write_dataset(df, src)
     try:
         from services.filter_engine import _DF_CACHE
         _DF_CACHE.clear()
@@ -986,8 +984,9 @@ def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
     target = merger.merged_dataset_path(project_id)
     if target is None:
         raise HTTPException(409, "no_merged_data")
-    import shutil
-    shutil.copy2(snap_path, target)
+    # Byte kopyası DEĞİL, format dönüştüren okuma+yazma: snapshot xlsx (legacy)
+    # olabilirken hedef parquet'tir; ham kopya merged.parquet'i bozardı.
+    dataset_io.atomic_write_dataset(dataset_io.read_dataset(snap_path), target)
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
     return {"restored_from": snapshot_relative, "into": str(target.relative_to(storage.settings.storage_path))}

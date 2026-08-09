@@ -218,7 +218,7 @@ class JobRunner:
                 # Result alanlarının ilgili kısımlarını da ekle (verbose olmasın)
                 for k in ("method", "scopus_input", "wos_input", "merged_count", "duplicates_removed",
                           "stats", "enriched_count", "updated_count", "replacements", "snapshot",
-                          "candidates", "clusters", "uncertain", "output_xlsx",
+                          "candidates", "clusters", "uncertain", "output_dataset",
                           "clusters_proposed", "splits_proposed", "auto",
                           "orcid_rows_filled", "dois_fetched",  # ORCID disambiguation write-back
                           # Field/selected enrichment

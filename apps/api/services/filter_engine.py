@@ -9,50 +9,25 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import pandas as pd
 
-from services import merger
+from services import dataset_io, merger
 
 
 # ---------- Dataset yükleme (cache) ----------
 
-_DF_CACHE: dict[tuple[str, float], pd.DataFrame] = {}
+_DF_CACHE: dict[tuple[str, float, int], pd.DataFrame] = {}
 
 
 def atomic_write_excel(df: pd.DataFrame, path: Any) -> None:
-    """Aktif dataseti ATOMİK yaz: önce yanına .tmp~, sonra os.replace.
+    """Geriye uyumlu ad — `dataset_io.atomic_write_dataset`e ince delege.
 
-    df.to_excel hedef dosyayı ÖNCE sıfırlayıp saniyelerce yazar; o pencerede
-    okuyan her istek (ör. quality/stats poll'u) bozuk/yarım dosya görüp 500
-    veriyordu ve süreç o anda kesilirse dosya bozuk kalıyordu. Atomik değişimle
-    okuyucular her an ya eski ya yeni TAM dosyayı görür; kesinti yalnız .tmp~
-    artığı bırakır. Windows'ta hedefi o an açık tutan kısa okumalar os.replace'i
-    PermissionError ile düşürebilir → kısa aralıklı sınırlı yeniden deneme.
+    Yazım uzantıya göre dispatch edilir (parquet/xlsx); atomiklik ve retry
+    mantığı dataset_io'da tek yerde durur.
     """
-    import os
-    import time
-    p = Path(path)
-    tmp = p.with_name(p.name + ".tmp~")
-    try:
-        df.to_excel(tmp, index=False)
-        last_err: Optional[BaseException] = None
-        for _ in range(6):
-            try:
-                os.replace(tmp, p)
-                return
-            except PermissionError as e:  # hedef kısa süreli okunuyor olabilir
-                last_err = e
-                time.sleep(0.25)
-        raise last_err  # type: ignore[misc]
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+    dataset_io.atomic_write_dataset(df, path)
 
 
 def _ensure_uid_column(df: pd.DataFrame) -> bool:
@@ -87,12 +62,16 @@ def load_merged(project_id: str) -> pd.DataFrame:
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise FileNotFoundError("Birleştirilmiş veri yok — önce Merge çalıştırın")
-    mtime = p.stat().st_mtime
-    key = (str(p), mtime)
+    st = p.stat()
+    # Boyut da anahtara girer: parquet yazımı milisaniyeler sürdüğünden iki
+    # ardışık mutasyon aynı mtime tick'ine düşebilir.
+    key = (str(p), st.st_mtime, st.st_size)
     if key not in _DF_CACHE:
         _DF_CACHE.clear()  # tek-kullanıcı, tek-dataset
         try:
-            df = pd.read_excel(p)
+            # read_dataset uzantıya göre okur + object kolonlarındaki boşlukları
+            # "" olarak normalize eder (parquet NA'yı None döndürür).
+            df = dataset_io.read_dataset(p)
         except Exception:
             # Yarım/bozuk dosya (eski sürümlerin atomik olmayan yazımı ya da
             # sert kesinti kalıntısı) → 500 yerine temiz 409; kullanıcı
@@ -100,14 +79,10 @@ def load_merged(project_id: str) -> pd.DataFrame:
             raise FileNotFoundError(
                 "merged_dataset_unreadable: dosya bozuk görünüyor — Geçmiş'ten bir snapshot geri yükleyin"
             )
-        # Tüm string sütunları normalize et — boş hücreler için empty string
-        for col in df.columns:
-            if df[col].dtype == "object":
-                df[col] = df[col].fillna("")
         # Her satıra UID ata (yoksa) ve kalıcı olarak diske yaz
         if _ensure_uid_column(df):
             try:
-                atomic_write_excel(df, p)
+                dataset_io.atomic_write_dataset(df, p)
             except Exception:
                 pass  # write hatası ana akışı durdurmasın — UID memory'de yine var
         _DF_CACHE[key] = df

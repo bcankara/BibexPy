@@ -18,12 +18,13 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 import pandas as pd
 
 from config import settings
 from jobs.runner import JobContext
-from services import analyses, audit, filter_engine, storage
+from services import analyses, audit, dataset_io, filter_engine, storage
 from services.disambiguation.similarity import jaro_winkler, name_initials, normalize_name
 
 
@@ -856,7 +857,8 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
     # 8. Çıktıları yaz — analiz klasörüne
     ctx.log("Writing output files...")
-    merged_xlsx = adir / "merged.xlsx"
+    # Ana dataset parquet (dahili çalışma formatı); yan inceleme dosyaları xlsx kalır.
+    merged_dataset = adir / "merged.parquet"
     audit_xlsx = adir / "match_audit.xlsx"
     conflict_xlsx = adir / "conflict_log.xlsx"
     borderline_xlsx = adir / "borderline_queue.xlsx"
@@ -865,7 +867,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     stat_xlsx = adir / "Statistic.xlsx"
 
     try:
-        await asyncio.to_thread(filter_engine.atomic_write_excel, final_df, merged_xlsx)
+        await asyncio.to_thread(dataset_io.atomic_write_dataset, final_df, merged_dataset)
         await asyncio.to_thread(_write_match_audit, matches, audit_xlsx)
         await asyncio.to_thread(_write_conflict_log, conflicts, conflict_xlsx)
         await asyncio.to_thread(_write_borderline_queue, borderline, borderline_xlsx)
@@ -914,10 +916,10 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         "field_source_distribution": field_source_distribution,
         "lost_wos_count": int(len(wos_not_matched)),
         "lost_scopus_count": int(len(scp_not_matched)),
-        "output_xlsx": str(merged_xlsx.relative_to(storage.settings.storage_path)),
+        "output_dataset": str(merged_dataset.relative_to(storage.settings.storage_path)),
         "output_files": [
             f.name for f in (
-                merged_xlsx, audit_xlsx, conflict_xlsx, borderline_xlsx,
+                merged_dataset, audit_xlsx, conflict_xlsx, borderline_xlsx,
                 lost_wos_xlsx, lost_scp_xlsx, stat_xlsx,
             ) if f.exists()
         ],
@@ -995,9 +997,11 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     if adir is None:
         raise RuntimeError("Aktif analiz yok — önce Smart Merge çalıştırın")
 
-    merged_xlsx = adir / "merged.xlsx"
-    if not merged_xlsx.exists():
-        raise RuntimeError("merged.xlsx bulunamadı — önce Smart Merge çalıştırın")
+    # Dataset yolunu resolver'dan al — uzantı (parquet/legacy xlsx) burada
+    # varsayılmaz; legacy proje ilk dokunuşta parquet'e taşınmış olabilir.
+    merged_path = analyses.active_dataset_path(project_id)
+    if merged_path is None or not merged_path.exists():
+        raise RuntimeError("Birleştirilmiş dataset bulunamadı — önce Smart Merge çalıştırın")
 
     bq_path = adir / "borderline_queue.xlsx"
     if not bq_path.exists():
@@ -1036,13 +1040,14 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     snapshot_rel: Optional[str] = None
     applied = 0
     if accept_pairs:
-        df = pd.read_excel(merged_xlsx)
-        # Snapshot
-        snaps_dir = storage.project_dir(project_id) / "snapshots"
-        snaps_dir.mkdir(exist_ok=True)
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        snap_path = snaps_dir / f"pre_borderline_accept_{stamp}.xlsx"
-        df.to_excel(snap_path, index=False)
+        df = dataset_io.read_dataset(merged_path)
+        # Snapshot — AKTİF analiz klasörüne (proje kökü değil); proje köküne
+        # yazılan snapshot Geçmiş listesinde hiç görünmüyordu.
+        snaps_dir = analyses.work_dir(project_id) / "snapshots"
+        snaps_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
+        snap_path = snaps_dir / f"pre_borderline_accept_{stamp}.parquet"
+        dataset_io.atomic_write_dataset(df, snap_path)
         snapshot_rel = str(snap_path.relative_to(storage.settings.storage_path))
 
         # Yeniden yükle WoS/Scopus için pair satırlarını birleştir
@@ -1059,7 +1064,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             mask = df["DI"].astype(str).str.strip().str.lower().isin(to_drop_dois)
             applied = int(mask.sum())
             df = df.loc[~mask].reset_index(drop=True)
-            filter_engine.atomic_write_excel(df, merged_xlsx)
+            dataset_io.atomic_write_dataset(df, merged_path)
             filter_engine._DF_CACHE.clear()
 
     # Audit

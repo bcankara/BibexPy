@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from services import storage
+from services import dataset_io, storage
 
 
 # ─────────────────────────────────────────────────────────────
@@ -323,27 +323,57 @@ def work_dir(project_id: str) -> Path:
 #  Dataset path resolver (filter_engine, merger için)
 # ─────────────────────────────────────────────────────────────
 
-# Aktif analiz klasöründeki ana dataset dosya adı (Smart Merge → merged.xlsx)
+# Aktif analiz klasöründeki ana dataset dosya adı (Smart Merge → merged.parquet).
+# SIRA YÜK TAŞIR: parquet ÖNCE gelir; tembel migrasyon parquet'i atomik yayınladığı
+# an resolver ona döner, "ikisi de yok" penceresi hiç oluşmaz.
 _DATASET_NAMES = (
+    "merged.parquet",
     "merged.xlsx",
 )
 
 
+def _audit_migration(project_id: str):
+    """on_migrate callback: tek seferlik format geçişini History'ye yaz.
+
+    Migrasyon snapshot'ı aksi halde UI'da görünmezdi — restore butonu audit
+    kaydındaki snapshot alanına bağlı. audit lazy import edilir (audit →
+    analyses lazy import'u ile simetrik; modül-seviyesi döngü yok).
+    """
+    def cb(target: Path, snapshot: Optional[Path]) -> None:
+        from services import audit
+        audit.write(
+            project_id,
+            kind="format_migration",
+            title="Dataset Parquet formatına taşındı",
+            title_key="audit.titles.parquetMigrated",
+            details={"dataset": target.name},
+            snapshot=(str(snapshot.relative_to(storage.settings.storage_path))
+                      if snapshot is not None else None),
+            user_action="auto",
+        )
+    return cb
+
+
 def active_dataset_path(project_id: str) -> Optional[Path]:
-    """Aktif analizdeki ana birleştirilmiş dataset dosyasını döndür."""
+    """Aktif analizdeki ana birleştirilmiş dataset dosyasını döndür.
+
+    Legacy xlsx dataset'ler burada — TEK noktada — tembel olarak parquet'e
+    taşınır; `merged_dataset_path` ve `load_merged` bunu otomatik devralır.
+    """
     adir = get_active_analysis_dir(project_id)
     if adir is None:
         return None
+    on_migrate = _audit_migration(project_id)
     for name in _DATASET_NAMES:
         p = adir / name
         if p.exists():
-            return p
-    # Fallback: ilk *.xlsx (yan dosyaları atla)
+            return dataset_io.ensure_parquet(p, on_migrate=on_migrate)
+    # Fallback: ilk dataset dosyası (yan dosyaları atla)
     SKIP = {"statistic.xlsx", "statistic_smart.xlsx", "match_audit.xlsx",
             "conflict_log.xlsx", "borderline_queue.xlsx"}
     for f in sorted(adir.iterdir()):
-        if (f.suffix.lower() == ".xlsx"
+        if (f.suffix.lower() in dataset_io.DATASET_SUFFIXES
                 and f.name.lower() not in SKIP
                 and not f.name.lower().startswith("lost_")):
-            return f
+            return dataset_io.ensure_parquet(f, on_migrate=on_migrate)
     return None

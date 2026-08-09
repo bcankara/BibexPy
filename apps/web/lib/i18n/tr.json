@@ -384,8 +384,8 @@
       ],
       "outputs": [
         {
-          "name": "Merged_Simple.xlsx",
-          "desc": "Ana birleştirilmiş dataset"
+          "name": "merged.parquet",
+          "desc": "Ana birleştirilmiş dataset — Excel kopyası Export'tan alınır."
         },
         {
           "name": "Statistic.xlsx",
@@ -423,8 +423,8 @@
       ],
       "outputs": [
         {
-          "name": "merged_enhanced.xlsx",
-          "desc": "Ana birleştirilmiş dataset (alan birleştirme uygulanmış)"
+          "name": "merged.parquet",
+          "desc": "Ana birleştirilmiş dataset (alan birleştirme uygulanmış) — Excel kopyası Export'tan alınır."
         },
         {
           "name": "Statistic.xlsx",
@@ -466,8 +466,8 @@
       ],
       "outputs": [
         {
-          "name": "merged_smart.xlsx",
-          "desc": "Ana dataset (UID + match_method + confidence kolonları)"
+          "name": "merged.parquet",
+          "desc": "Ana dataset (UID + match_method + confidence kolonları) — Excel kopyası Export'tan alınır."
         },
         {
           "name": "match_audit.xlsx",
@@ -1360,6 +1360,7 @@
       "processedFileDeleted": "Hazırlanmış dosya silindi: {name}",
       "recordsDeleted": "{n} kayıt silindi",
       "snapshotRestored": "Snapshot geri yüklendi: {name}",
+      "parquetMigrated": "Dataset Parquet formatına taşındı (tek seferlik hızlandırma)",
       "fieldEnrichment": "Alan zenginleştirme: {field} ({label})",
       "selectedEnrichment": "{n} seçili kayıt için zenginleştirme",
       "filesUploaded": "{n} dosya yüklendi",

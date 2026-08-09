@@ -127,7 +127,7 @@ export default function RecordsPage() {
   /** Filtreyi veri setine KALICI uygula — eşleşmeyen kayıtlar çıkarılır (snapshot
    * alınır, Geçmiş'ten geri yüklenebilir). Böylece Harmonizasyon/Export filtreli
    * veriyle çalışır; filtre yalnızca geçici bir görünüm olarak kalmaz.
-   * Büyük dataset'lerde işlem (snapshot + xlsx yazımı) uzun sürer → buton
+   * Büyük dataset'lerde işlem (snapshot + dataset yazımı) uzun sürer → buton
    * spinner'a döner ve kilitlenir; bitince sonuç toast'ı gösterilir. */
   const [applyingFilter, setApplyingFilter] = useState(false);
   async function applyFilterToDataset() {

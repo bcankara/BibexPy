@@ -384,8 +384,8 @@
       ],
       "outputs": [
         {
-          "name": "Merged_Simple.xlsx",
-          "desc": "Main merged dataset"
+          "name": "merged.parquet",
+          "desc": "Main merged dataset — Excel copy available via Export."
         },
         {
           "name": "Statistic.xlsx",
@@ -423,8 +423,8 @@
       ],
       "outputs": [
         {
-          "name": "merged_enhanced.xlsx",
-          "desc": "Main merged dataset (field merging applied)"
+          "name": "merged.parquet",
+          "desc": "Main merged dataset (field merging applied) — Excel copy available via Export."
         },
         {
           "name": "Statistic.xlsx",
@@ -466,8 +466,8 @@
       ],
       "outputs": [
         {
-          "name": "merged_smart.xlsx",
-          "desc": "Main dataset (UID + match_method + confidence columns)"
+          "name": "merged.parquet",
+          "desc": "Main dataset (UID + match_method + confidence columns) — Excel copy available via Export."
         },
         {
           "name": "match_audit.xlsx",
@@ -1360,6 +1360,7 @@
       "processedFileDeleted": "Processed file deleted: {name}",
       "recordsDeleted": "{n} records deleted",
       "snapshotRestored": "Snapshot restored: {name}",
+      "parquetMigrated": "Dataset migrated to Parquet format (one-time speedup)",
       "fieldEnrichment": "Field enrichment: {field} ({label})",
       "selectedEnrichment": "Enrichment for {n} selected records",
       "filesUploaded": "{n} files uploaded",

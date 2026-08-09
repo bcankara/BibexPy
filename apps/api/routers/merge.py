@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from jobs.runner import job_runner
-from services import analyses, merger, storage
+from services import analyses, dataset_io, merger, storage
 
 router = APIRouter(prefix="/projects/{project_id}/merge", tags=["merge"])
 
@@ -162,7 +162,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
             from services import merger
             dataset = merger.merged_dataset_path(project_id)
             if dataset and dataset.exists():
-                df = pd.read_excel(dataset)
+                df = dataset_io.read_dataset(dataset)
                 total_records = int(len(df))
                 merged_columns = int(len(df.columns))
                 out["general"] = {
@@ -215,9 +215,14 @@ def merge_summary(project_id: str) -> dict[str, Any]:
     for f in sorted(merged_dir.iterdir()):
         if not f.is_file() or f.name == "meta.json":
             continue
+        # Atomik yazımın yarıda kalmış artığı — kullanıcıya dosya diye gösterme.
+        if f.name.endswith(".tmp~"):
+            continue
         kind = "other"
         name_lower = f.name.lower()
-        if name_lower in ("merged.xlsx",) or ("merged" in name_lower and f.suffix.lower() == ".xlsx"):
+        suffix = f.suffix.lower()
+        if (name_lower in ("merged.parquet", "merged.xlsx")
+                or ("merged" in name_lower and suffix in (".xlsx", ".parquet"))):
             kind = "merged_dataset"
         elif name_lower.startswith("lost_wos"):
             kind = "lost_wos"
