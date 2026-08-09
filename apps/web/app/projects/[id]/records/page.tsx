@@ -10,9 +10,9 @@ import { RecordDetailDrawer } from "@/components/RecordDetailDrawer";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
 import { PageHeader } from "@/components/PageHeader";
-import { ArrowRight, Check, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
+import { ArrowRight, Check, Loader2, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
 import { useT } from "@/lib/i18n";
-import { useConfirm } from "@/components/Dialogs";
+import { useConfirm, useToast } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
 import { StepNav } from "@/components/StepNav";
 
@@ -23,6 +23,7 @@ export default function RecordsPage() {
   const id = useProjectId();
   const t = useT();
   const confirm = useConfirm();
+  const toast = useToast();
   const [spec, setSpec] = useState<FilterSpec>(EMPTY);
   const [data, setData] = useState<FilterResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,9 +126,12 @@ export default function RecordsPage() {
 
   /** Filtreyi veri setine KALICI uygula — eşleşmeyen kayıtlar çıkarılır (snapshot
    * alınır, Geçmiş'ten geri yüklenebilir). Böylece Harmonizasyon/Export filtreli
-   * veriyle çalışır; filtre yalnızca geçici bir görünüm olarak kalmaz. */
+   * veriyle çalışır; filtre yalnızca geçici bir görünüm olarak kalmaz.
+   * Büyük dataset'lerde işlem (snapshot + xlsx yazımı) uzun sürer → buton
+   * spinner'a döner ve kilitlenir; bitince sonuç toast'ı gösterilir. */
+  const [applyingFilter, setApplyingFilter] = useState(false);
   async function applyFilterToDataset() {
-    if (!data || activeCount === 0) return;
+    if (!data || activeCount === 0 || applyingFilter) return;
     const totalAll = data.facets_all?.total ?? data.total;
     const removed = totalAll - data.total;
     if (removed <= 0) return;
@@ -137,12 +141,16 @@ export default function RecordsPage() {
       tone: "danger",
     });
     if (!ok) return;
+    setApplyingFilter(true);
     try {
-      await api.applyFilter(id, spec);
+      const r = await api.applyFilter(id, spec);
+      toast(t("records.filter.appliedToast", { kept: r.kept, removed: r.removed }), { tone: "success" });
       setSpec(EMPTY);          // filtre artık veri setinin kendisi — spec sıfırlanır
       setActivePreset(null);   // (spec değişimi effect üzerinden listeyi tazeler)
     } catch (e) {
       setError(translateApiError(t, e, "records.queryFailed"));
+    } finally {
+      setApplyingFilter(false);
     }
   }
 
@@ -260,6 +268,7 @@ export default function RecordsPage() {
               spec={spec}
               onClear={() => setSpec(EMPTY)}
               onApply={applyFilterToDataset}
+              applying={applyingFilter}
             />
 
             {data ? (
@@ -312,13 +321,14 @@ export default function RecordsPage() {
   );
 }
 
-function StatsBar({ data, activeCount, loading, spec, onClear, onApply }: {
+function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying = false }: {
   data: FilterResponse | null;
   activeCount: number;
   loading: boolean;
   spec: FilterSpec;
   onClear: () => void;
   onApply: () => void;
+  applying?: boolean;
 }) {
   const t = useT();
   if (!data) return null;
@@ -352,10 +362,13 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply }: {
           {data.total < totalAll && (
             <button
               onClick={onApply}
-              className="text-xs font-semibold px-2 py-1 rounded-md border border-success/40 bg-success-soft text-emerald-700 hover:bg-success-soft/70 flex items-center gap-1"
+              disabled={applying}
+              className="text-xs font-semibold px-2 py-1 rounded-md border border-success/40 bg-success-soft text-emerald-700 hover:bg-success-soft/70 flex items-center gap-1 disabled:opacity-70 disabled:cursor-wait"
               title={t("records.filter.applyDetail")}
             >
-              <Check className="h-3 w-3" /> {t("records.filter.applyToDataset")}
+              {applying
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> {t("records.filter.applying")}</>
+                : <><Check className="h-3 w-3" /> {t("records.filter.applyToDataset")}</>}
             </button>
           )}
           <button onClick={onClear} className="text-xs text-muted hover:text-danger flex items-center gap-1">

@@ -763,6 +763,8 @@
       "loadPreset": "Load preset",
       "clearAll": "Reset",
       "applyToDataset": "Apply to dataset",
+      "applying": "Applying…",
+      "appliedToast": "Filter applied: {removed} records removed, {kept} kept. (A snapshot was taken — restorable from History.)",
       "applyConfirm": "Keep the {kept} matching records and PERMANENTLY remove {removed} records from the dataset. Continue?",
       "applyDetail": "A snapshot is taken first (restorable from History). Subsequent steps — Harmonization and Export — will work on the filtered dataset.",
       "noMatch": "No match.",

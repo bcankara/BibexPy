@@ -763,6 +763,8 @@
       "loadPreset": "Preset yükle",
       "clearAll": "Sıfırla",
       "applyToDataset": "Veri setine uygula",
+      "applying": "Uygulanıyor…",
+      "appliedToast": "Filtre uygulandı: {removed} kayıt çıkarıldı, {kept} kayıt kaldı. (Snapshot alındı — Geçmiş'ten geri yüklenebilir.)",
       "applyConfirm": "{kept} eşleşen kayıt kalacak, {removed} kayıt veri setinden KALICI olarak çıkarılacak. Devam?",
       "applyDetail": "Önce snapshot alınır (Geçmiş'ten geri yüklenebilir). Sonraki adımlar — Harmonizasyon ve Veri Dönüşümü — filtrelenmiş veri setiyle çalışır.",
       "noMatch": "Eşleşen yok.",
