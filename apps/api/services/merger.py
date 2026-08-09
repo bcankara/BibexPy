@@ -59,10 +59,18 @@ def check_ready_to_merge(project_id: str) -> None:
     raise HTTPException(409, "no_source_data")
 
 
+def _input_paths(project_id: str) -> tuple[Path | None, Path | None]:
+    """Konsolide Scopus/WoS XLSX yollarını çöz (YÜKLEMEDEN — varlık tespiti için)."""
+    _, raw, processed = _project_paths(project_id)
+    scp_xlsx = _find_xlsx(processed, raw, "scopus") or _find_xlsx(processed, raw, "scp")
+    wos_xlsx = _find_xlsx(processed, raw, "wos")
+    return scp_xlsx, wos_xlsx
+
+
 def _load_inputs(
     project_id: str, ctx: JobContext | None = None
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Scopus + WoS XLSX'leri yükle. Eksik biri varsa CSV/TXT'den otomatik dönüştür.
+    """Scopus + WoS XLSX'leri yükle (hazırlık auto_prepare'de çoktan yapılmış olmalı).
 
     Tek kaynak varsa onu döndürür, diğeri None olur (birleştirme adımı bunu
     passthrough yapar). YALNIZCA ikisi de yoksa hata verir — kullanıcı sadece
@@ -70,8 +78,7 @@ def _load_inputs(
     """
     _, raw, processed = _project_paths(project_id)
 
-    scp_xlsx = _find_xlsx(processed, raw, "scopus") or _find_xlsx(processed, raw, "scp")
-    wos_xlsx = _find_xlsx(processed, raw, "wos")
+    scp_xlsx, wos_xlsx = _input_paths(project_id)
 
     # Hazırlanmış (processed) XLSX yoksa merge ham CSV/TXT'den OTOMATİK üretmez —
     # bu 1. adımı (Preparing) baypas ederdi. Bunun yerine, ham veri var ama hazırlık
@@ -163,15 +170,19 @@ async def run_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log("Preparing sources (CSV/TXT → XLSX)")
     await asyncio.to_thread(converter.auto_prepare, project_id, ctx)
 
-    # Kaynakları yükle — tek-kaynak tespiti dispatch'ten önce yapılmalı.
-    scp_df, wos_df = await asyncio.to_thread(_load_inputs, project_id, ctx)
+    # Tek-kaynak tespiti DOSYA VARLIĞIYLA yapılır (yüklemeden): iki kaynak
+    # varken frame'leri burada da yüklemek, run_smart_merge kendi _load_inputs
+    # çağrısını yaparken korpusun bellekte İKİNCİ bir kopyasını canlı tutuyordu
+    # (büyük korpuslarda yüzlerce MB gereksiz tepe bellek).
+    scp_xlsx, wos_xlsx = _input_paths(project_id)
 
-    # Tek kaynak: birleştirilecek ikinci veri yok → passthrough (dedup yok),
-    # doğrudan filtreye hazır analiz veri seti.
-    if scp_df is None or wos_df is None:
+    # Tek kaynak (ya da hiçbiri): _load_inputs yükler; ikisi de yoksa 409'u o verir.
+    if scp_xlsx is None or wos_xlsx is None:
+        scp_df, wos_df = await asyncio.to_thread(_load_inputs, project_id, ctx)
         return await _run_single_source(ctx, project_id, scp_df, wos_df)
 
-    # İki kaynak da var → Smart Merge (bağımsız pipeline, kendi klasörünü açar).
+    # İki kaynak da var → Smart Merge (bağımsız pipeline, kendi klasörünü açar
+    # ve kaynakları KENDİSİ yükler — tek kopya).
     from services import smart_merger
     return await smart_merger.run_smart_merge(ctx, project_id)
 

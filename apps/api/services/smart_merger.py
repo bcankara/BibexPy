@@ -23,7 +23,7 @@ from uuid import uuid4
 import pandas as pd
 
 from config import settings
-from jobs.runner import JobContext
+from jobs.runner import JobContext, run_cpu
 from services import analyses, audit, dataset_io, filter_engine, storage
 from services.disambiguation.similarity import jaro_winkler, name_initials, normalize_name
 
@@ -228,7 +228,14 @@ def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """
     if df.empty:
         return df, 0
-    richness = df.notna().sum(axis=1) + (df.astype(str) != "").sum(axis=1)
+    # Doluluk skoru KOLON KOLON hesaplanır: df.astype(str) tüm frame'in string
+    # kopyasını tek seferde materialize eder (100k satırlı object frame'de
+    # yüzlerce MB ve pipeline'ın en yoğun tek numpy/SIMD patlaması). Kolon
+    # başına birikim aynı sonucu çok daha düşük tepe bellekle verir.
+    richness = pd.Series(0, index=df.index, dtype="int64")
+    for col in df.columns:
+        s = df[col]
+        richness += s.notna().astype("int64") + (s.astype(str) != "").astype("int64")
     drop: set = set()
     for key_col in ("_norm_ut", "_norm_doi"):
         if key_col not in df.columns:
@@ -710,30 +717,40 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log(f"Data loaded: {len(wos_df)} WoS + {len(scp_df)} Scopus")
     ctx.progress(0.10)
 
-    # DB etiketle
-    wos_df = wos_df.copy()
-    scp_df = scp_df.copy()
+    # DB etiketle (_load_inputs taze frame döndürür — .copy() burada yalnızca
+    # korpusun bellekte fazladan bir kopyasını yaratıyordu)
     wos_df["DB"] = "ISI"
     scp_df["DB"] = "SCOPUS"
 
+    # NOT: Aşağıdaki CPU-ağır aşamalar (normalize / dedup / aday üretimi /
+    # eşleştirme / alan birleştirme) run_cpu havuzunda koşar. Event loop'ta
+    # inline koşmaları, büyük korpuslarda loop'u dakikalarca donduruyordu:
+    # SSE ping'leri (15 sn) gönderilemiyor, boşta kalan izleme bağlantısı
+    # ERR_CONNECTION_RESET ile kopuyor, uygulamanın geri kalanı yanıtsızlaşıyordu.
+
     # 2. Normalize — yan kolonlar
     ctx.log(f"Normalization: {len(wos_df) + len(scp_df)} rows")
-    for df in (wos_df, scp_df):
-        df["_norm_doi"] = df.get("DI", pd.Series([""] * len(df))).apply(normalize_doi)
-        df["_norm_title"] = df.get("TI", pd.Series([""] * len(df))).apply(normalize_title)
-        df["_norm_year"] = df.get("PY", pd.Series([""] * len(df))).apply(normalize_year)
-        df["_norm_surname"] = df.get("AU", pd.Series([""] * len(df))).apply(normalize_author_surname)
-        df["_norm_issn"] = df.get("SN", pd.Series([""] * len(df))).apply(normalize_issn)
-        df["_norm_pmid"] = df.get("PM", pd.Series([""] * len(df))).apply(normalize_id_token)
-        df["_norm_ut"] = df.get("UT", pd.Series([""] * len(df))).apply(normalize_id_token)
-        df["_norm_journal"] = df.get("SO", pd.Series([""] * len(df))).apply(normalize_title)
+
+    def _stage_normalize() -> None:
+        for df in (wos_df, scp_df):
+            df["_norm_doi"] = df.get("DI", pd.Series([""] * len(df))).apply(normalize_doi)
+            df["_norm_title"] = df.get("TI", pd.Series([""] * len(df))).apply(normalize_title)
+            df["_norm_year"] = df.get("PY", pd.Series([""] * len(df))).apply(normalize_year)
+            df["_norm_surname"] = df.get("AU", pd.Series([""] * len(df))).apply(normalize_author_surname)
+            df["_norm_issn"] = df.get("SN", pd.Series([""] * len(df))).apply(normalize_issn)
+            df["_norm_pmid"] = df.get("PM", pd.Series([""] * len(df))).apply(normalize_id_token)
+            df["_norm_ut"] = df.get("UT", pd.Series([""] * len(df))).apply(normalize_id_token)
+            df["_norm_journal"] = df.get("SO", pd.Series([""] * len(df))).apply(normalize_title)
+
+    await run_cpu(_stage_normalize)
     ctx.progress(0.20)
 
     # 2b. Kaynak-İÇİ dedup — aynı UT/EID veya aynı DOI'li satırlardan en dolusu
     # kalır (üst üste binen export dosyaları; cross-source eşleşme bunları görmez).
     wos_raw_n, scp_raw_n = len(wos_df), len(scp_df)
-    wos_df, intra_wos_removed = dedup_within_source(wos_df)
-    scp_df, intra_scp_removed = dedup_within_source(scp_df)
+    (wos_df, intra_wos_removed), (scp_df, intra_scp_removed) = await run_cpu(
+        lambda: (dedup_within_source(wos_df), dedup_within_source(scp_df))
+    )
     if intra_wos_removed or intra_scp_removed:
         ctx.log(f"Intra-source dedup: {intra_wos_removed} WoS + {intra_scp_removed} Scopus duplicate rows removed")
     ctx.progress(0.25)
@@ -750,110 +767,120 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     stage_counts: dict[str, int] = {}
     pair_counter = 0
 
-    candidates = generate_candidates(wos_df, scp_df)
+    candidates = await run_cpu(generate_candidates, wos_df, scp_df)
     ctx.log(f"Candidate pairs: {len(candidates)}")
     ctx.progress(0.40)
 
-    # Greedy assignment + borderline ayır
-    for conf, w_idx, s_idx, m in candidates:
-        if w_idx in matched_wos or s_idx in matched_scp:
-            continue
+    # Greedy assignment + borderline ayır (CPU havuzunda — aday sayısı büyük
+    # korpuslarda yüz binleri bulabilir)
+    def _stage_assign() -> int:
+        pair_counter = 0
+        for conf, w_idx, s_idx, m in candidates:
+            if w_idx in matched_wos or s_idx in matched_scp:
+                continue
 
-        pair_counter += 1
-        pair_id = f"p{pair_counter:06d}"
+            pair_counter += 1
+            pair_id = f"p{pair_counter:06d}"
 
-        if m["stage"] == "5_borderline":
-            # Borderline — UI'da manuel onay bekleyecek
-            w_row = wos_df.loc[w_idx]
-            s_row = scp_df.loc[s_idx]
-            borderline.append({
-                "pair_id": pair_id,
-                "wos_index": int(w_idx),
-                "scp_index": int(s_idx),
-                "jw_title": m["jw_title"],
-                "year_diff": m["year_diff"],
-                "surname_match": m["surname_match"],
-                "confidence": m["confidence"],
-                "stage_label": m["stage_label"],
-                "reason": m["reason"],
-                "wos_doi": _to_str(w_row.get("DI", "")),
-                "scp_doi": _to_str(s_row.get("DI", "")),
-                "wos_title": _to_str(w_row.get("TI", ""))[:200],
-                "scp_title": _to_str(s_row.get("TI", ""))[:200],
-                "wos_year": w_row.get("_norm_year"),
-                "scp_year": s_row.get("_norm_year"),
-                "wos_surname": _to_str(w_row.get("_norm_surname", "")),
-                "scp_surname": _to_str(s_row.get("_norm_surname", "")),
-                "wos_journal": _to_str(w_row.get("SO", "")),
-                "scp_journal": _to_str(s_row.get("SO", "")),
-                "wos_volume": _to_str(w_row.get("VL", "")),
-                "scp_volume": _to_str(s_row.get("VL", "")),
-                "status": "pending",
-            })
-        else:
-            # Definite match — birleştir
-            matched_wos.add(w_idx)
-            matched_scp.add(s_idx)
-            stage_counts[m["stage_label"]] = stage_counts.get(m["stage_label"], 0) + 1
-            matches.append({
-                "pair_id": pair_id,
-                "wos_index": int(w_idx),
-                "scp_index": int(s_idx),
-                "doi": m["reason"].split("DOI exact: ", 1)[-1].split(",")[0] if "DOI exact" in m["reason"] else "",
-                "stage": m["stage"],
-                "stage_label": m["stage_label"],
-                "confidence": m["confidence"],
-                "jw_title": m.get("jw_title"),
-                "year_diff": m.get("year_diff"),
-                "surname_match": m.get("surname_match"),
-                "reason": m["reason"],
-            })
+            if m["stage"] == "5_borderline":
+                # Borderline — UI'da manuel onay bekleyecek
+                w_row = wos_df.loc[w_idx]
+                s_row = scp_df.loc[s_idx]
+                borderline.append({
+                    "pair_id": pair_id,
+                    "wos_index": int(w_idx),
+                    "scp_index": int(s_idx),
+                    "jw_title": m["jw_title"],
+                    "year_diff": m["year_diff"],
+                    "surname_match": m["surname_match"],
+                    "confidence": m["confidence"],
+                    "stage_label": m["stage_label"],
+                    "reason": m["reason"],
+                    "wos_doi": _to_str(w_row.get("DI", "")),
+                    "scp_doi": _to_str(s_row.get("DI", "")),
+                    "wos_title": _to_str(w_row.get("TI", ""))[:200],
+                    "scp_title": _to_str(s_row.get("TI", ""))[:200],
+                    "wos_year": w_row.get("_norm_year"),
+                    "scp_year": s_row.get("_norm_year"),
+                    "wos_surname": _to_str(w_row.get("_norm_surname", "")),
+                    "scp_surname": _to_str(s_row.get("_norm_surname", "")),
+                    "wos_journal": _to_str(w_row.get("SO", "")),
+                    "scp_journal": _to_str(s_row.get("SO", "")),
+                    "wos_volume": _to_str(w_row.get("VL", "")),
+                    "scp_volume": _to_str(s_row.get("VL", "")),
+                    "status": "pending",
+                })
+            else:
+                # Definite match — birleştir
+                matched_wos.add(w_idx)
+                matched_scp.add(s_idx)
+                stage_counts[m["stage_label"]] = stage_counts.get(m["stage_label"], 0) + 1
+                matches.append({
+                    "pair_id": pair_id,
+                    "wos_index": int(w_idx),
+                    "scp_index": int(s_idx),
+                    "doi": m["reason"].split("DOI exact: ", 1)[-1].split(",")[0] if "DOI exact" in m["reason"] else "",
+                    "stage": m["stage"],
+                    "stage_label": m["stage_label"],
+                    "confidence": m["confidence"],
+                    "jw_title": m.get("jw_title"),
+                    "year_diff": m.get("year_diff"),
+                    "surname_match": m.get("surname_match"),
+                    "reason": m["reason"],
+                })
+        return pair_counter
+
+    pair_counter = await run_cpu(_stage_assign)
     ctx.log(f"Matches: {len(matches)} exact, {len(borderline)} borderline")
     for stage_label, n in stage_counts.items():
         ctx.log(f"  Stage [{stage_label}]: {n}")
     ctx.progress(0.65)
 
-    # 5. Field merge with preferences
+    # 5-7. Field merge + eşleşmeyenler + tek DataFrame + UID (CPU havuzunda)
     ctx.log("Field merge (Caputo 2024 defaults)...")
-    all_columns = list(set(list(wos_df.columns) + list(scp_df.columns)))
-    conflicts: list[dict] = []
-    merged_rows: list[dict] = []
-    field_source_distribution: dict[str, int] = {}
 
-    for match in matches:
-        w_idx = match["wos_index"]
-        s_idx = match["scp_index"]
-        w_row = wos_df.loc[w_idx].to_dict()
-        s_row = scp_df.loc[s_idx].to_dict()
-        merged_row, pair_conflicts = merge_pair_with_preferences(
-            match["pair_id"], w_row, s_row, all_columns
-        )
-        merged_rows.append(merged_row)
-        conflicts.extend(pair_conflicts)
-        for c in pair_conflicts:
-            src = c["chosen_source"]
-            field_source_distribution[src] = field_source_distribution.get(src, 0) + 1
+    def _stage_field_merge():
+        all_columns = list(set(list(wos_df.columns) + list(scp_df.columns)))
+        conflicts: list[dict] = []
+        merged_rows: list[dict] = []
+        field_source_distribution: dict[str, int] = {}
 
-    # 6. Eşleşmeyen WoS / Scopus satırları → ana df'ye olduğu gibi eklenir
-    wos_not_matched = wos_df.loc[~wos_df.index.isin(matched_wos)].copy()
-    scp_not_matched = scp_df.loc[~scp_df.index.isin(matched_scp)].copy()
-    # _norm_* kolonlarını çıkar
-    for df in (wos_not_matched, scp_not_matched):
-        drop_cols = [c for c in df.columns if c.startswith("_norm_")]
-        df.drop(columns=drop_cols, inplace=True, errors="ignore")
+        for match in matches:
+            w_idx = match["wos_index"]
+            s_idx = match["scp_index"]
+            w_row = wos_df.loc[w_idx].to_dict()
+            s_row = scp_df.loc[s_idx].to_dict()
+            merged_row, pair_conflicts = merge_pair_with_preferences(
+                match["pair_id"], w_row, s_row, all_columns
+            )
+            merged_rows.append(merged_row)
+            conflicts.extend(pair_conflicts)
+            for c in pair_conflicts:
+                src = c["chosen_source"]
+                field_source_distribution[src] = field_source_distribution.get(src, 0) + 1
 
-    merged_df = pd.DataFrame(merged_rows)
-    # _norm_* drop
-    drop_cols = [c for c in merged_df.columns if c.startswith("_norm_")]
-    if drop_cols:
-        merged_df.drop(columns=drop_cols, inplace=True, errors="ignore")
+        # 6. Eşleşmeyen WoS / Scopus satırları → ana df'ye olduğu gibi eklenir
+        wos_not_matched = wos_df.loc[~wos_df.index.isin(matched_wos)].copy()
+        scp_not_matched = scp_df.loc[~scp_df.index.isin(matched_scp)].copy()
+        # _norm_* kolonlarını çıkar
+        for df in (wos_not_matched, scp_not_matched):
+            drop_cols = [c for c in df.columns if c.startswith("_norm_")]
+            df.drop(columns=drop_cols, inplace=True, errors="ignore")
 
-    # Tek bir DataFrame
-    final_df = pd.concat([merged_df, wos_not_matched, scp_not_matched], ignore_index=True)
+        merged_df = pd.DataFrame(merged_rows)
+        # _norm_* drop
+        drop_cols = [c for c in merged_df.columns if c.startswith("_norm_")]
+        if drop_cols:
+            merged_df.drop(columns=drop_cols, inplace=True, errors="ignore")
+
+        # Tek bir DataFrame + UID kolonu (filter_engine ile aynı şema)
+        final_df = pd.concat([merged_df, wos_not_matched, scp_not_matched], ignore_index=True)
+        filter_engine._ensure_uid_column(final_df)
+        return final_df, conflicts, field_source_distribution, wos_not_matched, scp_not_matched
+
+    (final_df, conflicts, field_source_distribution,
+     wos_not_matched, scp_not_matched) = await run_cpu(_stage_field_merge)
     ctx.progress(0.80)
-
-    # 7. UID kolonu ekle (filter_engine ile aynı şema)
-    filter_engine._ensure_uid_column(final_df)
 
     # 8. Çıktıları yaz — analiz klasörüne
     ctx.log("Writing output files...")

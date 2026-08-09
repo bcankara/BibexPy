@@ -215,12 +215,65 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--no-browser", action="store_true", help="Tarayıcıyı otomatik açma")
     p.add_argument(
+        "--no-supervisor",
+        action="store_true",
+        help="Gözetmen (otomatik yeniden başlatma) olmadan tek süreçte çalıştır (debug)",
+    )
+    p.add_argument(
         "--add-path",
         action="store_true",
         help='Windows: add the "bibexpy" command to your user PATH (no prompt) and start',
     )
     p.add_argument("--version", action="version", version=f"BibexPy {__version__} ({__codename__})")
     return p
+
+
+# faulthandler'ın yazacağı dosya tanıtıcısı süreç boyunca açık kalmalı.
+_CRASH_LOG_FH = None
+
+
+def _supervise(argv: list[str] | None) -> int:
+    """Run the server as a child process; restart it after abnormal exits.
+
+    A native fault (e.g. a hardware-triggered SIMD crash inside numpy) kills
+    the Python process instantly with no traceback — without a supervisor the
+    user is left staring at a dead prompt. The child sets BIBEXPY_SUPERVISED=1
+    and runs the real server; this parent only watches exit codes. Rapid
+    crash loops give up after a few strikes instead of spinning forever.
+    """
+    import subprocess
+
+    base = list(argv) if argv is not None else sys.argv[1:]
+    env = dict(os.environ, BIBEXPY_SUPERVISED="1")
+    strikes = 0
+    first = True
+    while True:
+        cmd = [sys.executable, "-m", "bibexpy"] + base
+        # Yeniden başlatmada tarayıcıyı tekrar açma — sekme zaten açık.
+        if not first and "--no-browser" not in cmd:
+            cmd.append("--no-browser")
+        started = time.monotonic()
+        try:
+            code = subprocess.call(cmd, env=env)
+        except KeyboardInterrupt:
+            return 0
+        if code == 0:
+            return 0
+        lived = time.monotonic() - started
+        strikes = strikes + 1 if lived < 60 else 1
+        crash_log = Path(os.environ.get("BIBEXPY_CONFIG_DIR") or (Path.home() / ".bibexpy")) / "crash.log"
+        if strikes >= 4:
+            print(f"\n  ERROR: server crashed {strikes} times in a row (last exit code {code}); giving up.")
+            print(f"  Crash details (if captured): {crash_log}")
+            return 1
+        print(f"\n  WARNING: server exited abnormally (exit code {code}) after {lived:.0f}s.")
+        print(f"  This is usually a native crash - details (if captured): {crash_log}")
+        print("  Restarting in 2 seconds... (Ctrl+C to stop)\n")
+        try:
+            time.sleep(2)
+        except KeyboardInterrupt:
+            return 0
+        first = False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -234,6 +287,12 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     args = _build_parser().parse_args(argv)
+
+    # 0. Gözetmen: sunucu ayrı bir çocuk süreçte koşar; native bir çökme (donanım
+    # kaynaklı SIMD hatası gibi) uygulamayı kalıcı öldürmesin, otomatik yeniden
+    # başlasın. Çocuk süreç BIBEXPY_SUPERVISED=1 ile bu bloğu atlar.
+    if os.environ.get("BIBEXPY_SUPERVISED") != "1" and not args.no_supervisor:
+        return _supervise(argv)
 
     # 1. Paket bütünlüğü kontrolü — build script çalışmadan kurulmuşsa anlamlı hata ver.
     if not (_WEB_DIR / "index.html").is_file():
@@ -254,6 +313,22 @@ def main(argv: list[str] | None = None) -> int:
     config_dir.mkdir(parents=True, exist_ok=True)
     env_file = config_dir / ".env"
     _write_env_template(env_file)  # ilk calistirmada yorumlu sablon
+
+    # Native çökmelerde (access violation / illegal instruction) Python yığınını
+    # kaydet — aksi halde süreç İZ BIRAKMADAN ölür (gözlenen numpy SIMD çökmesi
+    # gibi). Dosya tanıtıcısı süreç ömrünce açık kalmalı (global).
+    import faulthandler
+    global _CRASH_LOG_FH
+    try:
+        _CRASH_LOG_FH = open(config_dir / "crash.log", "a", encoding="utf-8", errors="replace")
+        _CRASH_LOG_FH.write(
+            f"\n--- BibexPy v{__version__} session {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            f" pid={os.getpid()} ---\n"
+        )
+        _CRASH_LOG_FH.flush()
+        faulthandler.enable(file=_CRASH_LOG_FH, all_threads=True)
+    except Exception:
+        faulthandler.enable()
 
     # Depolama önceliği: --storage > .env'deki STORAGE_DIR > <config_dir>/storage
     storage = (
