@@ -516,6 +516,7 @@
     "oldMerge": "Previous merge — new data added",
     "currentMerge": "Current analysis",
     "backToActive": "Back to active",
+    "summaryPreparing": "Preparing analysis results — this can take a few seconds for large datasets...",
     "narrative": {
       "title": "Methods paragraph (copy-ready)",
       "hint": "Auto-generated summary you can paste into a manuscript's data preparation section.",

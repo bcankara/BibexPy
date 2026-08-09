@@ -39,6 +39,11 @@ export default function MergePage() {
   /** İlk veri çekimi sürerken true — summary null "merge yok" değil "henüz bilinmiyor"
    * demektir; bu olmadan boş upload ekranı yanıp sonra aktif merge'e atlardı. */
   const [initialLoading, setInitialLoading] = useState(true);
+  /** Job %100'e ulaştıktan sonra, summary/analiz/dosya listesi tazelenene kadar true.
+   * Bu olmadan JobProgress kartı "tamamlandı" derken sayfa hiçbir şey göstermez ve
+   * kullanıcı büyük veri setlerinde (xlsx rapor okuma saniyeler sürebilir) takıldığını
+   * sanır. Başarı ve hata (refresh() içeride catch'ler) her iki durumda da kapanır. */
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -71,7 +76,8 @@ export default function MergePage() {
   }
 
   const handleJobComplete = useCallback(() => {
-    refresh();
+    setSummaryLoading(true);
+    refresh().finally(() => setSummaryLoading(false));
     setNewAnalysisMode(false);
     // Pipeline stepper'ı (ProjectNav) anında güncelle — Export/Report kilidi açılsın
     try { window.dispatchEvent(new Event("bibexpy:status")); } catch { /* ignore */ }
@@ -141,6 +147,17 @@ export default function MergePage() {
             onComplete={handleJobComplete}
             onClose={() => setJobId(null)}
           />
+        )}
+
+        {/* Job %100 oldu ama summary/analiz/dosya tazeleme (xlsx rapor okuma) hâlâ
+            sürüyor — bu boşlukta JobProgress kartı "tamamlandı" görünüp aşağıda hiçbir
+            şey değişmediği için kullanıcı takıldı sanıyordu. summaryLoading kapanınca
+            (başarı veya hata, her iki yol da refresh() içinde ele alınır) otomatik kalkar. */}
+        {summaryLoading && (
+          <div className="rounded-xl border border-border bg-bg-card shadow-card px-6 py-10 flex flex-col items-center justify-center gap-3 text-muted">
+            <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
+            <span className="text-sm">{t("merge.summaryPreparing")}</span>
+          </div>
         )}
 
         {/* İlk veri çekimi sürerken loader — summary daha gelmeden boş upload

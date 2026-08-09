@@ -516,6 +516,7 @@
     "oldMerge": "Eski birleştirme — yeni veri eklendi",
     "currentMerge": "Mevcut analiz",
     "backToActive": "Aktif analize dön",
+    "summaryPreparing": "Analiz sonuçları hazırlanıyor — büyük veri setlerinde bu birkaç saniye sürebilir...",
     "narrative": {
       "title": "Yöntem paragrafı (kopyalamaya hazır)",
       "hint": "Bir makalenin veri hazırlama bölümüne yapıştırabileceğin otomatik özet.",
