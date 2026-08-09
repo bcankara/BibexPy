@@ -475,7 +475,8 @@ async def run_author_disambiguation(
                 src = merger.merged_dataset_path(project_id)
                 if src is not None:
                     snap_rel = _snapshot(project_dir, df_before, "orcid_enrich")
-                    await asyncio.to_thread(df.to_excel, src, index=False)
+                    from services.filter_engine import atomic_write_excel
+                    await asyncio.to_thread(atomic_write_excel, df, src)
                     try:
                         from services.filter_engine import _DF_CACHE
                         _DF_CACHE.clear()
@@ -845,7 +846,8 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
 
     # Değişiklik var → ÖNCE snapshot (df'in güncel hâli yazımdan önce yedeklenir), sonra yaz.
     snap = _snapshot(project_dir, pd.read_excel(src), kind)
-    df.to_excel(src, index=False)
+    from services.filter_engine import atomic_write_excel
+    atomic_write_excel(df, src)
     # Filter cache temizle
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
@@ -939,7 +941,8 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
         return {"kind": "authors_split", "approved_count": len(approved), "replacements": 0, "snapshot": None}
 
     snap = _snapshot(project_dir, pd.read_excel(src), "authors_split")
-    df.to_excel(src, index=False)
+    from services.filter_engine import atomic_write_excel
+    atomic_write_excel(df, src)
     try:
         from services.filter_engine import _DF_CACHE
         _DF_CACHE.clear()

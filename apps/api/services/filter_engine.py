@@ -22,6 +22,39 @@ from services import merger
 _DF_CACHE: dict[tuple[str, float], pd.DataFrame] = {}
 
 
+def atomic_write_excel(df: pd.DataFrame, path: Any) -> None:
+    """Aktif dataseti ATOMİK yaz: önce yanına .tmp~, sonra os.replace.
+
+    df.to_excel hedef dosyayı ÖNCE sıfırlayıp saniyelerce yazar; o pencerede
+    okuyan her istek (ör. quality/stats poll'u) bozuk/yarım dosya görüp 500
+    veriyordu ve süreç o anda kesilirse dosya bozuk kalıyordu. Atomik değişimle
+    okuyucular her an ya eski ya yeni TAM dosyayı görür; kesinti yalnız .tmp~
+    artığı bırakır. Windows'ta hedefi o an açık tutan kısa okumalar os.replace'i
+    PermissionError ile düşürebilir → kısa aralıklı sınırlı yeniden deneme.
+    """
+    import os
+    import time
+    p = Path(path)
+    tmp = p.with_name(p.name + ".tmp~")
+    try:
+        df.to_excel(tmp, index=False)
+        last_err: Optional[BaseException] = None
+        for _ in range(6):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError as e:  # hedef kısa süreli okunuyor olabilir
+                last_err = e
+                time.sleep(0.25)
+        raise last_err  # type: ignore[misc]
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def _ensure_uid_column(df: pd.DataFrame) -> bool:
     """Her satıra benzersiz, stabil bir UID atar. UID kolonu yoksa ekler.
 
@@ -58,7 +91,15 @@ def load_merged(project_id: str) -> pd.DataFrame:
     key = (str(p), mtime)
     if key not in _DF_CACHE:
         _DF_CACHE.clear()  # tek-kullanıcı, tek-dataset
-        df = pd.read_excel(p)
+        try:
+            df = pd.read_excel(p)
+        except Exception:
+            # Yarım/bozuk dosya (eski sürümlerin atomik olmayan yazımı ya da
+            # sert kesinti kalıntısı) → 500 yerine temiz 409; kullanıcı
+            # Geçmiş'ten snapshot geri yükleyebilir.
+            raise FileNotFoundError(
+                "merged_dataset_unreadable: dosya bozuk görünüyor — Geçmiş'ten bir snapshot geri yükleyin"
+            )
         # Tüm string sütunları normalize et — boş hücreler için empty string
         for col in df.columns:
             if df[col].dtype == "object":
@@ -66,7 +107,7 @@ def load_merged(project_id: str) -> pd.DataFrame:
         # Her satıra UID ata (yoksa) ve kalıcı olarak diske yaz
         if _ensure_uid_column(df):
             try:
-                df.to_excel(p, index=False)
+                atomic_write_excel(df, p)
             except Exception:
                 pass  # write hatası ana akışı durdurmasın — UID memory'de yine var
         _DF_CACHE[key] = df

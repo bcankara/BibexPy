@@ -214,7 +214,9 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
         cancelled = True
     finally:
         _mirror_wc_sc(df)  # API tek alanı doldurduysa WC/SC eşitle
-        await asyncio.to_thread(df.to_excel, src, index=False)
+        # Atomik yaz — iptal/kesinti anında ya da eşzamanlı poll okumasında
+        # aktif dataset asla yarım kalmasın (bkz. atomic_write_excel)
+        await asyncio.to_thread(filter_engine.atomic_write_excel, df, src)
         filter_engine._DF_CACHE.clear()
         storage.touch_project(project_id)
     if cancelled:
@@ -331,7 +333,7 @@ async def run_api_enrichment(ctx: JobContext, project_id: str, sources: list[str
     snap = _snapshot(project_id, df, "api")
     ctx.progress(0.05)
     stats = await _api_pass(ctx, df, lo=0.05, hi=0.95)
-    await asyncio.to_thread(df.to_excel, src, index=False)
+    await asyncio.to_thread(filter_engine.atomic_write_excel, df, src)
     filter_engine._DF_CACHE.clear()
     storage.touch_project(project_id)
     ctx.progress(1.0)

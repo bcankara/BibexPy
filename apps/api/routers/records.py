@@ -33,11 +33,11 @@ def _snapshot_dataset(project_id: str, df: pd.DataFrame, reason: str) -> str:
 
 
 def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
-    """Aktif merged_*.xlsx dosyasının üzerine yaz, cache'i temizle."""
+    """Aktif merged_*.xlsx dosyasını ATOMİK yaz, cache'i temizle."""
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise HTTPException(409, "no_active_merged_dataset")
-    df.to_excel(p, index=False)
+    filter_engine.atomic_write_excel(df, p)
     # cache invalidate
     filter_engine._DF_CACHE.clear()
     return str(p.relative_to(storage.settings.storage_path))

@@ -865,7 +865,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     stat_xlsx = adir / "Statistic.xlsx"
 
     try:
-        await asyncio.to_thread(final_df.to_excel, merged_xlsx, index=False)
+        await asyncio.to_thread(filter_engine.atomic_write_excel, final_df, merged_xlsx)
         await asyncio.to_thread(_write_match_audit, matches, audit_xlsx)
         await asyncio.to_thread(_write_conflict_log, conflicts, conflict_xlsx)
         await asyncio.to_thread(_write_borderline_queue, borderline, borderline_xlsx)
@@ -1059,7 +1059,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             mask = df["DI"].astype(str).str.strip().str.lower().isin(to_drop_dois)
             applied = int(mask.sum())
             df = df.loc[~mask].reset_index(drop=True)
-            df.to_excel(merged_xlsx, index=False)
+            filter_engine.atomic_write_excel(df, merged_xlsx)
             filter_engine._DF_CACHE.clear()
 
     # Audit
