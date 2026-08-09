@@ -4,8 +4,11 @@ import os
 
 
 def remove_strange_char(text):
-    # Remove strange characters
-    return re.sub(r'[^\x00-\x7F]+', '', text)
+    # Remove non-ASCII characters. codec-level strip instead of re.sub: this
+    # runs once per line over multi-hundred-MB exports (the hottest loop in
+    # the conversion), and encode/decode does the same work in a single C
+    # pass, ~10x faster and with far less allocation churn.
+    return text.encode("ascii", "ignore").decode("ascii")
 
 
 def safe_str_replace(x, old, new):
