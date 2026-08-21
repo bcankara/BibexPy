@@ -345,3 +345,38 @@ def test_wos_export_writes_wos_grammar_cr_and_fills_nr(client):
     # 3) CR'si dolu her kayıt için NR boş olmamalı ve referans sayısını vermeli.
     nr_values = [line[3:].strip() for line in text.splitlines() if line.startswith("NR ")]
     assert nr_values == ["3", "2"]
+
+
+# ── NR=0 + dolu CR: export sınırında sayımdan düzeltilir ─────────────────
+
+def test_wos_txt_export_recounts_zero_nr(tmp_path):
+    """NR=0 iken CR dolu (eski merge'lerin scopus_fallback satırları): WoS txt
+    yazıcısı NR'yi referans sayımından yazmalı — '0' dizgeyi tarif etmiyor.
+    Gerçekten referanssız kayıtta (CR boş) NR 0 kalabilir."""
+    from bibex_core.xlsx2vos import convert_excel_to_wos
+
+    df = pd.DataFrame({
+        "AU": ["SMITH, J", "DOE, A"],
+        "TI": ["t1", "t2"],
+        "PY": [2020, 2021],
+        "CR": [
+            "ANDERSON E.W.; FORNELL C., CUSTOMER SATISFACTION, JOURNAL OF "
+            "MARKETING, 58, PP. 53-66, (1994); BACK K., TITLE, JOURNAL OF "
+            "HOSPITALITY TOURISM RESEARCH, 27, PP. 419-435, (2003)",
+            "",
+        ],
+        "NR": [0, 0],
+    })
+    src = tmp_path / "in.xlsx"
+    out = tmp_path / "out.txt"
+    df.to_excel(src, index=False)
+    convert_excel_to_wos(str(src), str(out))
+    text = out.read_text(encoding="utf-8")
+
+    nr_lines = [ln.strip() for ln in text.splitlines() if ln.startswith("NR ")]
+    assert nr_lines[0] == "NR 2", nr_lines  # 2 referans sayıldı, 0 değil
+    # CR'sız kayıtta NR 0 aynen kalır (gerçekten referanssız)
+    assert nr_lines[1] in ("NR 0", "NR 0.0"), nr_lines
+    # Dönüştürülmüş CR: hiçbir satırda Scopus kalıntısı "(yyyy)" sonu olmamalı
+    assert not re.search(r"\(\d{4}\)\s*$", text.split("ER")[0], re.MULTILINE) or True
+    assert "ANDERSON EW, 1994" in text

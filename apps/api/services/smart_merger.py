@@ -897,13 +897,15 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             if changed.any():
                 final_df["CR"] = final_df["CR"].astype(object)
                 final_df.loc[changed, "CR"] = after[changed]
-            # NR (referans sayısı) boşsa CR'den doldur — Scopus dosyalarında NR
-            # kolonu yoktur ve WoS okuyucuları bu alanı bekler.
+            # NR (referans sayısı): boşsa VEYA CR bu adımda yeniden yazıldıysa
+            # CR'den say. Scopus dosyalarında NR kolonu yoktur; ayrıca
+            # scopus_fallback ile CR'ı Scopus'tan gelen eşleşmiş satırlarda WoS
+            # tarafının NR'ı (çoğu kez 0) artık dizgeyi tarif etmez.
             if "NR" not in final_df.columns:
                 final_df["NR"] = ""
             nr = final_df["NR"]
             blank = nr.isna() | nr.astype(str).str.strip().isin(("", "nan", "NaN", "None"))
-            fill = blank & filled_cr
+            fill = (blank | changed) & filled_cr
             if fill.any():
                 # object'e çevir: int64/float64 kolona tamsayı yazmak 3 yerine
                 # 3.0 üretir ve WoS dosyasına "NR 3.0" olarak düşer.

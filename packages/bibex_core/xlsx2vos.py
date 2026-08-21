@@ -156,9 +156,12 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
                 file.write("CR \n")
 
             # Diğer gerekli bilgileri yaz
-            # NR boşsa CR'den say — WoS okuyucuları NR'yi referans sayısı olarak kullanır.
+            # NR boş ya da 0 iken CR doluysa CR'den say — WoS okuyucuları NR'yi
+            # referans sayısı olarak kullanır. NR=0 + dolu CR, eski merge'lerin
+            # scopus_fallback satırlarında görülen yanlış degerdir; gerçekten
+            # referanssız kayıtların CR'ı zaten boştur.
             nr = values_dict['NR'][idx]
-            if str(nr).strip() in ("", "nan", "NaN", "None") and cr:
+            if str(nr).strip() in ("", "nan", "NaN", "None", "0", "0.0") and cr:
                 nr = count_refs(cr)
             file.write(f"NR {nr}\n")  # Atıf sayısı (Number of References)
             file.write(f"TC {values_dict['TC'][idx]}\n")  # Toplam atıf sayısı (Times Cited)
