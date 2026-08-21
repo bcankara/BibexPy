@@ -5,9 +5,10 @@ Scopus and Web of Science file conversion to spreadsheets, spreadsheet
 export for visualization, and bibliographic database merging.
 """
 
+from . import cr_normalize
 from . import scp2xlsx
 from . import wos2xlsx
 from . import xlsx2vos
 from . import MergeDB
 
-__all__ = ["scp2xlsx", "wos2xlsx", "xlsx2vos", "MergeDB"]
+__all__ = ["cr_normalize", "scp2xlsx", "wos2xlsx", "xlsx2vos", "MergeDB"]

@@ -1,6 +1,8 @@
 import pandas as pd
 from tqdm import tqdm  # İlerleme çubuğu için tqdm kütüphanesi
 
+from bibex_core.cr_normalize import normalize_cr, count_refs
+
 def convert_excel_to_wos(input_excel_path, output_txt_path):
     # Excel dosyasını pandas kullanarak aç
     df = pd.read_excel(input_excel_path)
@@ -138,7 +140,11 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
             file.write(f"FX {values_dict['FX'][idx]}\n")  # Funding Text
 
             # CR (Cited References) information - from CR_raw column
-            cr = values_dict['CR'][idx]
+            # Scopus-format references are rewritten into WoS reference grammar
+            # first; without that, VOSviewer and every other WoS-file consumer
+            # fails to key on author/year/volume/page. Already-WoS cells are
+            # returned untouched and the call is idempotent.
+            cr = normalize_cr(values_dict['CR'][idx])
             if cr:
                 cr_list = [ref.strip() for ref in cr.split(';') if ref.strip()]  # Filter empty references
                 if cr_list:
@@ -150,7 +156,11 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
                 file.write("CR \n")
 
             # Diğer gerekli bilgileri yaz
-            file.write(f"NR {values_dict['NR'][idx]}\n")  # Atıf sayısı (Number of References)
+            # NR boşsa CR'den say — WoS okuyucuları NR'yi referans sayısı olarak kullanır.
+            nr = values_dict['NR'][idx]
+            if str(nr).strip() in ("", "nan", "NaN", "None") and cr:
+                nr = count_refs(cr)
+            file.write(f"NR {nr}\n")  # Atıf sayısı (Number of References)
             file.write(f"TC {values_dict['TC'][idx]}\n")  # Toplam atıf sayısı (Times Cited)
             file.write(f"Z9 {values_dict['Z9'][idx]}\n")  # Total Times Cited
             file.write(f"U1 {values_dict['U1'][idx]}\n")  # Usage Count (Last 180 Days)

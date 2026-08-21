@@ -22,6 +22,7 @@ from uuid import uuid4
 
 import pandas as pd
 
+from bibex_core.cr_normalize import count_refs, normalize_cr
 from config import settings
 from jobs.runner import JobContext, run_cpu
 from services import analyses, audit, dataset_io, filter_engine, storage
@@ -842,6 +843,8 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     # 5-7. Field merge + eşleşmeyenler + tek DataFrame + UID (CPU havuzunda)
     ctx.log("Field merge (Caputo 2024 defaults)...")
 
+    cr_stats: dict[str, int] = {"normalized": 0, "nr_filled": 0}
+
     def _stage_field_merge():
         all_columns = list(set(list(wos_df.columns) + list(scp_df.columns)))
         conflicts: list[dict] = []
@@ -879,10 +882,41 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         # Tek bir DataFrame + UID kolonu (filter_engine ile aynı şema)
         final_df = pd.concat([merged_df, wos_not_matched, scp_not_matched], ignore_index=True)
         filter_engine._ensure_uid_column(final_df)
+
+        # CR normalizasyonu — Scopus dilbilgisindeki atıflar WoS dilbilgisine
+        # çevrilir. Aksi hâlde VOSviewer/bibliometrix birleştirilmiş dataset'in
+        # Scopus kaynaklı satırlarında hiçbir atıfı eşleştiremez.
+        # normalize_cr idempotenttir; WoS satırları olduğu gibi geri döner.
+        if "CR" in final_df.columns:
+            before = final_df["CR"].fillna("").astype(str)
+            after = before.map(normalize_cr)
+            # Yalnız dolu hücreler yazılır — boş/NaN CR hücreleri olduğu gibi kalır.
+            filled_cr = before.str.strip() != ""
+            changed = filled_cr & (after != before)
+            cr_stats["normalized"] = int(changed.sum())
+            if changed.any():
+                final_df["CR"] = final_df["CR"].astype(object)
+                final_df.loc[changed, "CR"] = after[changed]
+            # NR (referans sayısı) boşsa CR'den doldur — Scopus dosyalarında NR
+            # kolonu yoktur ve WoS okuyucuları bu alanı bekler.
+            if "NR" not in final_df.columns:
+                final_df["NR"] = ""
+            nr = final_df["NR"]
+            blank = nr.isna() | nr.astype(str).str.strip().isin(("", "nan", "NaN", "None"))
+            fill = blank & filled_cr
+            if fill.any():
+                # object'e çevir: int64/float64 kolona tamsayı yazmak 3 yerine
+                # 3.0 üretir ve WoS dosyasına "NR 3.0" olarak düşer.
+                final_df["NR"] = final_df["NR"].astype(object)
+                final_df.loc[fill, "NR"] = after[fill].map(count_refs)
+                cr_stats["nr_filled"] = int(fill.sum())
+
         return final_df, conflicts, field_source_distribution, wos_not_matched, scp_not_matched
 
     (final_df, conflicts, field_source_distribution,
      wos_not_matched, scp_not_matched) = await run_cpu(_stage_field_merge)
+    ctx.log(f"CR normalization (Scopus → WoS grammar): {cr_stats['normalized']} cells rewritten, "
+            f"{cr_stats['nr_filled']} NR values filled")
     ctx.progress(0.80)
 
     # 8. Çıktıları yaz — analiz klasörüne

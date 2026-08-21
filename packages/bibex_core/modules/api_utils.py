@@ -474,10 +474,11 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                 if oa_details:
                     metadata['OA'] = '; '.join(oa_details)
             
-            # Referenced Works — tümünü birleştir (Excel limiti için kısalt)
-            if work.get('referenced_works'):
-                metadata['CR'] = truncate_url_list('; '.join(work['referenced_works']))
-            
+            # NOT: OpenAlex 'referenced_works' CR'ye YAZILMAZ — bu alan
+            # openalex.org/W... URL listesi döndürür; WoS atıf dilbilgisine
+            # (AUTHOR, YIL, KAYNAK, Vn, Pn) çevrilemez ve VOSviewer/bibliometrix
+            # için kullanılamaz veri üretir.
+
             return metadata
     except Exception as e:
         print(f"OpenAlex API Error: {str(e)}")
@@ -977,8 +978,10 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
 
     # Erken çıkış için: API'lerin doldurabileceği alanlar. OI(ORCID)/RI/ROR/CC yeni
     # eklendi (yazar/kurum kimliği — disambiguation için).
+    # CR listede DEĞİL: hiçbir API atıf listesini WoS dilbilgisinde döndürmüyor
+    # (OpenAlex URL, Crossref ham JSON) — CR yalnız kaynak dosyadan gelir.
     _FILLABLE = ("DI", "DT", "AU", "AF", "TI", "PY", "SO", "PU", "SN", "UR", "AB", "DE",
-                 "C1", "TC", "CR", "LA", "WC", "SC", "OI", "RI", "ROR", "CC")
+                 "C1", "TC", "LA", "WC", "SC", "OI", "RI", "ROR", "CC")
 
     def _is_blank(v) -> bool:
         if v is None:
