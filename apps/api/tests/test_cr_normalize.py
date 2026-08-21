@@ -380,3 +380,41 @@ def test_wos_txt_export_recounts_zero_nr(tmp_path):
     # Dönüştürülmüş CR: hiçbir satırda Scopus kalıntısı "(yyyy)" sonu olmamalı
     assert not re.search(r"\(\d{4}\)\s*$", text.split("ER")[0], re.MULTILINE) or True
     assert "ANDERSON EW, 1994" in text
+
+
+# ── WoS yazar virgülü: "SOYAD, II, YIL" → "SOYAD II, YIL" ────────────────
+# Clarivate export kanalına göre iki yazım da sahada var (bir ham exportta
+# %67,6 virgüllü ölçüldü; başka bir exportta %0). Virgüllü biçim VOSviewer'ın
+# yapısal ayrıştırmasını bozuyor → iki yazım tek anahtara indirgenir.
+
+def test_wos_author_comma_stripped():
+    cr = ("HESKETT, JL, 1994, HARVARD BUS REV, V72, P164; "
+          "Bakker, AB, 2011, EUR J WORK ORGAN PSY, V20, P4, DOI 10.1080/1359432X.2010.485352; "
+          "Chi, CG, 2009, INT J HOSP MANAG, V28, P245")
+    out = normalize_cr(cr)
+    assert out == ("HESKETT JL, 1994, HARVARD BUS REV, V72, P164; "
+                   "Bakker AB, 2011, EUR J WORK ORGAN PSY, V20, P4, DOI 10.1080/1359432X.2010.485352; "
+                   "Chi CG, 2009, INT J HOSP MANAG, V28, P245")
+    assert normalize_cr(out) == out  # idempotent
+
+
+def test_wos_institutional_authors_untouched():
+    """Kurum-yazarlı ve anonim referanslarda virgülden sonra yıl gelir — dokunulmaz."""
+    cr = "OECD, 2019, HLTH EXP; [Anonymous], 2013, NATURE, V13, P41; UNWTO, 2011, TOURISM"
+    assert normalize_cr(cr) == cr
+
+
+def test_wos_comma_form_in_mixed_cell():
+    """Virgüllü WoS + Scopus yeni-format aynı hücrede: ikisi de normalize olur."""
+    cr = ("ZEITHAML, VA, 1996, J MARKETING, V60, P31; "
+          "ANDERSON E.W.; FORNELL C., CUSTOMER SATISFACTION, JOURNAL OF MARKETING, "
+          "58, PP. 53-66, (1994)")
+    out = normalize_cr(cr)
+    assert "ZEITHAML VA, 1996, J MARKETING, V60, P31" in out
+    assert "ANDERSON EW, 1994, JOURNAL OF MARKETING, V58, P53" in out
+    assert "ZEITHAML, VA" not in out and "(1994)" not in out
+
+
+def test_commaless_wos_still_byte_identical():
+    cr = "Cimiotti JP, 2012, AM J INFECT CONTROL, V40, P486, DOI 10.1016/j.ajic.2012.02.029"
+    assert normalize_cr(cr) is cr or normalize_cr(cr) == cr

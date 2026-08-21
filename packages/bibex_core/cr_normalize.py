@@ -70,9 +70,28 @@ _CLASSIC_YEAR = re.compile(r"\((" + _YEAR + r")\)\s+(?=[^\s\d])")
 # WoS format: "AUTHOR, YYYY, ..." or the author-less "YYYY, ..." variant that
 # WoS itself emits for anonymous records.  A trailing ";" is tolerated so that a
 # WoS reference followed by more references in the same chunk is still detected.
+# Clarivate ships TWO author spellings depending on export vintage/route:
+# "HESKETT JL, 1994, ..." (comma-less) and "HESKETT, JL, 1994, ..." (a comma
+# between surname and initials) — both are recognised as WoS grammar here.
 _WOS_REF = re.compile(
-    r"^\s*(?:[^,;]{1,150},\s*" + _YEAR + r"|" + _YEAR + r")\s*(?:[,;]|$)"
+    r"^\s*(?:[^,;]{1,150},\s*(?:[A-Z]{1,3},\s*)?" + _YEAR + r"|" + _YEAR + r")\s*(?:[,;]|$)"
 )
+
+# The comma variant defeats VOSviewer's structural parser (the extra comma
+# shifts the year out of its expected slot, so the reference falls back to
+# raw-string comparison and never cross-matches the comma-less form our Scopus
+# conversion emits).  Strip exactly the "<surname>, <1-3 CAPS>, <year>," shape:
+# institutional authors ("OECD, 2019, ..." — year right after the comma) and
+# "[Anonymous], 2013, ..." are untouched.  Verified against a raw Clarivate
+# export where 67.6% of 35,952 references carried the comma form.
+_WOS_AUTHOR_COMMA = re.compile(
+    r"(^|(?<=;)\s*)([^,;]+), ([A-Z]{1,3}), (?=(?:1[5-9]|20)\d{2},)"
+)
+
+
+def _strip_wos_author_comma(cell: str) -> str:
+    """"SURNAME, II, YYYY, ..." → "SURNAME II, YYYY, ..." (idempotent)."""
+    return _WOS_AUTHOR_COMMA.sub(r"\1\2 \3, ", cell)
 
 # A DOI token; stops at whitespace, comma, semicolon or a closing bracket.
 _DOI = re.compile(r"\b(10\.\d{4,9}/[^\s,;\]]+)")
@@ -265,7 +284,8 @@ def _convert_ref(ref: str) -> str:
     Scopus input would move the DOI's page number into the year slot.
     """
     if _WOS_REF.match(ref):
-        return _squeeze(ref)          # already WoS grammar — leave it alone
+        # Already WoS grammar — only unify the author spelling (comma variant).
+        return _strip_wos_author_comma(_squeeze(ref))
     if _TRAILING_YEAR.search(ref):
         converted = _from_new_format(ref)
         if converted:
@@ -372,10 +392,11 @@ def normalize_cr(cr: str) -> str:
     if not stripped or stripped.lower() == "nan":
         return ""
 
-    # Already-WoS cells are returned byte-identical: re-joining them with "; "
-    # would rewrite files that were perfectly valid to begin with.
+    # Already-WoS cells skip the reference-level pipeline; only the author
+    # spelling is unified (comma-less input stays byte-identical — the comma
+    # pattern simply never matches it).
     if _is_wos_cell(stripped):
-        return cr
+        return _strip_wos_author_comma(cr)
 
     out: list[str] = []
     # Split at ";" directly after a trailing "(yyyy)" first — the only boundary
