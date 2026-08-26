@@ -1,15 +1,59 @@
 import pandas as pd
 import re
 import os
-from typing import List, Union
+from typing import List, Union, Optional
 import numpy as np
 from unidecode import unidecode
+
+from bibex_core.cr_normalize import normalize_cr, count_refs
 
 def trim(text: str) -> str:
     """Removes extra spaces from text"""
     if pd.isna(text):
         return ""
     return re.sub(r'\s+', ' ', str(text)).strip()
+
+# DOI önek/ayırıcı kalıpları — _canon_doi için.
+_DOI_URL_PREFIX_RE = re.compile(r'^https?://(dx\.)?doi\.org/', re.IGNORECASE)
+_DOI_SEP_RE = re.compile(r'[_\u2010-\u2015]')
+
+def _canon_doi(value) -> Optional[str]:
+    """DOI'yi karşılaştırma için kanonik biçime indirger.
+
+    services.smart_merger.normalize_doi'nin bire bir aynadaki eşi. bibex_core
+    sunucu (apps/api) kodunu İMPORT ETMEMELİDİR — paket headless kullanımda
+    tek başına çalışır — bu yüzden kopya burada yerel tutulur; smart_merger'daki
+    kural değişirse bu fonksiyon da güncellenmelidir.
+
+    Ham 'DI' üzerinde gruplamak aynı makaleyi ayrı gruplara böler: büyük/küçük
+    harf, 'https://doi.org/' öneki ve ayırıcı yazımı dizinleyiciden dizinleyiciye
+    değişir (WoS '10.4103/jgid.jgid_12_19', Scopus '10.4103/jgid.jgid-12-19').
+
+    Geçersiz/boş girdi ya da '10.' ile başlamayan sonuç için None döner.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    # Kirli veride önekler üst üste binebilir; değişmez hale gelene dek soy.
+    for _ in range(4):
+        prev = s
+        s = _DOI_URL_PREFIX_RE.sub('', s)
+        s = re.sub(r'^doi\s*:\s*', '', s)
+        s = re.sub(r'^doi\.org/', '', s)
+        if s == prev:
+            break
+    s = s.rstrip('/. \t')
+    s = _DOI_SEP_RE.sub('-', s)
+    if not s.startswith('10.'):
+        return None
+    return s
 
 def merge_values(x):
     """
@@ -218,6 +262,13 @@ def merge_references(wos_refs: str, scopus_refs: str) -> str:
     Returns:
         str: Birleştirilmiş ve temizlenmiş referanslar
     """
+    # ÖNCE normalize et: Scopus dilbilgisinde ';' yazar AYIRICISIDIR — ham
+    # Scopus CR'ı aşağıdaki split(';') bir referansı yazar kırıntılarına böler
+    # ve sıralamayı bozar. normalize_cr sonrası ';' yalnız referans sınırıdır
+    # (WoS dilbilgisi); idempotent olduğundan WoS girdisi değişmez.
+    wos_refs = normalize_cr(wos_refs) if isinstance(wos_refs, str) else wos_refs
+    scopus_refs = normalize_cr(scopus_refs) if isinstance(scopus_refs, str) else scopus_refs
+
     def split_and_clean_refs(refs_str):
         if pd.isna(refs_str) or not refs_str:
             return []
@@ -780,54 +831,69 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
     M['DB_Original'] = M['DB']
     
     if remove_duplicated:
+        # Kanonik DOI anahtarı: gruplama/dedupe HAM 'DI' üzerinde yapılamaz.
+        # Aynı makale WoS'ta '10.4103/jgid.jgid_12_19', Scopus'ta
+        # '10.4103/jgid.jgid-12-19' (ayrıca 'https://doi.org/...' öneki ve
+        # büyük/küçük harf farkı) olarak gelir; ham eşitlik bunları ayrı
+        # gruplara böler. Anahtarı None olan satırlar (DOI'siz/geçersiz)
+        # eskisi gibi başlık+yıl yoluna düşer. Yardımcı kolon çıktıdan silinir.
+        if 'DI' in M.columns:
+            M['_doi_key'] = M['DI'].map(_canon_doi)
+
         if merge_fields:
             # Group by DOI and select the most complete data within each group
-            if 'DI' in M.columns:
+            if '_doi_key' in M.columns:
+                has_doi = M['_doi_key'].notna()
                 # Group records with DOI
-                grouped = M[~M['DI'].isna()].groupby('DI', as_index=False).agg(
+                grouped = M[has_doi].groupby('_doi_key', as_index=False).agg(
                     lambda x: '; '.join(sorted(set(str(val) for val in x if pd.notna(val)))) if x.name == 'DB_Original'
                     else merge_values(x)
                 )
-                
+
                 # Update DB field for merged records
                 grouped.loc[grouped['DB_Original'].str.contains(';'), 'DB'] = 'BIBEXPY'
-                
+
                 # Add records without DOI
-                no_doi = M[M['DI'].isna()]
+                no_doi = M[~has_doi]
                 M = pd.concat([grouped, no_doi], ignore_index=True)
-            
+
             # Check duplicates by title and year
             if 'TI' in M.columns and 'PY' in M.columns:
-                # Clean titles
-                M['clean_title'] = M['TI'].apply(lambda x: re.sub(r'[^a-zA-Z0-9\s]', '', str(x)))
+                # Clean titles — küçük harfe indirmeden 'Deep Learning' ile
+                # 'Deep learning' iki ayrı anahtar üretir ve aynı kayıt iki kez
+                # kalır.
+                M['clean_title'] = M['TI'].apply(lambda x: re.sub(r'[^a-zA-Z0-9\s]', '', str(x)).lower())
                 M['clean_title'] = M['clean_title'].apply(trim)
-                
+
                 # Group by title and year
                 M['title_year'] = M['clean_title'] + ' ' + M['PY'].astype(str)
-                
+
                 # Select the most complete data for each group
                 grouped = M.groupby('title_year', as_index=False).agg(
                     lambda x: '; '.join(sorted(set(str(val) for val in x if pd.notna(val)))) if x.name == 'DB_Original'
                     else merge_values(x)
                 )
-                
+
                 # Update DB field for merged records
                 grouped.loc[grouped['DB_Original'].str.contains(';'), 'DB'] = 'BIBEXPY'
-                
+
                 M = grouped.drop(['title_year', 'clean_title'], axis=1)
         else:
             # Just remove duplicate records
-            if 'DI' in M.columns:
-                duplicates = M['DI'].duplicated() & ~M['DI'].isna()
+            if '_doi_key' in M.columns:
+                duplicates = M['_doi_key'].duplicated() & M['_doi_key'].notna()
                 M = M[~duplicates]
-            
+
             if 'TI' in M.columns and 'PY' in M.columns:
-                clean_titles = M['TI'].apply(lambda x: re.sub(r'[^a-zA-Z0-9\s]', '', str(x)))
+                clean_titles = M['TI'].apply(lambda x: re.sub(r'[^a-zA-Z0-9\s]', '', str(x)).lower())
                 clean_titles = clean_titles.apply(trim)
                 title_year = clean_titles + ' ' + M['PY'].astype(str)
                 duplicates = title_year.duplicated()
                 M = M[~duplicates]
-    
+
+        # Yardımcı anahtar kolonu çıktıya sızmamalı
+        M = M.drop(columns=['_doi_key'], errors='ignore')
+
     # If there are multiple databases
     if len(M['DB'].unique()) > 1:
         # DB'yi ISI'ya set edelim
@@ -1129,9 +1195,46 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
                     
                     M.at[idx, 'OA'] = merge_open_access(wos_oa, scopus_oa)
     
+    # Geçici RP kolonları yalnızca çok-kaynaklı dalda düşürülüyordu; dedupe tüm
+    # satırları tek DB değerine indirdiğinde ('BIBEXPY' ya da tek kaynak) o dal
+    # hiç çalışmaz ve RP_WOS/RP_SCOPUS çıktıya sızardı. RP burada zaten kendi
+    # değerini taşır, bu yüzden koşulsuz düşürmek güvenli.
+    M = M.drop(columns=['RP_WOS', 'RP_SCOPUS'], errors='ignore')
+
+    # CR normalizasyonu — Scopus dilbilgisindeki atıflar WoS dilbilgisine
+    # çevrilir. Aksi hâlde VOSviewer/bibliometrix birleştirilmiş dataset'in
+    # Scopus kaynaklı satırlarındaki atıfları hiç eşleştiremez: ölçülen bir
+    # korpusta 436 kaydın 84'ü (ayrı bir korpusta %27) ayrıştırılamayan Scopus
+    # biçimli CR yüzünden coupling ağlarının dışında kalıyordu.
+    # normalize_cr idempotenttir; WoS satırları olduğu gibi geri döner.
+    if 'CR' in M.columns:
+        before = M['CR'].fillna('').astype(str)
+        after = before.map(normalize_cr)
+        # Yalnız dolu hücreler yazılır — boş/NaN CR hücreleri olduğu gibi kalır.
+        filled_cr = before.str.strip() != ''
+        changed = filled_cr & (after != before)
+        if changed.any():
+            M['CR'] = M['CR'].astype(object)
+            M.loc[changed, 'CR'] = after[changed]
+
+        # NR (referans sayısı): CR bu adımda yeniden yazıldıysa VEYA NR boş/0
+        # iken CR doluysa CR'den say. Scopus dosyalarında NR kolonu yoktur;
+        # NR=0 + dolu CR ise eski merge'lerin yanlış değeridir — gerçekten
+        # referanssız kayıtların CR'ı zaten boştur.
+        if 'NR' not in M.columns:
+            M['NR'] = ''
+        nr_str = M['NR'].astype(str).str.strip()
+        blank_or_zero = M['NR'].isna() | nr_str.isin(('', 'nan', 'NaN', 'None', '0', '0.0'))
+        fill = (blank_or_zero | changed) & filled_cr
+        if fill.any():
+            # object'e çevir: int64/float64 kolona tamsayı yazmak 3 yerine
+            # 3.0 üretir ve WoS dosyasına "NR 3.0" olarak düşer.
+            M['NR'] = M['NR'].astype(object)
+            M.loc[fill, 'NR'] = after[fill].map(count_refs)
+
     # Create SR tag
     M = meta_tag_extraction(M, 'SR')
-    
+
     return M
 
 def main():

@@ -189,6 +189,35 @@ def test_normalize_doi_prefix_variants():
     assert normalize_doi("not-a-doi") is None
 
 
+# ── DOI ayırıcı katlaması ('_' ↔ '-') ─────────────────────────────────────
+# GERÇEK VAKA: WoS aynı makaleyi '10.4103/jgid.jgid_12_19', Scopus
+# '10.4103/jgid.jgid-12-19' olarak indeksliyor. Katlama olmadan doi_conflict()
+# True dönüyor ve çift borderline kuyruğuna bile giremeden vetolanıyordu.
+
+def test_normalize_doi_folds_underscore_to_hyphen():
+    assert (normalize_doi("10.4103/jgid.jgid_12_19")
+            == normalize_doi("10.4103/jgid.jgid-12-19")
+            == "10.4103/jgid.jgid-12-19")
+
+
+def test_doi_conflict_false_for_underscore_hyphen_variants():
+    assert doi_conflict("10.4103/jgid.jgid_12_19", "10.4103/jgid.jgid-12-19") is False
+
+
+def test_normalize_doi_folds_unicode_dash_family():
+    """En dash / em dash / hyphen (U+2010–U+2015) de kanonik '-' olur."""
+    assert normalize_doi("10.4103/jgid.jgid–12–19") == "10.4103/jgid.jgid-12-19"
+    assert normalize_doi("10.1000/ab‐cd") == normalize_doi("10.1000/ab-cd")
+    assert doi_conflict("10.4103/jgid.jgid_12_19",
+                        "10.4103/jgid.jgid–12–19") is False
+
+
+def test_distinct_dois_still_conflict_after_folding():
+    """Katlama gerçek farkları yutmaz — ayrı DOI'ler hâlâ çelişir."""
+    assert doi_conflict("10.1016/j.joi.2017.08.007", "10.1016/j.joi.2017.08.008") is True
+    assert doi_conflict("10.4103/jgid.jgid_12_19", "10.4103/jgid.jgid_13_19") is True
+
+
 # ── generate_candidates: kimlik-öncelikli (blocking'i atlar) ──────────────
 
 def _frame(rows):

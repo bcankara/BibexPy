@@ -76,6 +76,9 @@ STOPWORDS: set[str] = {
 # ════════════════════════════════════════════════════════════════════════
 
 _DOI_PREFIX_RE = re.compile(r"^https?://(dx\.)?doi\.org/", re.IGNORECASE)
+# Alt çizgi + Unicode tire ailesi (hyphen, non-breaking hyphen, figure/en/em/
+# horizontal dash) tek kanonik '-' işaretine katlanır.
+_DOI_SEP_RE = re.compile(r"[_\u2010-\u2015]")
 _PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
 _WS_RE = re.compile(r"\s+")
 _LATEX_RE = re.compile(r"\\[a-z]+\{[^}]*\}|\\[\\\\&%$#_{}~^]")
@@ -108,6 +111,7 @@ def normalize_doi(raw: Any) -> Optional[str]:
       'https://doi.org/10.1234/ABC'  → '10.1234/abc'
       'http://dx.doi.org/10.x'        → '10.x'
       '10.1234/abc/'                  → '10.1234/abc'
+      '10.4103/jgid.jgid_12_19'       → '10.4103/jgid.jgid-12-19'
     """
     s = _to_str(raw)
     if not s:
@@ -123,6 +127,15 @@ def normalize_doi(raw: Any) -> Optional[str]:
         if s == prev:
             break
     s = s.rstrip("/. \t")
+    # Ayırıcı katlaması: DOI'ler KANONİK biçimde karşılaştırılır, çünkü
+    # dizinleyiciler ayırıcıyı farklı yazıyor — WoS aynı makaleyi
+    # '10.4103/jgid.jgid_12_19', Scopus '10.4103/jgid.jgid-12-19' verir.
+    # Bir registrant'ın YALNIZCA '_' ile '-' farkı olan iki DOI'yi FARKLI
+    # eserler için üretmesi pratikte yok denecek kadar nadirdir; buna karşılık
+    # mevcut davranış gerçek çiftleri fiilen yasaklıyor: doi_conflict() True
+    # döndüğü an çift borderline kuyruğuna bile giremeden vetolanıyor
+    # (belirleyici DOI kuralı kanonik form üzerinde işler).
+    s = _DOI_SEP_RE.sub("-", s)
     if not s.startswith("10."):
         return None
     return s
