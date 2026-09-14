@@ -11,6 +11,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import HTTPException
@@ -148,6 +149,89 @@ def ensure_sr(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _normalize_cr_for_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Table exports get the same CR grammar as the WoS writer.
+
+    The WoS writer normalizes CR internally, but xlsx/csv/tsv would otherwise
+    carry Scopus-format references verbatim (raw source files converted in
+    Tools, or datasets merged before CR normalization existed). NR is recounted
+    where CR was rewritten or NR is blank/0 next to a non-empty CR — the same
+    rule as the merge path. Returns a new frame when anything changes; the
+    input is never mutated (it may be filter_engine's cached frame).
+    """
+    if "CR" not in df.columns:
+        return df
+    from bibex_core.cr_normalize import count_refs, normalize_cr
+
+    before = df["CR"].fillna("").astype(str)
+    after = before.map(normalize_cr)
+    filled = before.str.strip() != ""
+    changed = filled & (after != before)
+    if "NR" in df.columns:
+        nr = df["NR"]
+        blank = nr.isna() | nr.astype(str).str.strip().isin(("", "nan", "NaN", "None", "0", "0.0"))
+    else:
+        blank = pd.Series(True, index=df.index)
+    fill = (blank | changed) & filled
+    if not changed.any() and not fill.any():
+        return df
+
+    out = df.copy(deep=False)
+    if changed.any():
+        out["CR"] = out["CR"].astype(object)
+        out.loc[changed, "CR"] = after[changed]
+    if fill.any():
+        base_nr = out["NR"] if "NR" in out.columns else pd.Series("", index=out.index)
+        out["NR"] = base_nr.astype(object)
+        out.loc[fill, "NR"] = after[fill].map(count_refs)
+    return out
+
+
+def write_dataset(df: pd.DataFrame, fmt: str, output: Any) -> None:
+    """Write ``df`` as ``fmt`` to ``output`` — the single writer behind both the
+    project Export and the standalone Tools converter.
+
+    Keeping one implementation is deliberate: the two paths used to carry
+    copies of this logic and drifted (SR generation landed in Export only, so
+    Tools-converted spreadsheets still crashed biblioshiny).
+    """
+    output = Path(output)
+    if fmt in _SR_FORMATS:
+        df = ensure_sr(_normalize_cr_for_table(df))
+
+    if fmt == "xlsx":
+        df.to_excel(output, index=False)
+    elif fmt == "csv":
+        df.to_csv(output, index=False, encoding="utf-8")
+    elif fmt == "tsv":
+        df.to_csv(output, sep="\t", index=False, encoding="utf-8")
+    elif fmt == "wos":
+        # bibex_core.xlsx2vos reads a workbook; the temp name is unique so two
+        # concurrent WoS exports in the same second cannot clobber each other.
+        from bibex_core.xlsx2vos import convert_excel_to_wos
+        tmp_xlsx = output.parent / f"_pre_wos_{uuid4().hex[:8]}.xlsx"
+        try:
+            df.to_excel(tmp_xlsx, index=False)
+            with _suppress_stdio():
+                convert_excel_to_wos(str(tmp_xlsx), str(output))
+        finally:
+            tmp_xlsx.unlink(missing_ok=True)
+    elif fmt == "vos":
+        # VOSviewer için tab-separated (bibliometrix uyumlu temel kolonlar);
+        # hiçbiri yoksa tüm tabloyu yaz (boş dosya üretme).
+        cols = [c for c in ("AU", "TI", "SO", "PY", "VL", "IS", "PG", "DI", "DE", "ID", "AB", "TC", "DT", "DB", "WC", "SC")
+                if c in df.columns]
+        (df[cols] if cols else df).to_csv(output, sep="\t", index=False, encoding="utf-8")
+    elif fmt == "bib":
+        from services.bibtex_writer import write_bibtex
+        write_bibtex(df, output)
+    elif fmt == "ris":
+        from services.ris_writer import write_ris
+        write_ris(df, output)
+    else:
+        raise HTTPException(400, f"unsupported_target_format: {fmt}")
+
+
 def export(
     project_id: str,
     fmt: str,
@@ -177,36 +261,7 @@ def export(
         name = f"export_{stamp}_{fmt}.{ext}" if ext != fmt else f"export_{stamp}.{ext}"
     output = exports / Path(name).name
 
-    if fmt in _SR_FORMATS:
-        df = ensure_sr(df)
-
-    if fmt == "xlsx":
-        df.to_excel(output, index=False)
-    elif fmt == "csv":
-        df.to_csv(output, index=False, encoding="utf-8")
-    elif fmt == "tsv":
-        df.to_csv(output, sep="\t", index=False, encoding="utf-8")
-    elif fmt == "wos":
-        # Geçici XLSX üzerinden bibex_core.xlsx2vos
-        from bibex_core.xlsx2vos import convert_excel_to_wos
-        tmp_xlsx = exports / f"_tmp_{stamp}.xlsx"
-        df.to_excel(tmp_xlsx, index=False)
-        with _suppress_stdio():
-            convert_excel_to_wos(str(tmp_xlsx), str(output))
-        tmp_xlsx.unlink(missing_ok=True)
-    elif fmt == "vos":
-        # VOSviewer için tab-separated (bibliometrix uyumlu temel kolonlar)
-        cols = [c for c in ("AU", "TI", "SO", "PY", "VL", "IS", "PG", "DI", "DE", "ID", "AB", "TC", "DT", "DB", "WC", "SC")
-                if c in df.columns]
-        df[cols].to_csv(output, sep="\t", index=False, encoding="utf-8")
-    elif fmt == "bib":
-        from services.bibtex_writer import write_bibtex
-        write_bibtex(df, output)
-    elif fmt == "ris":
-        from services.ris_writer import write_ris
-        write_ris(df, output)
-    else:
-        raise HTTPException(500, "İç hata")
+    write_dataset(df, fmt, output)
 
     storage.touch_project(project_id)
     return output

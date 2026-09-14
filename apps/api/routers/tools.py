@@ -20,6 +20,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import FileResponse
 
 from config import settings
+from services import exporter
 from services.bibex_adapter import _suppress_stdio
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -97,40 +98,15 @@ def _read_source(src_path: Path, source_format: str) -> pd.DataFrame:
 
 
 def _write_target(df: pd.DataFrame, target_format: str, out_path: Path) -> None:
-    """DataFrame'i hedef formatta yaz."""
+    """DataFrame'i hedef formatta yaz — proje Export'uyla AYNI yazıcı.
+
+    Yazma mantığı exporter.write_dataset'te tek yerde durur; burada kopyası
+    tutulduğunda iki yol birbirinden ayrışmıştı (SR üretimi yalnız Export'a
+    girmiş, Tools çıktısı biblioshiny'de çökmeye devam etmişti).
+    """
     if df.empty:
         raise HTTPException(400, "file_empty")
-
-    if target_format == "xlsx":
-        df.to_excel(out_path, index=False)
-    elif target_format == "csv":
-        df.to_csv(out_path, index=False, encoding="utf-8")
-    elif target_format == "tsv":
-        df.to_csv(out_path, sep="\t", index=False, encoding="utf-8")
-    elif target_format == "wos":
-        from bibex_core.xlsx2vos import convert_excel_to_wos
-        tmp_xlsx = out_path.parent / f"_pre_wos_{out_path.stem}.xlsx"
-        df.to_excel(tmp_xlsx, index=False)
-        with _suppress_stdio():
-            convert_excel_to_wos(str(tmp_xlsx), str(out_path))
-        tmp_xlsx.unlink(missing_ok=True)
-    elif target_format == "vos":
-        cols = [c for c in ("AU", "TI", "SO", "PY", "VL", "IS", "PG", "DI",
-                            "DE", "ID", "AB", "TC", "DT", "DB", "WC", "SC")
-                if c in df.columns]
-        if not cols:
-            # Hiçbir bibliometrik kolon yoksa tüm dataset'i TSV olarak yaz
-            df.to_csv(out_path, sep="\t", index=False, encoding="utf-8")
-        else:
-            df[cols].to_csv(out_path, sep="\t", index=False, encoding="utf-8")
-    elif target_format == "bib":
-        from services.bibtex_writer import write_bibtex
-        write_bibtex(df, out_path)
-    elif target_format == "ris":
-        from services.ris_writer import write_ris
-        write_ris(df, out_path)
-    else:
-        raise HTTPException(400, f"unsupported_target_format: {target_format}")
+    exporter.write_dataset(df, target_format, out_path)
 
 
 def _safe_cleanup(path: Path) -> None:
