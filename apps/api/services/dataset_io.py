@@ -54,8 +54,12 @@ def _normalize_object_columns(df: pd.DataFrame) -> pd.DataFrame:
     with one rule.
     """
     for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].fillna("")
+        s = df[col]
+        # pandas 3'te metin kolonları `str` dtype ile gelir; yalnız
+        # `dtype == "object"` kontrolü onları atlar ve boş normalizasyonu hiç
+        # uygulanmazdı — aşağıdaki blank testleri de NaN'ı "dolu" sanardı.
+        if s.dtype == "object" or pd.api.types.is_string_dtype(s):
+            df[col] = s.fillna("").astype(object)
     return df
 
 

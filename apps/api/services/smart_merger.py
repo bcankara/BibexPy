@@ -96,6 +96,27 @@ def _to_str(v: Any) -> str:
     return str(v).strip()
 
 
+def _present(v: Any) -> bool:
+    """Bir KİMLİK değeri gerçekten dolu mu? (None / NaN / "" / "nan" → False)
+
+    "Boş", pandas sürümüne göre üç ayrı şeye dönüşür: None (object dtype),
+    NaN (pandas 3'ün `str` dtype'ı — üstelik TRUTHY) ve "" / "nan" (xlsx
+    gidiş-dönüşü). Çıplak `if v` kontrolü NaN'ı dolu sanar ve boş kimlikleri
+    birbirine eşit kabul eder; bu da DOI'siz kayıtların tek anahtarda toplanıp
+    silinmesine ve DOI'siz ↔ DOI'li gerçek çiftlerin vetolanmasına yol açar.
+    Kimlik karşılaştırmaları (DOI/PMID/UT/ISSN) YALNIZ bu yardımcıyı kullanır.
+    """
+    if v is None:
+        return False
+    try:
+        if pd.isna(v):
+            return False
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return s != "" and s.lower() not in ("nan", "none", "null")
+
+
 def _clean_num(v: Any) -> str:
     """Sayısal alan (VL/BP/PG) karşılaştırma formu: '100.0' → '100'."""
     s = _to_str(v)
@@ -259,7 +280,7 @@ def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
             if idx in drop:
                 continue
             v = df.at[idx, key_col]
-            if not v:
+            if not _present(v):
                 continue
             prev = best_for.get(v)
             if prev is None:
@@ -307,7 +328,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
     # DOI: çelişki → asla aynı yayın; eşitlik → kesin merge
     w_doi = w.get("_norm_doi")
     s_doi = s.get("_norm_doi")
-    if w_doi and s_doi:
+    if _present(w_doi) and _present(s_doi):
         if w_doi != s_doi:
             return None
         return {
@@ -324,7 +345,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
     # (UT cross-database aynı değildir, sadece PMID)
     w_pmid = w.get("_norm_pmid")
     s_pmid = s.get("_norm_pmid")
-    if w_pmid and s_pmid:
+    if _present(w_pmid) and _present(s_pmid):
         if w_pmid != s_pmid:
             return None
         return {
@@ -340,7 +361,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
     # ISSN (dergi-seviyesi koruma): yalnız başlık aşamalarını veto eder
     w_issn = w.get("_norm_issn")
     s_issn = s.get("_norm_issn")
-    if w_issn and s_issn and w_issn != s_issn:
+    if _present(w_issn) and _present(s_issn) and w_issn != s_issn:
         return None
 
     # Stage 3 — Title JW ≥ 0.92 + Year ±1 + Surname match
@@ -459,11 +480,11 @@ def generate_candidates(
         w_index: dict[str, list[int]] = {}
         for idx in wos_df.index:
             v = wos_df.at[idx, key_col]
-            if v:
+            if _present(v):
                 w_index.setdefault(v, []).append(int(idx))
         for idx in scp_df.index:
             v = scp_df.at[idx, key_col]
-            if not v:
+            if not _present(v):
                 continue
             for w_idx in w_index.get(v, ()):
                 consider(w_idx, int(idx))
@@ -749,15 +770,36 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log(f"Normalization: {len(wos_df) + len(scp_df)} rows")
 
     def _stage_normalize() -> None:
+        # Kolonlar LİSTEDEN ve dtype=object olarak kurulur — `.apply()` DEĞİL.
+        # pandas 3'te metin sonuçlu apply() `str` dtype üretir ve normalize
+        # fonksiyonlarının "boş" demek olan None dönüşlerini NaN'a çevirir.
+        # NaN truthy olduğundan `if not v` ile korunan her kimlik kontrolü boş
+        # DOI'yi geçerli kimlik sanar: aynı kaynaktaki DOI'siz kayıtların hepsi
+        # tek NaN anahtarında toplanıp bire iner (SESSİZ VERİ KAYBI) ve DOI'siz
+        # kayıtlar hiçbir şeyle eşleşemez. `astype(object)` bunu DÜZELTMEZ —
+        # NaN, object dtype içinde de NaN kalır ve hâlâ truthy'dir.
+        def _norm_col(frame: pd.DataFrame, src: str, fn) -> pd.Series:
+            raw = frame[src] if src in frame.columns else pd.Series([""] * len(frame), index=frame.index)
+            return pd.Series([fn(v) for v in raw], index=frame.index, dtype=object)
+
         for df in (wos_df, scp_df):
-            df["_norm_doi"] = df.get("DI", pd.Series([""] * len(df))).apply(normalize_doi)
-            df["_norm_title"] = df.get("TI", pd.Series([""] * len(df))).apply(normalize_title)
-            df["_norm_year"] = df.get("PY", pd.Series([""] * len(df))).apply(normalize_year)
-            df["_norm_surname"] = df.get("AU", pd.Series([""] * len(df))).apply(normalize_author_surname)
-            df["_norm_issn"] = df.get("SN", pd.Series([""] * len(df))).apply(normalize_issn)
-            df["_norm_pmid"] = df.get("PM", pd.Series([""] * len(df))).apply(normalize_id_token)
-            df["_norm_ut"] = df.get("UT", pd.Series([""] * len(df))).apply(normalize_id_token)
-            df["_norm_journal"] = df.get("SO", pd.Series([""] * len(df))).apply(normalize_title)
+            df["_norm_doi"] = _norm_col(df, "DI", normalize_doi)
+            df["_norm_title"] = _norm_col(df, "TI", normalize_title)
+            df["_norm_year"] = _norm_col(df, "PY", normalize_year)
+            df["_norm_surname"] = _norm_col(df, "AU", normalize_author_surname)
+            df["_norm_issn"] = _norm_col(df, "SN", normalize_issn)
+            df["_norm_pmid"] = _norm_col(df, "PM", normalize_id_token)
+            df["_norm_ut"] = _norm_col(df, "UT", normalize_id_token)
+            df["_norm_journal"] = _norm_col(df, "SO", normalize_title)
+            # Invariant — sessiz kayıp yerine gürültülü hata: kimlik kolonları
+            # object dtype olmazsa (ileride biri .apply()'a dönerse) boş kimlik
+            # yeniden NaN olur ve veri kaybı sessizce geri gelir.
+            for _col in ("_norm_doi", "_norm_pmid", "_norm_ut"):
+                if df[_col].dtype != object:
+                    raise RuntimeError(
+                        f"normalize invariant ihlali: {_col} dtype={df[_col].dtype} "
+                        "(object bekleniyor — boş kimlikler None kalmalı)"
+                    )
 
     await run_cpu(_stage_normalize)
     ctx.progress(0.20)
