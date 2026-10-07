@@ -120,6 +120,76 @@ def _apply_in(df: pd.DataFrame, col: str, values: list[str]) -> pd.Series:
     return series.isin(norm)
 
 
+# ---------- Document type (DT): token OR whole-string ----------
+#
+# Web of Science writes composite types such as "Article; Early Access" or
+# "Article; Proceedings Paper". The WoS interface counts those as articles, so a
+# selection of "Article" must match them too. ``_dt_tokens`` is the ONE
+# tokenizer shared by the filter (``_apply_doc_type``) and the facet
+# (``_doc_type_facet``); keeping both on it is what guarantees that filtering by
+# any option the facet offers returns exactly that option's count.
+
+def _dt_is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _dt_tokens(value: Any) -> list[str]:
+    """Split a DT cell on ';' into stripped tokens (original spelling kept).
+
+    Empty tokens and missing cells yield nothing. A literal "nan" token is
+    dropped too, the same convention ``_value_counts`` already applies to blanks.
+    Callers compare ``token.upper()`` (the case-insensitivity ``_apply_in`` has).
+    """
+    if _dt_is_missing(value):
+        return []
+    tokens: list[str] = []
+    for part in str(value).split(";"):
+        token = part.strip()
+        if token and token.upper() != "NAN":
+            tokens.append(token)
+    return tokens
+
+
+def _dt_keys(value: Any) -> set[str]:
+    """Distinct upper-cased tokens of one DT cell."""
+    return {t.upper() for t in _dt_tokens(value)}
+
+
+def _dt_whole(value: Any) -> str:
+    """Whole DT string, stripped and upper-cased; "" when missing or blank."""
+    if _dt_is_missing(value):
+        return ""
+    whole = str(value).strip().upper()
+    return "" if whole == "NAN" else whole
+
+
+def _apply_doc_type(df: pd.DataFrame, values: list[str]) -> pd.Series:
+    """DT filter: a row matches when ANY of its ';'-separated tokens is selected
+    (case-insensitive) OR its whole DT string is selected.
+
+    The whole-string half keeps saved presets that stored a composite value such
+    as "Article; Early Access" matching their rows (the exporter refuses an empty
+    result). Several selected values are OR-ed, exactly like ``isin``; rows with
+    an empty DT never match.
+    """
+    if not values or not _has_col(df, "DT"):
+        return pd.Series(True, index=df.index)
+    selected = {str(v).strip().upper() for v in values if v}
+    selected.discard("")
+    col = df["DT"]
+    # Evaluate each distinct raw value once, then map back onto the rows.
+    hit = {
+        raw for raw in col.dropna().unique()
+        if _dt_whole(raw) in selected or not selected.isdisjoint(_dt_keys(raw))
+    }
+    return col.isin(hit)
+
+
 def _apply_contains_any(df: pd.DataFrame, col: str, values: list[str]) -> pd.Series:
     """Çoklu kategori alanları (WC, SC, AU) — değerler ';' veya ',' ile ayrılmış."""
     if not values or not _has_col(df, col):
@@ -206,7 +276,7 @@ def apply_filter(df: pd.DataFrame, spec: dict[str, Any]) -> pd.DataFrame:
     if "citation_count" in spec and spec["citation_count"]:
         mask &= _apply_range(df, "TC", spec["citation_count"])
     if "doc_type" in spec:
-        mask &= _apply_in(df, "DT", spec["doc_type"])
+        mask &= _apply_doc_type(df, spec["doc_type"])
     if "language" in spec:
         mask &= _apply_in(df, "LA", spec["language"])
     if "db_source" in spec:
@@ -239,6 +309,33 @@ def _value_counts(series: pd.Series, top: int = 30) -> list[dict]:
     return [{"value": str(k), "count": int(v)} for k, v in counts.items()]
 
 
+def _doc_type_facet(series: pd.Series, top: int = 20) -> list[dict]:
+    """Doc-type facet built on ``_dt_tokens``, the tokenizer the filter uses.
+
+    Each record contributes once per DISTINCT token (a token repeated inside one
+    DT string counts once). Tokens are keyed on their upper-cased form and shown
+    in their most frequent spelling. Output shape matches ``_value_counts``.
+    """
+    counts: dict[str, int] = {}
+    spellings: dict[str, dict[str, int]] = {}
+    # value_counts collapses identical DT strings, so each is tokenized once.
+    for raw, n in series.value_counts().items():
+        distinct: dict[str, set[str]] = {}
+        for token in _dt_tokens(raw):
+            distinct.setdefault(token.upper(), set()).add(token)
+        for key, variants in distinct.items():
+            counts[key] = counts.get(key, 0) + int(n)
+            seen = spellings.setdefault(key, {})
+            for variant in variants:
+                seen[variant] = seen.get(variant, 0) + int(n)
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
+    return [
+        {"value": min(spellings[key].items(), key=lambda kv: (-kv[1], kv[0]))[0],
+         "count": count}
+        for key, count in ranked
+    ]
+
+
 def compute_facets(df: pd.DataFrame) -> dict[str, Any]:
     facets: dict[str, Any] = {"total": int(len(df))}
     if _has_col(df, "PY"):
@@ -254,7 +351,9 @@ def compute_facets(df: pd.DataFrame) -> dict[str, Any]:
         cit = pd.to_numeric(df["TC"], errors="coerce").dropna().astype(int)
         if len(cit):
             facets["citation_count"] = {"min": int(cit.min()), "max": int(cit.max()), "mean": float(cit.mean())}
-    for field, name in [("DT", "doc_type"), ("LA", "language"), ("DB", "db_source")]:
+    if _has_col(df, "DT"):
+        facets["doc_type"] = _doc_type_facet(df["DT"], top=20)
+    for field, name in [("LA", "language"), ("DB", "db_source")]:
         if _has_col(df, field):
             facets[name] = _value_counts(df[field], top=20)
     # Çoklu-değerli alanlar için top dergi/kategori (split-by-semicolon yapmadan)
