@@ -4,6 +4,7 @@ import { api, BASE, type ReportFlow } from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "./Card";
 import { Download, GitBranch } from "lucide-react";
 import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
 
 /**
  * Veri akış şeması — audit log'dan otomatik (api.reportFlow).
@@ -141,7 +142,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
 
   if (!flow || !flow.has_merge || !flow.inputs) return null;
 
-  const n = (x: number | null | undefined) => (x ?? 0).toLocaleString();
+  const n = (x: number | null | undefined) => formatNumber(x ?? 0, locale);
 
   // ── Kutu modeli ──
   const boxes: Box[] = [];

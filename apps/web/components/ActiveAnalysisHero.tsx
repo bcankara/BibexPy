@@ -9,7 +9,8 @@ import { Card, CardBody } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useToast } from "@/components/Dialogs";
 import { api, formatBytes, type MergeSummary, type AnalysisItem, translateApiError} from "@/lib/api-client";
-import { useT } from "@/lib/i18n";
+import { useI18n, type Locale } from "@/lib/i18n";
+import { formatDate, formatDateTime, formatNumber } from "@/lib/i18n/format";
 import { cn } from "@/lib/cn";
 
 type Props = {
@@ -32,17 +33,13 @@ const METHOD_META: Record<string, { label: string; icon: typeof Combine; tone: s
   unknown: { label: "Legacy", icon: Folder, tone: "text-slate-500", iconBg: "bg-slate-50", ring: "ring-slate-200" },
 };
 
-function fmtDate(ts?: number | null): string {
+function fmtDate(ts: number | null | undefined, locale: Locale): string {
   if (!ts) return "—";
-  const d = new Date(ts * 1000);
-  return d.toLocaleString(undefined, {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return formatDateTime(new Date(ts * 1000), locale);
 }
 
 export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis, onDeleted }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +94,7 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
               {analysis.label}
             </h2>
             <div className="text-[11px] text-muted mt-0.5 font-mono truncate" title={analysis.id}>
-              {analysis.id} · {fmtDate(analysis.created_at)} · {analysis.file_count} {t("common.files")} · {formatBytes(analysis.total_size)}
+              {analysis.id} · {fmtDate(analysis.created_at, locale)} · {analysis.file_count} {t("common.files")} · {formatBytes(analysis.total_size)}
             </div>
           </div>
 
@@ -119,13 +116,13 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
         {/* Mini stat strip */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-            <MiniStat label={t("analyses.statRecords")} value={stats.total_records.toLocaleString()} />
-            <MiniStat label="WoS" value={stats.wos_records.toLocaleString()} />
-            <MiniStat label="Scopus" value={stats.scopus_records.toLocaleString()} />
+            <MiniStat label={t("analyses.statRecords")} value={formatNumber(stats.total_records, locale)} />
+            <MiniStat label="WoS" value={formatNumber(stats.wos_records, locale)} />
+            <MiniStat label="Scopus" value={formatNumber(stats.scopus_records, locale)} />
             <MiniStat
               label={t("analyses.statDedup")}
-              value={`${(stats.dedup_rate * 100).toFixed(1)}%`}
-              sub={`${stats.duplicates_removed.toLocaleString()} ${t("analyses.statDuplicates")}`}
+              value={`${formatNumber(stats.dedup_rate * 100, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+              sub={`${formatNumber(stats.duplicates_removed, locale)} ${t("analyses.statDuplicates")}`}
             />
           </div>
         )}
@@ -145,19 +142,17 @@ function MergeNarrative({
   general: NonNullable<MergeSummary["general"]>;
   createdAt?: number | null;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const toast = useToast();
-  const dateStr = createdAt
-    ? new Date(createdAt * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "long", year: "numeric" })
-    : "—";
+  const dateStr = createdAt ? formatDate(new Date(createdAt * 1000), locale) : "—";
   const totalInput = general.total_input ?? (general.wos_records + general.scopus_records);
   const text = t("merge.narrative.template", {
     date: dateStr,
-    scopus: general.scopus_records.toLocaleString(),
-    wos: general.wos_records.toLocaleString(),
-    total_input: totalInput.toLocaleString(),
-    duplicates: general.duplicates_removed.toLocaleString(),
-    total: general.total_records.toLocaleString(),
+    scopus: formatNumber(general.scopus_records, locale),
+    wos: formatNumber(general.wos_records, locale),
+    total_input: formatNumber(totalInput, locale),
+    duplicates: formatNumber(general.duplicates_removed, locale),
+    total: formatNumber(general.total_records, locale),
   });
 
   async function copy() {
