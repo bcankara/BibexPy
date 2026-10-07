@@ -857,6 +857,11 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "reason": m["reason"],
                     "wos_doi": _to_str(w_row.get("DI", "")),
                     "scp_doi": _to_str(s_row.get("DI", "")),
+                    # Kimlikler: kabul edilen çiftin satırını DOI'ye bakmadan
+                    # bulmak için (DOI'siz çiftlerde kabul sessizce hiçbir şey
+                    # yapmıyordu). Scopus EID'si UT kolonunda taşınır.
+                    "wos_ut": _to_str(w_row.get("UT", "")),
+                    "scp_ut": _to_str(s_row.get("UT", "")),
                     "wos_title": _to_str(w_row.get("TI", ""))[:200],
                     "scp_title": _to_str(s_row.get("TI", ""))[:200],
                     "wos_year": w_row.get("_norm_year"),
@@ -937,6 +942,22 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         # Tek bir DataFrame + UID kolonu (filter_engine ile aynı şema)
         final_df = pd.concat([merged_df, wos_not_matched, scp_not_matched], ignore_index=True)
         filter_engine._ensure_uid_column(final_df)
+
+        # SAYI KORUNUMU (lineage invariant): çıktı = (kaynak − kaynak-içi
+        # duplike) − eşleşen çift. Sapma, sessizce kayıt kaybı ya da
+        # duplikasyon demektir; pandas 3 NaN hatası tam olarak böyle, hiçbir
+        # uyarı vermeden 70 yayın kaybettirmişti. Bozuk bir dataset yazmaktansa
+        # koşuyu burada düşürmek doğrudur.
+        _expected = ((wos_raw_n - intra_wos_removed)
+                     + (scp_raw_n - intra_scp_removed)
+                     - len(matches))
+        if len(final_df) != _expected:
+            raise RuntimeError(
+                f"lineage invariant ihlali: {_expected} kayıt bekleniyordu "
+                f"(WoS {wos_raw_n}−{intra_wos_removed}, "
+                f"Scopus {scp_raw_n}−{intra_scp_removed}, eşleşme {len(matches)}), "
+                f"üretilen {len(final_df)}"
+            )
 
         # CR normalizasyonu — Scopus dilbilgisindeki atıflar WoS dilbilgisine
         # çevrilir. Aksi hâlde VOSviewer/bibliometrix birleştirilmiş dataset'in
@@ -1153,6 +1174,10 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             "decided_at": now_ts,
         }
         if decision == "accept" and pair_id in bq_by_id:
+            # "accept" state'e HEMEN yazılmaz; dataset'te karşılığı bulunup
+            # gerçekten uygulandıktan sonra yazılır (aşağıda).
+            state.pop(pair_id, None)
+            state[pair_id] = {**state.get(pair_id, {}), "status": "pending"}
             accept_pairs.append(bq_by_id[pair_id])
 
     _write_borderline_state(project_id, state, adir=adir)
@@ -1160,6 +1185,8 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     # Kabul edilenler için dataset güncellemesi
     snapshot_rel: Optional[str] = None
     applied = 0
+    resolved_ids: list[str] = []
+    unresolved_ids: list[str] = []
     if accept_pairs:
         df = dataset_io.read_dataset(merged_path)
         # Snapshot — AKTİF analiz klasörüne (proje kökü değil); proje köküne
@@ -1172,21 +1199,65 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         snapshot_rel = str(snap_path.relative_to(storage.settings.storage_path))
 
         # Yeniden yükle WoS/Scopus için pair satırlarını birleştir
-        # Basit yaklaşım: accept edilen Scopus index'ini sil (WoS satırı zaten merged_df'te)
-        # Aslında merged_smart.xlsx'te ne WoS-only ne Scopus-only kayıtların ikisi de var
-        # (eşleşmemiş olarak). Şimdi accept = "bunlar aynı yayın" → Scopus satırını sil.
-        # Pair'lerden scp_doi'yi al, df'te o DOI'li satırı sil.
-        to_drop_dois: set[str] = set()
+        # Kabul = "bu iki kayıt aynı yayın" → eşleşen Scopus satırı düşer
+        # (WoS satırı dataset'te kalır). Satır KİMLİKLE bulunur: önce Scopus
+        # EID (UT kolonu), sonra normalize DOI, en son normalize başlık+yıl.
+        # Eski davranış yalnız ham scp_doi'ye bakıyordu; bunun iki arızası
+        # vardı: (1) DOI'siz çiftlerde hiçbir satır silinmiyor ama arayüze
+        # "uygulandı" deniyordu, (2) boş DOI xlsx gidiş-dönüşünde "nan"
+        # dizgesine dönüşüp silme kümesine girebiliyor ve DOI'si boş TÜM
+        # satırlarla eşleşebiliyordu. _present her iki durumu da kapatır.
+        ut_series = df["UT"].map(_to_str).str.lower() if "UT" in df.columns else None
+        doi_series = df["DI"].map(normalize_doi) if "DI" in df.columns else None
+        title_series = df["TI"].map(normalize_title) if "TI" in df.columns else None
+        year_series = df["PY"].map(normalize_year) if "PY" in df.columns else None
+
+        drop_idx: set = set()
         for pair in accept_pairs:
-            scp_doi = str(pair.get("scp_doi", "")).strip().lower()
-            if scp_doi:
-                to_drop_dois.add(scp_doi)
-        if to_drop_dois and "DI" in df.columns:
-            mask = df["DI"].astype(str).str.strip().str.lower().isin(to_drop_dois)
-            applied = int(mask.sum())
-            df = df.loc[~mask].reset_index(drop=True)
+            pid = str(pair.get("pair_id", ""))
+            hits: list = []
+
+            scp_ut = _to_str(pair.get("scp_ut", ""))
+            if _present(scp_ut) and ut_series is not None:
+                hits = [i for i in df.index[ut_series == scp_ut.lower()]]
+
+            if not hits:
+                scp_doi = normalize_doi(pair.get("scp_doi"))
+                if _present(scp_doi) and doi_series is not None:
+                    hits = [i for i in df.index[doi_series == scp_doi]]
+
+            if not hits and title_series is not None:
+                t = normalize_title(pair.get("scp_title"))
+                y = normalize_year(pair.get("scp_year"))
+                if t:
+                    mask = title_series == t
+                    if y is not None and year_series is not None:
+                        mask = mask & (year_series == y)
+                    hits = [i for i in df.index[mask]]
+
+            hits = [i for i in hits if i not in drop_idx]
+            if not hits:
+                # Satır bulunamadı: karar UYGULANMADI. "accept" yazılmaz, çift
+                # kuyrukta bekler — arayüzün yalan söylememesi için.
+                unresolved_ids.append(pid)
+                continue
+            drop_idx.add(hits[0])
+            resolved_ids.append(pid)
+
+        if drop_idx:
+            applied = len(drop_idx)
+            df = df.drop(index=list(drop_idx)).reset_index(drop=True)
             dataset_io.atomic_write_dataset(df, merged_path)
             filter_engine._DF_CACHE.clear()
+
+    # Uygulanan kabuller şimdi state'e yazılır; uygulanamayanlar "pending"
+    # kalır (kuyrukta görünmeye devam eder).
+    if accept_pairs:
+        for pid in resolved_ids:
+            state[pid] = {**state.get(pid, {}), "status": "accept", "decided_at": now_ts}
+        for pid in unresolved_ids:
+            state[pid] = {**state.get(pid, {}), "status": "pending", "unresolved_at": now_ts}
+    _write_borderline_state(project_id, state, adir=adir)
 
     # Audit
     _bl_accept = len([d for d in decisions if d.get("decision") == "accept"])
@@ -1202,6 +1273,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             "decisions_count": len(decisions),
             "applied_changes": applied,
             "accept_pair_ids": [d.get("pair_id") for d in decisions if d.get("decision") == "accept"][:50],
+            "unresolved_pair_ids": unresolved_ids[:50],
         },
         snapshot=snapshot_rel,
         user_action="borderline_decide",
@@ -1212,4 +1284,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         "applied": applied,
         "snapshot": snapshot_rel,
         "pending_after": pending_after,
+        # Kabul edilip dataset'te karşılığı bulunamayan çiftler — arayüz
+        # bunları "uygulandı" diye göstermemeli.
+        "unresolved": unresolved_ids,
     }
