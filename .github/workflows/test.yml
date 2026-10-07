@@ -1,0 +1,53 @@
+# Backend test suite.
+#
+# The suite runs THREE times on purpose. A silent data-loss defect shipped for
+# months because the development environment had pandas 2 while every fresh
+# `pip install bibexpy` resolved pandas 3, where a text-returning
+# `Series.apply()` turns the None that means "empty" into a truthy NaN and
+# identity guards start accepting it. The `pandas3-semantics` leg reproduces
+# exactly that behaviour on pandas 2 via `future.infer_string` (fast, no
+# separate install), and the `pandas3` leg runs the real thing.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pandas2
+            pandas: "pandas>=2.2,<3"
+            pandas3_semantics: "0"
+          - name: pandas3-semantics
+            pandas: "pandas>=2.2,<3"
+            pandas3_semantics: "1"
+          - name: pandas3
+            pandas: "pandas>=3,<4"
+            pandas3_semantics: "0"
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+          pip install "${{ matrix.pandas }}"
+          python -c "import pandas; print('pandas', pandas.__version__)"
+      - name: Run tests
+        # test_convert.py is excluded: it crashes a vendored native extension on
+        # some platforms and is unrelated to what this matrix guards.
+        env:
+          BIBEXPY_PANDAS3_SEMANTICS: ${{ matrix.pandas3_semantics }}
+          BIBEXPY_SAMPLE_DATA: ${{ github.workspace }}/python_pkg/src/bibexpy/_samples/simple_project
+        working-directory: apps/api
+        run: python -m pytest tests -q --ignore=tests/test_convert.py

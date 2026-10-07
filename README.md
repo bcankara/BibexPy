@@ -24,6 +24,15 @@
 
 ---
 
+> [!IMPORTANT]
+> **Update to 2.2.5 if you merged data with pandas 3 installed.** Versions before 2.2.5 silently
+> dropped records that have no DOI when running on pandas 3 (the default install since January 2026):
+> within each source all DOI-less records collapsed into a single one. Check your environment with
+> `python -c "import pandas; print(pandas.__version__)"`; if it reports 3.x, run
+> `pip install -U bibexpy` and merge again. Results produced on pandas 2 are unaffected.
+
+---
+
 **BibexPy v2 (“Helium”)** — the successor to v1 (“Hydrogen”) — turns the original
 command-line BibexPy into a **local web platform**, shipped as a single pip-installable
 package. It merges, filters, harmonizes, enriches and exports Web of Science + Scopus

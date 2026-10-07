@@ -126,13 +126,18 @@ def _coerce_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
             continue  # Arrow accepts this column as-is
         except Exception:
             pass
-        # Numeric first: blanks count as NA, not as a conversion failure.
+        # Numeric first: blanks count as NA, not as a conversion failure. The
+        # result is probed with Arrow before it is accepted — pandas 2 turns
+        # out-of-int64-range integers into float64 (silent precision loss) and
+        # pandas 3 leaves them as exact Python ints that Arrow then refuses,
+        # which used to crash the write. Anything Arrow will not take is
+        # rendered to text instead, which always round-trips.
         try:
-            out[col] = pd.to_numeric(s.where(s != "", other=None))
-            continue
-        except (ValueError, TypeError, OverflowError):
-            pass
-        out[col] = s.map(_clean_cell)
+            candidate = pd.to_numeric(s.where(s != "", other=None))
+            pa.array(candidate, from_pandas=True)
+        except Exception:
+            candidate = None
+        out[col] = candidate if candidate is not None else s.map(_clean_cell)
     return out
 
 
