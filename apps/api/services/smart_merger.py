@@ -2,7 +2,8 @@
 
 Runs a self-contained six-phase pipeline independent of the core merge path:
   1. Normalize  : DOI, title, year, surname, ISSN/PMID/UT
-  2. Block      : group candidates by (year, surname initial)
+  2. Block      : group candidates by (year, surname initial); WoS blocks also meet
+                  the Scopus blocks of the adjacent years
   3. Match      : staged rules (negative rules, DOI, PMID/UT, title similarity, journal+volume+page, borderline)
   4. Field merge: fixed per-field source preferences (WoS, Scopus, union, cross-fill)
   5. Audit      : write match, conflict, and borderline-queue reports
@@ -299,6 +300,68 @@ def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 #  FAZ 3 — Multi-stage matching
 # ════════════════════════════════════════════════════════════════════════
 
+_DOI_SEP_CHARS = frozenset("-._")
+
+
+def _doi_sep_profile(suffix: str) -> tuple[str, dict[int, str]]:
+    """DOI son ekini (ayırıcısız çekirdek, konum→ayırıcı) ikilisine ayır."""
+    core: list[str] = []
+    gaps: dict[int, str] = {}
+    for ch in suffix:
+        if ch in _DOI_SEP_CHARS:
+            gaps[len(core)] = gaps.get(len(core), "") + ch
+        else:
+            core.append(ch)
+    return "".join(core), gaps
+
+
+def doi_separator_variants(canon_a: Optional[str], canon_b: Optional[str]) -> bool:
+    """İki KANONİK DOI yalnızca ayırıcı yazımında mı farklı?
+
+    DOI BELİRLEYİCİ kuralı yerinde kalır: normalize DOI'leri farklı olan kayıtlar
+    farklı yayındır. Tek istisna, dizinleyicinin aynı DOI'yi farklı yazmasıdır —
+    '10.7189/jogh.12-05057' ile '10.7189/JOGH.12.05057' aynı makaledir. Böyle bir
+    çiftte veto kalkar; ama DOI KANIT SAYILMAZ, çift kanıtını başlık+yıl+yazar
+    aşamalarından almak zorundadır (asla Stage 1 üretmez).
+
+    Kural KASITLI olarak dar. Ayırıcıların hepsini silip karşılaştırmak (iskelet
+    yaklaşımı) gerçek ve FARKLI yayınları çakıştırıyor: ölçümde Physical Review'da
+    cilt|sayfa sınırının kaydığı 34 doğrulanmış çift bulundu — '…/physrevc.5.350'
+    (Michaud 1972, cilt 5, s.350) ile '…/physrevc.53.50' (Awasthi 1996, cilt 53,
+    s.50) ikisi de kayıtlı, apayrı makaleler. Bu yüzden:
+      • registrant öneki (ilk '/' öncesi) birebir aynı olmalı,
+      • ayırıcı olmayan çekirdek birebir aynı olmalı,
+      • farklılaşan her ayırıcı konumu ya bire-bir ikame (- ↔ . ↔ _) olmalı,
+        ya da en az bir komşusu rakam OLMAYAN iç sınırda ekleme/silme olmalı.
+    İki rakam arasında ayırıcı ekleme/silme, kenarda ekleme/silme ve '--' ↔ '-'
+    REDDEDİLİR. Ölçüm: 34 farklı-yayın çiftinin 34'ü reddedilir, 10 gerçek
+    yazım-farkı çiftinin 10'u kabul edilir, 32.454 adayda yanlış pozitif 0.
+    """
+    if not canon_a or not canon_b or canon_a == canon_b:
+        return False
+    pa, _, sa = canon_a.partition("/")
+    pb, _, sb = canon_b.partition("/")
+    if pa != pb or not sa or not sb:
+        return False
+    ca, ga = _doi_sep_profile(sa)
+    cb, gb = _doi_sep_profile(sb)
+    if ca != cb:
+        return False
+    for i in set(ga) | set(gb):
+        x, y = ga.get(i, ""), gb.get(i, "")
+        if x == y:
+            continue
+        if len(x) == 1 and len(y) == 1:
+            continue                      # bire-bir ikame: güvenli
+        if len(x) > 1 or len(y) > 1:
+            return False                  # '--' ↔ '-'
+        if i == 0 or i == len(ca):
+            return False                  # kenarda ekleme/silme
+        if ca[i - 1].isdigit() and ca[i].isdigit():
+            return False                  # rakam|rakam: bölümleme kayması
+    return True
+
+
 def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
     """İki ham DOI normalize edilince ikisi de mevcut ve FARKLI mı?
 
@@ -310,7 +373,11 @@ def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
     """
     a = normalize_doi(raw_a)
     b = normalize_doi(raw_b)
-    return bool(a and b and a != b)
+    if not a or not b or a == b:
+        return False
+    # Yalnız ayırıcı yazımı farklıysa bu bir çelişki değil; çift manuel
+    # incelemeye (borderline) girebilsin diye veto uygulanmaz.
+    return not doi_separator_variants(a, b)
 
 
 def compute_match(w: dict, s: dict) -> Optional[dict]:
@@ -328,9 +395,14 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
     # DOI: çelişki → asla aynı yayın; eşitlik → kesin merge
     w_doi = w.get("_norm_doi")
     s_doi = s.get("_norm_doi")
-    if _present(w_doi) and _present(s_doi):
-        if w_doi != s_doi:
+    doi_note = ""
+    if _present(w_doi) and _present(s_doi) and w_doi != s_doi:
+        if not doi_separator_variants(w_doi, s_doi):
             return None
+        # Ayırıcı/yazım farkı: veto kalkar, DOI kanıt sayılmaz. Çift aşağıdaki
+        # başlık/yıl/yazar aşamalarından geçmek zorunda — Stage 1 üretilmez.
+        doi_note = f" | DOI yazım farkı: {w_doi} ↔ {s_doi}"
+    elif _present(w_doi) and _present(s_doi):
         return {
             "stage": "1_doi_exact",
             "stage_label": "DOI exact",
@@ -394,7 +466,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                 "stage": "3_title_year_surname",
                 "stage_label": "Title+Year+Surname",
                 "confidence": 0.95,
-                "reason": f"JW(title)={jw_title:.3f} ≥ {TITLE_EXACT_THRESHOLD}, year_diff={year_diff}, surname='{w_surname}' eşleşti",
+                "reason": f"JW(title)={jw_title:.3f} ≥ {TITLE_EXACT_THRESHOLD}, year_diff={year_diff}, surname='{w_surname}' eşleşti" + doi_note,
                 "jw_title": round(jw_title, 4),
                 "year_diff": year_diff,
                 "surname_match": surname_match,
@@ -423,7 +495,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                     "stage": "4_journal_vol_page",
                     "stage_label": "Journal+Vol+Pages",
                     "confidence": 0.90,
-                    "reason": f"JW(journal)={jw_journal:.3f}, vol={w_vol}, page_match=True",
+                    "reason": f"JW(journal)={jw_journal:.3f}, vol={w_vol}, page_match=True" + doi_note,
                     "jw_title": round(jw_title, 4),
                     "year_diff": year_diff,
                     "surname_match": surname_match,
@@ -437,7 +509,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                 "stage": "5_borderline",
                 "stage_label": "Borderline (manual review)",
                 "confidence": round(conf, 3),
-                "reason": f"JW(title)={jw_title:.3f}, year_diff={year_diff}, surname_match={surname_match}",
+                "reason": f"JW(title)={jw_title:.3f}, year_diff={year_diff}, surname_match={surname_match}" + doi_note,
                 "jw_title": round(jw_title, 4),
                 "year_diff": year_diff,
                 "surname_match": surname_match,
@@ -490,12 +562,23 @@ def generate_candidates(
                 consider(w_idx, int(idx))
 
     # 2) Blocking — başlık-benzerliği aşamaları için aday uzayı
+    # Blok anahtarı (yıl, soyad ilk harfi) BİREBİR yıl istediği için Stage 3'ün
+    # ±1 yıl toleransı pratikte hiç devreye girmiyordu: erken-erişim/basılı yıl
+    # farkı olan gerçek çiftler aday bile olmuyordu. WoS satırı artık komşu
+    # yılların Scopus bloklarıyla da karşılaştırılır (TEK taraflı: aday sayısı
+    # ~3× artar, 9× değil). Yılı bilinmeyen kayıtlar eski davranışta kalır —
+    # None'ı her yıla açmak aday uzayını patlatır.
     wos_blocks = build_blocks(wos_df)
     scp_blocks = build_blocks(scp_df)
-    for key in set(wos_blocks.keys()) & set(scp_blocks.keys()):
-        for w_idx in wos_blocks[key]:
-            for s_idx in scp_blocks[key]:
-                consider(w_idx, s_idx)
+    for (year, letter), w_idxs in wos_blocks.items():
+        years = (year,) if year is None else (year - 1, year, year + 1)
+        for y in years:
+            s_idxs = scp_blocks.get((y, letter))
+            if not s_idxs:
+                continue
+            for w_idx in w_idxs:
+                for s_idx in s_idxs:
+                    consider(w_idx, s_idx)
 
     candidates.sort(key=lambda x: -x[0])
     return candidates
@@ -684,9 +767,64 @@ def _write_statistic_smart(
         })
     fields = pd.DataFrame(field_rows)
 
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        general.to_excel(writer, sheet_name="General Stats", index=False)
-        fields.to_excel(writer, sheet_name="Field Stats", index=False)
+    # Atomik yazım: merge özeti (GET /merge/summary) bu dosyayı okurken yarım
+    # yazılmış bir dosya görürse sessizce yedek yola düşüp WoS/Scopus=0 gösterir.
+    tmp = out.with_name(out.name + f".{uuid4().hex[:8]}.tmp~")
+    try:
+        with pd.ExcelWriter(tmp, engine="openpyxl") as writer:
+            general.to_excel(writer, sheet_name="General Stats", index=False)
+            fields.to_excel(writer, sheet_name="Field Stats", index=False)
+        tmp.replace(out)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+def _refresh_statistic_after_borderline(adir: Path, df: pd.DataFrame) -> None:
+    """Borderline kabulünden sonra Statistic.xlsx'i dataset'in gerçek haliyle yaz.
+
+    Merge özeti ve yöntem paragrafı sayılarını Statistic.xlsx'ten okur; dosya
+    yalnız merge anında yazıldığı için kabul edilen çiftler hiç yansımıyordu
+    (dataset 1.292 kayda inse de metin 1.296 diyordu). Girdi sayıları (WoS /
+    Scopus) değişmez; toplam ve alan doluluk istatistikleri yeniden hesaplanır.
+    """
+    stat = adir / "Statistic.xlsx"
+    if not stat.exists():
+        legacy = adir / "Statistic_Smart.xlsx"
+        if not legacy.exists():
+            return
+        stat = legacy
+    gen = pd.read_excel(stat, sheet_name="General Stats")
+    if gen.empty:
+        return
+    row = gen.iloc[0]
+    wos_n = int(row.get("WoS Records", 0) or 0)
+    scp_n = int(row.get("Scopus Records", 0) or 0)
+    _write_statistic_smart(int(len(df)), wos_n, scp_n, df, stat)
+
+
+def _append_conflict_log(path: Path, conflicts: list[dict]) -> int:
+    """Kabul edilen çiftlerin alan çakışmalarını conflict_log.xlsx'e ekle.
+
+    Aynı pair_id'nin eski satırları atılır (tekrar kabul idempotent kalsın).
+    Atomik yazılır; hata dataset kararını geri almaz — çağıran yakalar.
+    """
+    if not conflicts:
+        return 0
+    new = pd.DataFrame(conflicts)
+    if path.exists():
+        old = pd.read_excel(path)
+        if "pair_id" in old.columns:
+            old = old[~old["pair_id"].astype(str).isin(set(new["pair_id"].astype(str)))]
+        new = pd.concat([old, new], ignore_index=True)
+    tmp = path.with_name(path.name + f".{uuid4().hex[:8]}.tmp~")
+    try:
+        new.to_excel(tmp, index=False)
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return len(conflicts)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1127,6 +1265,130 @@ def list_borderline(project_id: str) -> list[dict]:
     return items
 
 
+def _merge_accepted_pairs(
+    df: pd.DataFrame, accept_pairs: list[dict], already: set[str],
+) -> tuple[pd.DataFrame, dict[str, str], list[dict]]:
+    """Kabul edilen borderline çiftleri GERÇEKTEN birleştir (silme değil).
+
+    Eski davranış yalnızca Scopus satırını siliyordu; böylece kabul edilen her
+    çiftte Scopus tercihli alanlar (AB, AU, AF, C1), DE/ID birleşimi ve
+    cross-fill'ler kayboluyor, çakışma kaydı hiç yazılmıyordu. Artık merge
+    aşamasının kendi kuralları (Caputo tercihleri) uygulanır: kabul edilen çift,
+    merge sırasında kesin eşleşme sayılsaydı ne üretecekse onu üretir.
+
+    Satırlar KİMLİKLE bulunur (WoS UT / Scopus EID), bulunamazsa normalize DOI,
+    en son normalize başlık+yıl ile; her adımda DB kolonu taraf doğrulaması
+    yapar. Belirsiz (birden çok isabet) ya da eksik satır sessizce varsayılmaz:
+    çift "unresolved" döner ve kuyrukta bekler.
+
+    Dönüş: (yeni_df, {pair_id: sonuç}, çakışma_kayıtları)
+    """
+    cols = [c for c in df.columns if c != "UID" and not c.startswith("_norm_")]
+    ut_series = df["UT"].map(_to_str).str.lower() if "UT" in df.columns else None
+    doi_series = df["DI"].map(normalize_doi) if "DI" in df.columns else None
+    title_series = df["TI"].map(normalize_title) if "TI" in df.columns else None
+    year_series = df["PY"].map(normalize_year) if "PY" in df.columns else None
+    db_series = df["DB"].map(_to_str).str.upper() if "DB" in df.columns else None
+
+    def _side_mask(scopus_side: bool):
+        if db_series is None:
+            return pd.Series(True, index=df.index)
+        return (db_series == "SCOPUS") if scopus_side else (db_series != "SCOPUS")
+
+    def _locate(ut: Any, doi: Any, title: Any, year: Any, scopus_side: bool) -> list:
+        side = _side_mask(scopus_side)
+        ut_v = _to_str(ut)
+        if _present(ut_v) and ut_series is not None:
+            hit = list(df.index[(ut_series == ut_v.lower()) & side])
+            if hit:
+                return hit
+        doi_v = normalize_doi(doi)
+        if _present(doi_v) and doi_series is not None:
+            hit = list(df.index[(doi_series == doi_v) & side])
+            if hit:
+                return hit
+        t = normalize_title(title)
+        if t and title_series is not None:
+            mask = (title_series == t) & side
+            y = normalize_year(year)
+            if y is not None and year_series is not None:
+                mask = mask & (year_series == y)
+            return list(df.index[mask])
+        return []
+
+    outcomes: dict[str, str] = {}
+    conflicts: list[dict] = []
+    used: set = set()
+    drop: set = set()
+
+    def _conf(pair: dict) -> float:
+        try:
+            return float(pair.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    # En güvenilir çift önce: aynı satıra bağlı iki kabul varsa sonuç
+    # karar sırasına göre değişmesin.
+    for pair in sorted(accept_pairs, key=lambda p: (-_conf(p), str(p.get("pair_id", "")))):
+        pid = str(pair.get("pair_id", ""))
+        if pid in already:
+            outcomes[pid] = "unresolved:already_accepted"
+            continue
+
+        w_hits = [i for i in _locate(pair.get("wos_ut"), pair.get("wos_doi"),
+                                     pair.get("wos_title"), pair.get("wos_year"), False)]
+        s_hits = [i for i in _locate(pair.get("scp_ut"), pair.get("scp_doi"),
+                                     pair.get("scp_title"), pair.get("scp_year"), True)]
+        if len(w_hits) > 1 or len(s_hits) > 1:
+            outcomes[pid] = "unresolved:ambiguous"
+            continue
+        w_idx = w_hits[0] if w_hits else None
+        s_idx = s_hits[0] if s_hits else None
+
+        if w_idx is None and s_idx is None:
+            outcomes[pid] = "unresolved:both_missing"
+            continue
+        if w_idx is None:
+            # Scopus satırı duruyor ama WoS tarafı yok (kullanıcı silmiş
+            # olabilir) — tek başına kalan satır SİLİNMEZ, veri kaybolmasın.
+            outcomes[pid] = "unresolved:wos_missing"
+            continue
+        if s_idx is None:
+            # Scopus satırı zaten yok: karar fiilen uygulanmış durumda.
+            outcomes[pid] = "noop_scp_missing"
+            continue
+        if w_idx in used or s_idx in used or w_idx in drop or s_idx in drop:
+            outcomes[pid] = "unresolved:row_already_merged"
+            continue
+
+        w_row = df.loc[w_idx].to_dict()
+        s_row = df.loc[s_idx].to_dict()
+        merged, pair_conflicts = merge_pair_with_preferences(pid, w_row, s_row, cols)
+        if "DB_Original" in merged and "DB_Original" not in df.columns:
+            df["DB_Original"] = ""
+        for col, val in merged.items():
+            if col not in df.columns or col == "UID":
+                continue
+            if val == "" and df[col].dtype != object:
+                continue  # sayısal kolona boş dize yazma
+            df.at[w_idx, col] = val
+        # Birleştirilmiş CR'ın referans sayısı değiştiyse NR'ı düzelt.
+        if "CR" in merged and "NR" in df.columns:
+            new_cr = _to_str(merged.get("CR"))
+            if new_cr and new_cr != _to_str(w_row.get("CR")):
+                df["NR"] = df["NR"].astype(object)
+                df.at[w_idx, "NR"] = count_refs(new_cr)
+
+        conflicts.extend(c for c in pair_conflicts if c.get("field") not in ("UID", "NR"))
+        used.add(w_idx)
+        drop.add(s_idx)
+        outcomes[pid] = "merged"
+
+    if drop:
+        df = df.drop(index=list(drop)).reset_index(drop=True)
+    return df, outcomes, conflicts
+
+
 def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     """Kullanıcının borderline kararlarını uygula (aktif analiz üzerinde).
 
@@ -1151,6 +1413,9 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
 
     # State güncelle
     state = _read_borderline_state(project_id, adir=adir)
+    # Bu çağrıdan ÖNCE zaten kabul edilmiş çiftler — tekrar kabul edilirse
+    # ikinci kez birleştirilmez (idempotent).
+    prior_accepted = {pid for pid, v in state.items() if v.get("status") == "accept"}
     bq_df = pd.read_excel(bq_path)
     bq_by_id = {str(r["pair_id"]): r for _, r in bq_df.iterrows()}
 
@@ -1182,73 +1447,58 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
 
     _write_borderline_state(project_id, state, adir=adir)
 
-    # Kabul edilenler için dataset güncellemesi
+    # Kabul edilenler için dataset güncellemesi — GERÇEK BİRLEŞTİRME.
     snapshot_rel: Optional[str] = None
     applied = 0
+    merged_pairs = 0
+    conflicts_logged = 0
     resolved_ids: list[str] = []
     unresolved_ids: list[str] = []
+    unresolved_reasons: dict[str, str] = {}
     if accept_pairs:
-        df = dataset_io.read_dataset(merged_path)
-        # Snapshot — AKTİF analiz klasörüne (proje kökü değil); proje köküne
-        # yazılan snapshot Geçmiş listesinde hiç görünmüyordu.
-        snaps_dir = analyses.work_dir(project_id) / "snapshots"
-        snaps_dir.mkdir(parents=True, exist_ok=True)
-        stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
-        snap_path = snaps_dir / f"pre_borderline_accept_{stamp}.parquet"
-        dataset_io.atomic_write_dataset(df, snap_path)
-        snapshot_rel = str(snap_path.relative_to(storage.settings.storage_path))
-
-        # Yeniden yükle WoS/Scopus için pair satırlarını birleştir
-        # Kabul = "bu iki kayıt aynı yayın" → eşleşen Scopus satırı düşer
-        # (WoS satırı dataset'te kalır). Satır KİMLİKLE bulunur: önce Scopus
-        # EID (UT kolonu), sonra normalize DOI, en son normalize başlık+yıl.
-        # Eski davranış yalnız ham scp_doi'ye bakıyordu; bunun iki arızası
-        # vardı: (1) DOI'siz çiftlerde hiçbir satır silinmiyor ama arayüze
-        # "uygulandı" deniyordu, (2) boş DOI xlsx gidiş-dönüşünde "nan"
-        # dizgesine dönüşüp silme kümesine girebiliyor ve DOI'si boş TÜM
-        # satırlarla eşleşebiliyordu. _present her iki durumu da kapatır.
-        ut_series = df["UT"].map(_to_str).str.lower() if "UT" in df.columns else None
-        doi_series = df["DI"].map(normalize_doi) if "DI" in df.columns else None
-        title_series = df["TI"].map(normalize_title) if "TI" in df.columns else None
-        year_series = df["PY"].map(normalize_year) if "PY" in df.columns else None
-
-        drop_idx: set = set()
-        for pair in accept_pairs:
-            pid = str(pair.get("pair_id", ""))
-            hits: list = []
-
-            scp_ut = _to_str(pair.get("scp_ut", ""))
-            if _present(scp_ut) and ut_series is not None:
-                hits = [i for i in df.index[ut_series == scp_ut.lower()]]
-
-            if not hits:
-                scp_doi = normalize_doi(pair.get("scp_doi"))
-                if _present(scp_doi) and doi_series is not None:
-                    hits = [i for i in df.index[doi_series == scp_doi]]
-
-            if not hits and title_series is not None:
-                t = normalize_title(pair.get("scp_title"))
-                y = normalize_year(pair.get("scp_year"))
-                if t:
-                    mask = title_series == t
-                    if y is not None and year_series is not None:
-                        mask = mask & (year_series == y)
-                    hits = [i for i in df.index[mask]]
-
-            hits = [i for i in hits if i not in drop_idx]
-            if not hits:
-                # Satır bulunamadı: karar UYGULANMADI. "accept" yazılmaz, çift
-                # kuyrukta bekler — arayüzün yalan söylememesi için.
+        df_before = dataset_io.read_dataset(merged_path)
+        df_after, outcomes, pair_conflicts = _merge_accepted_pairs(
+            df_before.copy(), accept_pairs, prior_accepted,
+        )
+        for pid, outcome in outcomes.items():
+            if outcome in ("merged", "noop_scp_missing", "unresolved:already_accepted"):
+                resolved_ids.append(pid)
+            else:
                 unresolved_ids.append(pid)
-                continue
-            drop_idx.add(hits[0])
-            resolved_ids.append(pid)
+                unresolved_reasons[pid] = outcome.split(":", 1)[-1]
+        merged_pairs = sum(1 for o in outcomes.values() if o == "merged")
 
-        if drop_idx:
-            applied = len(drop_idx)
-            df = df.drop(index=list(drop_idx)).reset_index(drop=True)
-            dataset_io.atomic_write_dataset(df, merged_path)
+        if merged_pairs:
+            # Değişmezler — ihlalde dataset'e DOKUNULMAZ.
+            if len(df_after) != len(df_before) - merged_pairs:
+                raise RuntimeError(
+                    f"borderline birleştirme değişmezi: {len(df_before)} - {merged_pairs} "
+                    f"beklenirken {len(df_after)} satır"
+                )
+            if "UID" in df_after.columns and not df_after["UID"].astype(str).is_unique:
+                raise RuntimeError("borderline birleştirme sonrası UID tekil değil")
+
+            # Snapshot ÖNCEKİ dataset'ten — yalnız gerçekten bir şey değişecekse.
+            snaps_dir = analyses.work_dir(project_id) / "snapshots"
+            snaps_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
+            snap_path = snaps_dir / f"pre_borderline_accept_{stamp}.parquet"
+            dataset_io.atomic_write_dataset(df_before, snap_path)
+            snapshot_rel = str(snap_path.relative_to(storage.settings.storage_path))
+
+            dataset_io.atomic_write_dataset(df_after, merged_path)
             filter_engine._DF_CACHE.clear()
+            applied = merged_pairs
+
+            # Yan artefaktlar — en iyi çaba; hata kararı geri almaz.
+            try:
+                conflicts_logged = _append_conflict_log(adir / "conflict_log.xlsx", pair_conflicts)
+            except Exception:
+                conflicts_logged = 0
+            try:
+                _refresh_statistic_after_borderline(adir, df_after)
+            except Exception:
+                pass
 
     # Uygulanan kabuller şimdi state'e yazılır; uygulanamayanlar "pending"
     # kalır (kuyrukta görünmeye devam eder).
@@ -1256,7 +1506,8 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         for pid in resolved_ids:
             state[pid] = {**state.get(pid, {}), "status": "accept", "decided_at": now_ts}
         for pid in unresolved_ids:
-            state[pid] = {**state.get(pid, {}), "status": "pending", "unresolved_at": now_ts}
+            state[pid] = {**state.get(pid, {}), "status": "pending", "unresolved_at": now_ts,
+                          "unresolved_reason": unresolved_reasons.get(pid, "")}
     _write_borderline_state(project_id, state, adir=adir)
 
     # Audit
@@ -1274,6 +1525,9 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             "applied_changes": applied,
             "accept_pair_ids": [d.get("pair_id") for d in decisions if d.get("decision") == "accept"][:50],
             "unresolved_pair_ids": unresolved_ids[:50],
+            "unresolved_reasons": {k: unresolved_reasons[k] for k in unresolved_ids[:50] if k in unresolved_reasons},
+            "merged_pairs": merged_pairs,
+            "conflicts_logged": conflicts_logged,
         },
         snapshot=snapshot_rel,
         user_action="borderline_decide",
@@ -1287,4 +1541,6 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         # Kabul edilip dataset'te karşılığı bulunamayan çiftler — arayüz
         # bunları "uygulandı" diye göstermemeli.
         "unresolved": unresolved_ids,
+        "unresolved_reasons": unresolved_reasons,
+        "merged_pairs": merged_pairs,
     }

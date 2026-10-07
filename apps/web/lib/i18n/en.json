@@ -452,8 +452,8 @@
       "speedHint": "medium · ~1-2 min/1k records",
       "howItWorks": [
         "Phase 1 (Normalize): DOI, title, year, author surname, ISSN/PMID/UT reduced to canonical form.",
-        "Phase 2 (Blocking): Records grouped by year + first author surname letter (O(n²) → O(n·k)).",
-        "Phase 3 (Multi-stage matching): Stage 0 negative rules (PMID/ISSN mismatch → reject) → Stage 1 DOI exact (conf 1.0) → Stage 2 PMID exact (0.99) → Stage 3 Title JW ≥ 0.92 + Year±1 + Surname (0.95) → Stage 4 Journal+Volume+Pages (0.90) → Stage 5 Borderline JW ∈ [0.80, 0.92) (manual review).",
+        "Phase 2 (Blocking): Records grouped by year + first author surname letter; each WoS block is compared with the Scopus blocks of the same letter for year −1, year and year +1, so a pair indexed one year apart is still found (O(n²) → O(n·k)). Records sharing a DOI or PMID are compared regardless of block.",
+        "Phase 3 (Multi-stage matching): Stage 0 negative rules (different normalized DOIs, PMID or ISSN mismatch → reject; a DOI that differs only in how an indexer wrote its separators lifts the DOI veto but is not evidence — the pair must still match on PMID, title + year + author, or journal + volume + pages) → Stage 1 DOI exact (conf 1.0) → Stage 2 PMID exact (0.99) → Stage 3 Title JW ≥ 0.92 + Year±1 + Surname (0.95) → Stage 4 Journal+Volume+Pages (0.90) → Stage 5 Borderline JW ∈ [0.80, 0.92) (manual review).",
         "Phase 4 (Field merge): Caputo 2024 fixed defaults — TC/CR/NR→WoS, AB/AU/AF/C1→Scopus, DE/ID→union, WC/SC→cross-fill.",
         "Phase 5 (Audit): match_audit.xlsx + conflict_log.xlsx + borderline_queue.xlsx are produced.",
         "Phase 6 (Borderline review): Manual approval UI or optional LLM decision."

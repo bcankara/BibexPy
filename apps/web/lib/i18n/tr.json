@@ -452,8 +452,8 @@
       "speedHint": "orta · ~1-2 dk/1k kayıt",
       "howItWorks": [
         "Faz 1 (Normalize): DOI, başlık, yıl, yazar soyadı, ISSN/PMID/UT kanonik forma indirgenir.",
-        "Faz 2 (Blocking): Yıl + ilk yazar soyad-harfi ile bloklara ayrılır (O(n²) → O(n·k)).",
-        "Faz 3 (Multi-stage eşleşme): Stage 0 negative rules (PMID/ISSN mismatch → reject) → Stage 1 DOI exact (conf 1.0) → Stage 2 PMID exact (0.99) → Stage 3 Title JW ≥ 0.92 + Yıl±1 + Surname (0.95) → Stage 4 Journal+Volume+Pages (0.90) → Stage 5 Borderline JW ∈ [0.80, 0.92) (manuel onay).",
+        "Faz 2 (Blocking): Yıl + ilk yazar soyad-harfi ile bloklara ayrılır; her WoS bloğu aynı harfin yıl −1, yıl ve yıl +1 Scopus bloklarıyla karşılaştırılır, böylece bir yıl farkla dizinlenmiş çift de bulunur (O(n²) → O(n·k)). DOI ya da PMID paylaşan kayıtlar bloktan bağımsız karşılaştırılır.",
+        "Faz 3 (Multi-stage eşleşme): Stage 0 negative rules (normalize DOI'ler farklı, PMID ya da ISSN uyuşmuyor → reddet; yalnız dizinleyicinin ayırıcı yazımından kaynaklanan DOI farkı vetoyu kaldırır ama kanıt sayılmaz — çift yine PMID'de, başlık + yıl + yazarda ya da dergi + cilt + sayfada eşleşmek zorundadır) → Stage 1 DOI exact (conf 1.0) → Stage 2 PMID exact (0.99) → Stage 3 Title JW ≥ 0.92 + Yıl±1 + Surname (0.95) → Stage 4 Journal+Volume+Pages (0.90) → Stage 5 Borderline JW ∈ [0.80, 0.92) (manuel onay).",
         "Faz 4 (Field merge): Caputo 2024 sabit defaults — TC/CR/NR→WoS, AB/AU/AF/C1→Scopus, DE/ID→union, WC/SC→cross-fill.",
         "Faz 5 (Audit): match_audit.xlsx + conflict_log.xlsx + borderline_queue.xlsx üretilir.",
         "Faz 6 (Borderline review): Manuel onay UI veya opsiyonel LLM kararı."

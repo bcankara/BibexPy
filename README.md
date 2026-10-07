@@ -121,8 +121,11 @@ On macOS/Linux the `bibexpy` command is normally on PATH right after `pip instal
   Project** (real Web of Science + Scopus exports), so you can try the whole pipeline
   before uploading your own data.
 - **One-click Smart Merge** — staged record linkage with a **DOI-determinative** rule
-  (records whose normalized DOIs differ are never merged), identifier matching, and
-  Jaro–Winkler title similarity with confidence scoring, plus field-level merging. Pairs
+  (records whose normalized DOIs differ are never merged; the one exception is a DOI that two
+  indexers wrote with different separators, such as `jogh.12-05057` vs `JOGH.12.05057` — that
+  only lifts the veto: the DOI is not counted as evidence, so the pair must still match on
+  PMID, on title + year + first author, or on journal + volume + pages), identifier matching,
+  and Jaro–Winkler title similarity with confidence scoring, plus field-level merging. Pairs
   it cannot resolve with certainty are kept separate and offered for an optional review
   right in the merge step. The result includes a copy-ready methodology paragraph.
 - **ORCID-first author disambiguation** — ORCID identifiers as deterministic evidence, with a
