@@ -20,7 +20,7 @@ from .blocking import _SPLIT_SUFFIX_RE
 
 
 def _clean_orcid(v) -> str:
-    """https://orcid.org/0000-... → 0000-... (sade ORCID)."""
+    """https://orcid.org/0000-... → 0000-... (bare ORCID)."""
     return (
         str(v or "")
         .replace("https://orcid.org/", "")
@@ -30,16 +30,16 @@ def _clean_orcid(v) -> str:
 
 
 def _norm(name: str) -> str:
-    """İsim eşleştirme anahtarı: split eki ('(b)') soyulmuş + normalize."""
+    """Name-matching key: split suffix ('(b)') stripped + normalized."""
     return normalize_name(_SPLIT_SUFFIX_RE.sub("", str(name or "")))
 
 
 @lru_cache(maxsize=8192)
 def fetch_orcids_for_doi(doi: str, email: str | None = None) -> tuple:
-    """OpenAlex'ten bir DOI için YALNIZ yazar-ORCID/ROR/ülke çek (hafif: select=authorships).
+    """Fetch ONLY the author ORCID/ROR/country for a DOI from OpenAlex (lightweight: select=authorships).
 
-    Dönüş: ((display_name, orcid, ror, cc), ...) tuple'ı (lru_cache hashable olsun diye).
-    Hata/boş → boş tuple. Tam metadata çekmez (~%95 daha küçük payload).
+    Returns: a tuple of ((display_name, orcid, ror, cc), ...) (so it is hashable for lru_cache).
+    Error/empty → empty tuple. Does not fetch full metadata (~95% smaller payload).
     """
     d = str(doi or "").strip()
     if not d:
@@ -78,11 +78,11 @@ def fetch_orcids_for_doi(doi: str, email: str | None = None) -> tuple:
 
 @lru_cache(maxsize=8192)
 def fetch_affiliations_for_doi(doi: str, email: str | None = None) -> tuple:
-    """OpenAlex'ten bir DOI için (kurum_adı, kanonik_ülke) çiftlerini çek (adres tamamlama).
+    """Fetch (institution_name, canonical_country) pairs for a DOI from OpenAlex (address completion).
 
-    Dönüş: ((institution_display_name, country_name), ...) — country_name kanonik
-    İngilizce ad (country_code'dan çevrilir; bilinmiyorsa ''). Hata/boş → boş tuple.
-    Hafif: select=authorships. lru_cache ile DOI tekrar çekilmez.
+    Returns: ((institution_display_name, country_name), ...) — country_name is the canonical
+    English name (converted from country_code; '' if unknown). Error/empty → empty tuple.
+    Lightweight: select=authorships. A DOI is not fetched again thanks to lru_cache.
     """
     from bibex_core.modules.c1_utils import country_from_code
 
@@ -117,9 +117,9 @@ def fetch_affiliations_for_doi(doi: str, email: str | None = None) -> tuple:
 
 
 def parse_oi_cell(cell) -> dict[str, str]:
-    """WoS OI hücresini ('Ad/0000-...; Ad2/0000-...') {normalize_name(ad): orcid} yap.
+    """Turn a WoS OI cell ('Name/0000-...; Name2/0000-...') into {normalize_name(name): orcid}.
 
-    Hem '/' (WoS) hem ', ' varyantlarını tolere eder; ad yoksa atlar.
+    Tolerates both the '/' (WoS) and ', ' variants; skips the entry if there is no name.
     """
     s = str(cell or "").strip()
     if not s or s.lower() in ("nan", "none"):
@@ -129,11 +129,11 @@ def parse_oi_cell(cell) -> dict[str, str]:
         part = part.strip()
         if not part:
             continue
-        # 'Ad/ORCID' biçimi
+        # 'Name/ORCID' form
         if "/" in part:
             name, _, oid = part.rpartition("/")
         else:
-            # yalnız ORCID olabilir — ada bağlanamaz, atla
+            # may be an ORCID only — cannot be tied to a name, skip
             continue
         oid = _clean_orcid(oid)
         nm = _norm(name)
@@ -143,14 +143,15 @@ def parse_oi_cell(cell) -> dict[str, str]:
 
 
 def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: bool) -> set[str]:
-    """Bir adayın (candidate) ORCID kümesi.
+    """ORCID set of a candidate.
 
-    candidate['records'] satır indeksleri + candidate['name_variants'] (ya da
-    'variants') üzerinden: ÖNCE her satırın OI hücresinden, eksikse (allow_api ise)
-    DOI'den OpenAlex sorgusuyla, adayın isim varyantlarıyla EŞLEŞEN yazarların
-    ORCID'lerini toplar. İsim eşleşmesi şart — yoksa ko-yazarın ORCID'i çekilmez.
+    Using the candidate['records'] row indices + candidate['name_variants'] (or
+    'variants'): collects the ORCIDs of the authors that MATCH the candidate's
+    name variants, FIRST from each row's OI cell and, if missing (when allow_api
+    is set), from an OpenAlex query by DOI. A name match is required — otherwise
+    a co-author's ORCID would not be picked up.
 
-    Yan etki YOK (veriye yazmaz); yalnız okur. (Write-back ayrı yapılır.)
+    NO side effects (does not write to the data); read-only. (Write-back is done separately.)
     """
     variants = candidate.get("name_variants") or candidate.get("variants") or []
     want = {_norm(v) for v in variants if v}
@@ -168,12 +169,12 @@ def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: b
     for idx in records:
         if idx not in df.index:
             continue
-        # 1) Veride var olan OI
+        # 1) OI already present in the data
         if has_oi:
             for nm, oid in parse_oi_cell(df.at[idx, "OI"]).items():
                 if nm in want:
                     found.add(oid)
-        # 2) Eksikse DOI'den anlık (yalnız bu satırda eşleşen isim için)
+        # 2) If missing, on the fly from the DOI (only for the name matched in this row)
         if allow_api and has_di:
             doi = df.at[idx, "DI"]
             if doi is not None and str(doi).strip() and str(doi).strip().lower() != "nan":
@@ -189,14 +190,14 @@ def _is_blank(v) -> bool:
 
 
 def enrich_rows_from_doi(df, row_indices, *, email: str | None) -> dict:
-    """Verilen satırların BOŞ OI/RI/ROR/CC hücrelerini DOI üzerinden OpenAlex ile doldur.
+    """Fill the EMPTY OI/RI/ROR/CC cells of the given rows via OpenAlex, by DOI.
 
-    Yalnız boş hücreye yazar (mevcut/özgün değeri ezmez). df YERİNDE güncellenir.
-    Dönüş: {'rows_filled': int, 'dois_fetched': int}. Yan etki: df mutasyonu.
+    Writes only into empty cells (does not overwrite an existing/original value). df is updated IN PLACE.
+    Returns: {'rows_filled': int, 'dois_fetched': int}. Side effect: df mutation.
     """
     if "DI" not in df.columns:
         return {"rows_filled": 0, "dois_fetched": 0}
-    # Yeni kolonlar yoksa oluştur (object dtype) — boş hücreye yazım için
+    # Create the new columns if they don't exist (object dtype) — for writing into empty cells
     for col in ("OI", "RI", "ROR", "CC"):
         if col not in df.columns:
             df[col] = None
@@ -204,23 +205,23 @@ def enrich_rows_from_doi(df, row_indices, *, email: str | None) -> dict:
     rows_filled = 0
     dois_fetched = 0
     seen_doi: set[str] = set()
-    for idx in dict.fromkeys(row_indices):  # tekilleştir, sırayı koru
+    for idx in dict.fromkeys(row_indices):  # deduplicate, preserve order
         if idx not in df.index:
             continue
         doi = df.at[idx, "DI"]
         if doi is None or not str(doi).strip() or str(doi).strip().lower() == "nan":
             continue
         d = str(doi).strip()
-        rows = fetch_orcids_for_doi(d, email)  # lru_cache'li
+        rows = fetch_orcids_for_doi(d, email)  # lru_cache-backed
         if d not in seen_doi:
             seen_doi.add(d)
             if rows:
                 dois_fetched += 1
         if not rows:
             continue
-        # Satır-seviyesi birleşik stringler (WoS formatı)
+        # Row-level combined strings (WoS format)
         ois = [f"{n}/{o}" for (n, o, _r, _c) in rows if n and o]
-        ris = [f"{n}/{o}" for (n, o, _r, _c) in rows if n]  # RI yok; ad/id yerine ad/orcid yedeği
+        ris = [f"{n}/{o}" for (n, o, _r, _c) in rows if n]  # no RI; name/orcid fallback in place of name/id
         rors, ccs = [], []
         for (_n, _o, r, c) in rows:
             if r:
@@ -243,19 +244,19 @@ def enrich_rows_from_doi(df, row_indices, *, email: str | None) -> dict:
 
 
 def classify_by_orcid(orcid_sets: list[set[str]]) -> str:
-    """Üye-başına ORCID kümelerinden grup kararı.
+    """Group decision from the per-member ORCID sets.
 
-      'merge'    — ORCID'i bilinen üyeler TEK ortak ORCID'de buluşuyor → aynı kişi
-      'conflict' — iki üye ayrık (kesişimsiz) ORCID taşıyor → farklı kişi
-      'unknown'  — yetersiz ORCID kanıtı → isim+alan heuristiği + LLM'e bırak
+      'merge'    — members with a known ORCID converge on a SINGLE shared ORCID → same person
+      'conflict' — two members carry disjoint (non-intersecting) ORCIDs → different people
+      'unknown'  — insufficient ORCID evidence → leave to the name+field heuristic / LLM
     """
     known = [s for s in orcid_sets if s]
     if len(known) < 2:
         return "unknown"
-    # Herhangi iki bilinen küme kesişmiyorsa → çelişki (farklı kişiler)
+    # If any two known sets do not intersect → conflict (different people)
     for i in range(len(known)):
         for j in range(i + 1, len(known)):
             if not (known[i] & known[j]):
                 return "conflict"
-    # Tüm bilinen kümeler ikili kesişiyor → ortak ORCID(ler) var → aynı kişi
+    # All known sets intersect pairwise → shared ORCID(s) exist → same person
     return "merge"

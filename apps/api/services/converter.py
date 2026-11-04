@@ -34,7 +34,7 @@ def _raw_file(raw_dir: Path, name: str) -> Path:
 
 
 def csv_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str = "scopus_merged.xlsx") -> Path:
-    """Scopus CSV(ler) → tek XLSX."""
+    """Scopus CSV(s) → a single XLSX."""
     from bibex_core.scp2xlsx import save_to_excel
 
     _, raw, processed = _project_paths(project_id)
@@ -51,7 +51,7 @@ def csv_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
 
 
 def wos_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str = "wos_merged.xlsx") -> Path:
-    """WoS TXT(ler) → tek XLSX. Birden fazla TXT verilirse önce birleştirir."""
+    """WoS TXT(s) → a single XLSX. If several TXT files are given, merges them first."""
     from bibex_core.wos2xlsx import save_to_excel
 
     _, raw, processed = _project_paths(project_id)
@@ -59,7 +59,7 @@ def wos_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
     if not sources:
         raise HTTPException(400, "En az bir TXT dosyası gerekli")
 
-    # Birleştir
+    # Merge
     merged_txt = processed / "_wos_merged.tmp.txt"
     with merged_txt.open("w", encoding="utf-8") as out:
         for src in sources:
@@ -77,15 +77,15 @@ def wos_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
 
 
 def auto_prepare(project_id: str, ctx=None) -> dict:
-    """Ham CSV/TXT'leri konsolide `processed/*.xlsx`'e çevirir — ÖRTÜK hazırlık.
+    """Convert the raw CSV/TXT files into the consolidated `processed/*.xlsx` — IMPLICIT preparation.
 
-    Smart Merge job'unun ilk fazı olarak çağrılır; ayrı "Prepare" adımı yok.
-    Skip-if-fresh: bir kaynağı yalnız en yeni ham dosyası ilgili processed
-    XLSX'ten yeni ise (veya XLSX yoksa) yeniden çevirir. Hata FIRLATMAZ —
-    sorunları `skipped`'a ekler ki tek-kaynak merge yine yürüyebilsin.
+    Called as the first phase of the Smart Merge job; there is no separate "Prepare" step.
+    Skip-if-fresh: a source is converted again only if its newest raw file is newer
+    than the corresponding processed XLSX (or if the XLSX does not exist). Does NOT
+    raise — adds problems to `skipped` so that a single-source merge can still proceed.
 
-    ctx: opsiyonel JobContext benzeri (.log()/.progress()); tip bağımlılığı
-    eklememek için gevşek bırakıldı.
+    ctx: optional JobContext-like object (.log()/.progress()); left loose so as not
+    to add a type dependency.
     """
     _, raw, processed = _project_paths(project_id)
     report: dict = {
@@ -128,7 +128,7 @@ def auto_prepare(project_id: str, ctx=None) -> dict:
             out = fn(project_id, [p.name for p in raw_paths], out_name)
             report[f"{kind}_xlsx"] = out.name
             report["did_convert"] = True
-        except Exception as e:  # noqa: BLE001 — tek-kaynak merge yürüsün diye yutulur
+        except Exception as e:  # noqa: BLE001 — swallowed so that a single-source merge can still proceed
             report["skipped"].append(f"{kind}: {e}")
 
     if csv_files:
@@ -144,13 +144,13 @@ def auto_prepare(project_id: str, ctx=None) -> dict:
 
 
 def xlsx_to_wos_txt(project_id: str, source_name: str, output_name: str | None = None) -> Path:
-    """XLSX → WoS-format TXT (bibliometrix için)."""
+    """XLSX → WoS-format TXT (for bibliometrix)."""
     from bibex_core.xlsx2vos import convert_excel_to_wos
 
     _, _, processed = _project_paths(project_id)
     src = processed / Path(source_name).name
     if not src.exists():
-        # raw'da da bakalım, kullanıcı doğrudan yüklediyse
+        # Look in raw as well, in case the user uploaded it directly
         raw = storage.project_dir(project_id) / "raw"
         alt = raw / Path(source_name).name
         if alt.exists():
@@ -168,7 +168,7 @@ def xlsx_to_wos_txt(project_id: str, source_name: str, output_name: str | None =
 
 
 def xlsx_to_tsv(project_id: str, source_name: str, output_name: str | None = None, sep: str = "\t") -> Path:
-    """XLSX → düz TSV/CSV (pandas)."""
+    """XLSX → plain TSV/CSV (pandas)."""
     import pandas as pd
 
     _, _, processed = _project_paths(project_id)
@@ -190,7 +190,7 @@ def xlsx_to_tsv(project_id: str, source_name: str, output_name: str | None = Non
 
 
 def list_processed(project_id: str) -> list[dict]:
-    """processed/ klasöründeki dosyaları listele."""
+    """List the files in the processed/ folder."""
     _, _, processed = _project_paths(project_id)
     if not processed.exists():
         return []

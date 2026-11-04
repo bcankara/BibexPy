@@ -40,7 +40,7 @@ export default function RecordsPage() {
   const retryRef = useRef<number | null>(null);
 
   const refresh = useCallback(async (off = 0, retryCount = 0) => {
-    // Önceki isteği iptal et (race condition koruması)
+    // Cancel the previous request (race condition protection)
     if (abortRef.current) abortRef.current.abort();
     if (retryRef.current) { window.clearTimeout(retryRef.current); retryRef.current = null; }
     const ctrl = new AbortController();
@@ -53,9 +53,9 @@ export default function RecordsPage() {
       if (ctrl.signal.aborted) return;
       setData(res); setError(null);
     } catch (e) {
-      // Aborted istek için state güncelleme yapma
+      // Do not update state for an aborted request
       if (ctrl.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
-      // "Failed to fetch" gibi ağ hataları → otomatik 1 deneme daha (backend reload sırasında olabilir)
+      // Network errors such as "Failed to fetch" → automatically retry once more (may happen during a backend reload)
       const msg = e instanceof Error ? e.message : String(e);
       const isTransient = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("ERR_");
       if (isTransient && retryCount < 1) {
@@ -124,11 +124,13 @@ export default function RecordsPage() {
     setActivePreset(p.name);
   }
 
-  /** Filtreyi veri setine KALICI uygula — eşleşmeyen kayıtlar çıkarılır (snapshot
-   * alınır, Geçmiş'ten geri yüklenebilir). Böylece Harmonizasyon/Export filtreli
-   * veriyle çalışır; filtre yalnızca geçici bir görünüm olarak kalmaz.
-   * Büyük dataset'lerde işlem (snapshot + dataset yazımı) uzun sürer → buton
-   * spinner'a döner ve kilitlenir; bitince sonuç toast'ı gösterilir. */
+  /** Apply the filter to the dataset PERMANENTLY — records that do not match are
+   * removed (a snapshot is taken, so it can be restored from History). This way
+   * Harmonization/Export work with the filtered data; the filter does not remain
+   * merely a temporary view.
+   * On large datasets the operation (snapshot + dataset write) takes a long time →
+   * the button turns into a spinner and is locked; when it finishes, a result
+   * toast is shown. */
   const [applyingFilter, setApplyingFilter] = useState(false);
   async function applyFilterToDataset() {
     if (!data || activeCount === 0 || applyingFilter) return;
@@ -145,8 +147,8 @@ export default function RecordsPage() {
     try {
       const r = await api.applyFilter(id, spec);
       toast(t("records.filter.appliedToast", { kept: r.kept, removed: r.removed }), { tone: "success" });
-      setSpec(EMPTY);          // filtre artık veri setinin kendisi — spec sıfırlanır
-      setActivePreset(null);   // (spec değişimi effect üzerinden listeyi tazeler)
+      setSpec(EMPTY);          // the filter is now the dataset itself — reset the spec
+      setActivePreset(null);   // (the spec change refreshes the list via the effect)
     } catch (e) {
       setError(translateApiError(t, e, "records.queryFailed"));
     } finally {
@@ -259,7 +261,7 @@ export default function RecordsPage() {
             </Card>
           </aside>
 
-          {/* Sağ panel: özet + tablo */}
+          {/* Right panel: summary + table */}
           <section className="space-y-3 min-w-0">
             <StatsBar
               data={data}
@@ -289,7 +291,7 @@ export default function RecordsPage() {
               </Card>
             ) : null}
 
-            {/* Sonraki adım kararı — Records → AI (opsiyonel) veya Export */}
+            {/* Next-step decision — Records → AI (optional) or Export */}
             {data && data.total > 0 && <NextStepCard projectId={id} />}
           </section>
         </div>
@@ -357,8 +359,8 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying
       {activeCount > 0 && (
         <>
           <ActiveFilterChips spec={spec} />
-          {/* Filtreyi kalıcılaştır — sonraki adımlar (Harmonizasyon/Export) bu
-              alt-kümeyle çalışsın. Filtre her şeyi kapsıyorsa gizli (no-op olurdu). */}
+          {/* Make the filter permanent — so that the next steps (Harmonization/Export)
+              work with this subset. Hidden if the filter covers everything (it would be a no-op). */}
           {data.total < totalAll && (
             <button
               onClick={onApply}
@@ -415,11 +417,11 @@ function ActiveFilterChips({ spec }: { spec: FilterSpec }) {
 }
 
 /**
- * Records sayfasından sonraki adım kararı:
- * 1. AI Asistan (opsiyonel — semantik temizlik istersen)
- * 2. Direkt Export (Veri Dönüşümü) — dataset hazır
+ * Next-step decision from the Records page:
+ * 1. AI Assistant (optional — if you want semantic cleanup)
+ * 2. Direct Export (Data Conversion) — the dataset is ready
  *
- * Pipeline 5 adım kalır; 4. adım (AI) opsiyoneldir.
+ * The pipeline stays at 5 steps; step 4 (AI) is optional.
  */
 function NextStepCard({ projectId }: { projectId: string }) {
   const t = useT();

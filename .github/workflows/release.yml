@@ -1,26 +1,26 @@
 name: Release (PyPI wheel)
 
-# v* tag'i push edilince (örn. v2.0.0) tetiklenir:
+# Triggered when a v* tag is pushed (e.g. v2.0.0):
 #   git tag v2.0.0 && git push origin v2.0.0
 #
-# Akış: Node ile frontend static export → apps/api + bibex_core kopyala →
-#       tek wheel build → PyPI'a yükle (Trusted Publishing / OIDC).
+# Flow: frontend static export with Node → copy apps/api + bibex_core →
+#       build a single wheel → upload to PyPI (Trusted Publishing / OIDC).
 #
-# Auth: PyPI Trusted Publishing (OIDC) — secret/token GEREKMEZ. PyPI'da publisher
-#       tanımlı: Repository bcankara/BibexPy · Workflow release.yml.
-#       (Yedek yöntem: twine + PYPI_API_TOKEN secret; bu workflow OIDC kullanır.)
+# Auth: PyPI Trusted Publishing (OIDC) — NO secret/token needed. The publisher is
+#       configured on PyPI: Repository bcankara/BibexPy · Workflow release.yml.
+#       (Fallback method: twine + PYPI_API_TOKEN secret; this workflow uses OIDC.)
 
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch: {}   # manuel tetikleme
+  workflow_dispatch: {}   # manual trigger
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # PyPI Trusted Publishing (OIDC) — token gerekmez
+      id-token: write   # PyPI Trusted Publishing (OIDC) — no token needed
       contents: read
     steps:
       - name: Checkout
@@ -50,7 +50,7 @@ jobs:
           WHL=$(ls python_pkg/dist/*.whl)
           echo "Wheel: $WHL"
           python -m zipfile -l "$WHL" | grep -E "_server/main.py|_web/index.html|bibex_core/scp2xlsx.py" \
-            || { echo "HATA: wheel eksik içerik"; exit 1; }
+            || { echo "ERROR: wheel is missing contents"; exit 1; }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -58,9 +58,9 @@ jobs:
           name: bibexpy-dist
           path: python_pkg/dist/*
 
-      # PyPI Trusted Publishing (OIDC) — PyPI'da publisher tanımlı:
+      # PyPI Trusted Publishing (OIDC) — the publisher is configured on PyPI:
       #   Repository: bcankara/BibexPy · Workflow: release.yml
-      # Token/secret saklamaya gerek yok; kimlik GitHub OIDC ile doğrulanır.
+      # No need to store a token/secret; identity is verified via GitHub OIDC.
       - name: Publish to PyPI (Trusted Publishing / OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

@@ -27,9 +27,9 @@ def status(project_id: str):
 
 
 class DisambiguateRequest(BaseModel):
-    # `mode` geriye uyumluluk için durur; artık davranışı etkilemez (3-katman varsayılan).
+    # `mode` is kept for backward compatibility; it no longer affects behavior (3-tier is the default).
     mode: str = "auto"
-    # Opsiyonel maliyet/test sınırı — sadece ilk N kayıt taranır. None = tüm dataset.
+    # Optional cost/test limit — only the first N records are scanned. None = the whole dataset.
     max_records: int | None = None
 
 
@@ -116,8 +116,8 @@ def get_proposals(project_id: str, kind: str):
 
 class ApplyRequest(BaseModel):
     kind: str
-    approved: list[dict[str, Any]] = []          # birleştirme (merge) onayları
-    approved_splits: list[dict[str, Any]] = []   # ayrıştırma (split) onayları — yalnız authors
+    approved: list[dict[str, Any]] = []          # merge approvals
+    approved_splits: list[dict[str, Any]] = []   # split approvals — authors only
 
 
 @router.post("/apply")
@@ -127,7 +127,7 @@ def apply(project_id: str, payload: ApplyRequest):
     if payload.kind not in ("authors", "affiliations", "countries", "organizations"):
         raise HTTPException(400, "invalid_kind")
 
-    # Önce AYRIŞTIRMA (split), sonra BİRLEŞTİRME (merge) — sıra: ayrıştırma ilk işlem.
+    # SPLIT first, then MERGE — order: the split is the first operation.
     split_result = None
     if payload.kind == "authors" and payload.approved_splits:
         split_result = pipeline.apply_splits(project_id, payload.approved_splits)

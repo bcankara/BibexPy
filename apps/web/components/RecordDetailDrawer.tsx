@@ -103,18 +103,18 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // Kaydedilen değişiklikleri kayıt değişene kadar yerelde tut — kaydettikten sonra
-  // okuma görünümü ve yeniden düzenleme güncel değeri göstersin (prop tazelenmese de).
+  // Keep saved changes locally until the record changes — so that after saving, the
+  // read view and re-editing show the current value (even if the prop is not refreshed).
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [prevRecord, setPrevRecord] = useState(record);
   if (record !== prevRecord) { setPrevRecord(record); setOverrides({}); }
 
-  // onClose'u ref'te tut — parent her render'da yeni closure verse de aşağıdaki
-  // efektler yeniden çalışmasın (yoksa draft sıfırlanır = yazılan değer kaybolur).
+  // Keep onClose in a ref — so the effects below do not re-run even if the parent passes
+  // a new closure on every render (otherwise the draft is reset = typed value is lost).
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // Açılış animasyonu + Esc + scroll kilidi — yalnız kayıt değişince çalışır
+  // Opening animation + Esc + scroll lock — runs only when the record changes
   useEffect(() => {
     if (!record) { setMounted(false); return; }
     requestAnimationFrame(() => setMounted(true));
@@ -127,7 +127,8 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
     };
   }, [record]);
 
-  // Draft başlatma yalnız kayıt veya başlangıç-modu değişince — düzenlerken sıfırlanmasın
+  // Draft initialization only when the record or the initial mode changes — so it is
+  // not reset while editing
   useEffect(() => {
     if (!record) return;
     if (startEditing) {
@@ -142,7 +143,7 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
 
   if (!record) return null;
 
-  // Görüntülenen kayıt = prop + kaydedilen yerel değişiklikler (overrides)
+  // Displayed record = prop + locally saved changes (overrides)
   const rec: Row = { ...record, ...overrides };
 
   function startEdit() {
@@ -170,7 +171,7 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
         fields: changed,
       });
       toast(t("recordDetail.saved", { n: Object.keys(changed).length }), { tone: "success" });
-      setOverrides((o) => ({ ...o, ...changed }));   // okuma görünümü anında güncel değeri göstersin
+      setOverrides((o) => ({ ...o, ...changed }));   // so the read view immediately shows the current value
       setEditing(false);
       onSaved?.();
     } catch (e) {

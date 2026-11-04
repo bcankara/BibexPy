@@ -3,15 +3,15 @@
 /**
  * Bibliometric tool ecosystem badges.
  *
- * İki katmanlı bir tasarım:
- *  - "Featured" araçlar: VOSviewer, bibliometrix → tam logo, pill border,
- *    hafif gölge.
- *  - Diğer araçlar: kompakt logo + isim chip.
+ * A two-tier design:
+ *  - "Featured" tools: VOSviewer, bibliometrix → full logo, pill border,
+ *    light shadow.
+ *  - Other tools: compact logo + name chip.
  *
- * Logo dosyaları `apps/web/public/tools/` altında tutulur; yoksa text-only
- * fallback gösterilir.
+ * Logo files are kept under `apps/web/public/tools/`; if missing, a
+ * text-only fallback is shown.
  *
- * Mayıs 2026 itibariyle aktif olarak kullanılan araçlar baz alınmıştır.
+ * Based on the tools in active use as of May 2026.
  */
 
 import { useState } from "react";
@@ -45,18 +45,18 @@ export type ToolKey =
 
 type ToolMeta = {
   label: string;
-  /** Renkli aksan — text + dot rengi */
+  /** Colored accent — text + dot color */
   color: string;
-  /** Açıklama (tooltip) */
+  /** Description (tooltip) */
   tip: string;
-  /** Public/tools/ altındaki doğrudan logo yolu */
+  /** Direct logo path under public/tools/ */
   logoSrc?: string;
-  /** Logo görselinin kendisi brand adını içeriyorsa true → label tekrarlanmaz */
+  /** True if the logo image itself contains the brand name → label is not repeated */
   logoHasName?: boolean;
 };
 
 export const TOOLS: Record<ToolKey, ToolMeta> = {
-  // — Featured (logo'lu) — Logo görselleri zaten brand ismini içeriyor, label tekrarlanmasın
+  // — Featured (with logo) — The logo images already contain the brand name, so the label is not repeated
   vosviewer:    { label: "VOSviewer",    color: "text-amber-700",   logoSrc: "/tools/vosviewer.png",    logoHasName: true, tip: "VOSviewer — Network visualization (co-authorship, co-citation, keyword co-occurrence maps)" },
   bibliometrix: { label: "bibliometrix", color: "text-blue-800",    logoSrc: "/tools/bibliometrix.png", logoHasName: true, tip: "bibliometrix — R package for comprehensive science mapping (Aria & Cuccurullo)" },
 
@@ -93,7 +93,7 @@ export const TOOLS: Record<ToolKey, ToolMeta> = {
   scite:      { label: "Scite",      color: "text-indigo-700",  logoSrc: "/tools/scite.svg",      tip: "Smart citations & assistant" },
 };
 
-/** ToolKey'ye karşılık gelen Tailwind dot color (text-X-700 → bg-X-500) */
+/** Tailwind dot color corresponding to a ToolKey (text-X-700 → bg-X-500) */
 const DOT_COLORS: Record<ToolKey, string> = {
   vosviewer:      "bg-amber-500",
   bibliometrix:   "bg-blue-700",
@@ -149,19 +149,20 @@ function ToolLogo({ tool, className }: { tool: ToolKey; className?: string }) {
 }
 
 /**
- * Logo'lu featured pill — VOSviewer / bibliometrix gibi araçlar için.
- * Logo görseli brand'in adını içeriyorsa (logoHasName) label tekrarlanmaz —
- * sadece logo gösterilir. Logo dosyası yoksa label otomatik fallback olur.
+ * Featured pill with a logo — for tools such as VOSviewer / bibliometrix.
+ * If the logo image contains the brand's name (logoHasName), the label is not
+ * repeated — only the logo is shown. If the logo file is missing, the label
+ * automatically becomes the fallback.
  *
- * Boyut: text chip'lerden belirgin şekilde büyük (~46-52px yükseklik) ki
- * "featured" hissi gerçekten verilsin.
+ * Size: noticeably larger than the text chips (~46-52px tall) so that the
+ * "featured" feel is actually conveyed.
  */
 export function FeaturedTool({ tool }: { tool: ToolKey }) {
   const meta = TOOLS[tool];
   const [logoFailed, setLogoFailed] = useState(false);
   if (!meta) return null;
   const hasLogo = !!meta.logoSrc && !logoFailed;
-  // Logo'da brand adı varsa ve logo görünüyorsa label gizle. Logo yoksa label fallback.
+  // Hide the label if the logo contains the brand name and the logo is visible. If there is no logo, the label is the fallback.
   const showLabel = !meta.logoHasName || !hasLogo;
 
   return (
@@ -189,7 +190,7 @@ export function FeaturedTool({ tool }: { tool: ToolKey }) {
   );
 }
 
-/** Kompakt chip — logo + isim, ince border. Logo yoksa monogram fallback. */
+/** Compact chip — logo + name, thin border. If there is no logo, falls back to a monogram. */
 export function TextChip({ tool, tier = "primary" }: { tool: ToolKey; tier?: ToolTier }) {
   const meta = TOOLS[tool];
   if (!meta) return null;
@@ -213,12 +214,12 @@ export function TextChip({ tool, tier = "primary" }: { tool: ToolKey; tier?: Too
 const FEATURED_TOOLS = new Set<ToolKey>(["vosviewer", "bibliometrix"]);
 
 /**
- * İki gruba ayrılmış görüntü:
- *  - Üstte logo'lu öne çıkanlar (VOSviewer / bibliometrix varsa)
- *  - Altta sade text chip'ler
+ * A display split into two groups:
+ *  - On top, the featured ones with logos (if VOSviewer / bibliometrix are present)
+ *  - Below, plain text chips
  *
- * `primary` listesi her zaman tam gösterilir.
- * `secondary` listesi `limit` parametresine kadar gösterilir, kalan +N.
+ * The `primary` list is always shown in full.
+ * The `secondary` list is shown up to the `limit` parameter; the remainder is shown as +N.
  */
 export function ToolBadgeList({ primary, secondary, limit }: {
   primary?: ToolKey[];
@@ -232,7 +233,7 @@ export function ToolBadgeList({ primary, secondary, limit }: {
   const featured = all.filter((x) => FEATURED_TOOLS.has(x.t));
   const rest = all.filter((x) => !FEATURED_TOOLS.has(x.t));
 
-  // Featured zaten featured'i çıkardığı için kalan dağılımı limit'le hesapla
+  // Since the featured ones are already taken out, compute the remaining distribution against the limit
   const shownRest = limit ? rest.slice(0, Math.max(0, limit - featured.length)) : rest;
   const overflow = rest.length - shownRest.length;
 
@@ -261,7 +262,7 @@ export function ToolBadgeList({ primary, secondary, limit }: {
   );
 }
 
-/** Geriye uyumluluk: Eski API. Yeni kodda ToolBadgeList veya doğrudan FeaturedTool/TextChip kullan. */
+/** Backward compatibility: legacy API. In new code, use ToolBadgeList or FeaturedTool/TextChip directly. */
 export function ToolBadge({ tool, tier = "primary" }: { tool: ToolKey; tier?: ToolTier; size?: "xs" | "sm" }) {
   if (FEATURED_TOOLS.has(tool)) return <FeaturedTool tool={tool} />;
   return <TextChip tool={tool} tier={tier} />;

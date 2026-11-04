@@ -1,15 +1,15 @@
 /**
- * BibexPy resmi logosu (tek görsel — kullanıcı tarafından sağlanan PNG lockup).
+ * Official BibexPy logo (a single image — the PNG lockup supplied by the user).
  *
- * Varyantlar:
- *  • "header" (vars.) — KARE/yığılmış lockup: atom üstte + BIBEXPY + "V2.0.0
- *    Helium" rozeti (sağ alt).  İç sayfa header'ı için kompakt.  ~1.35:1.
- *  • "inner"          — atom + BIBEXPY + slogan + DİKEY "V2.0.0 Helium" pill'i
- *    (sağda).  Footer için yatay lockup.  1526×378 (≈4.04:1).
- *  • "full"           — atom + BIBEXPY + slogan + YATAY "V2.0.0 Helium" rozeti
- *    (sağ üst).  Anasayfa hero (dış/landing) için.  3120×900.
+ * Variants:
+ *  • "header" (default) — SQUARE/stacked lockup: atom on top + BIBEXPY + "V2.0.0
+ *    Helium" badge (bottom right).  Compact, for the inner-page header.  ~1.35:1.
+ *  • "inner"          — atom + BIBEXPY + tagline + VERTICAL "V2.0.0 Helium" pill
+ *    (on the right).  Horizontal lockup for the footer.  1526×378 (≈4.04:1).
+ *  • "full"           — atom + BIBEXPY + tagline + HORIZONTAL "V2.0.0 Helium" badge
+ *    (top right).  For the homepage hero (outer/landing).  3120×900.
  *
- * `size` = yükseklik (px); genişlik varyant oranından hesaplanır.
+ * `size` = height (px); the width is computed from the variant's aspect ratio.
  */
 type Variant = "header" | "inner" | "full";
 

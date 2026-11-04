@@ -14,7 +14,7 @@ import unicodedata
 
 
 def normalize_name(s: str) -> str:
-    """ASCII transliteration + lower + tek boşluk."""
+    """ASCII transliteration + lowercase + single spaces."""
     if not s:
         return ""
     s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii")
@@ -61,7 +61,7 @@ def jaro(s1: str, s2: str) -> float:
 
 
 def jaro_winkler(s1: str, s2: str, p: float = 0.1) -> float:
-    """Jaro-Winkler benzerlik [0, 1]. Önek eşleşmesine bonus verir."""
+    """Jaro-Winkler similarity [0, 1]. Gives a bonus for prefix matches."""
     j = jaro(s1, s2)
     prefix = 0
     for c1, c2 in zip(s1[:4], s2[:4]):
@@ -73,25 +73,26 @@ def jaro_winkler(s1: str, s2: str, p: float = 0.1) -> float:
 
 
 def name_initials(full: str) -> tuple[str, str]:
-    """Bibliyometrik yazar adından (soyad ÖNCE) soyad + baş harfler.
+    """From a bibliometric author name (surname FIRST), return surname + initials.
 
         'Smith, John A'   -> ('smith', 'ja')
         'Smith J A'       -> ('smith', 'ja')
         'van der Berg, J' -> ('van der berg', 'j')
 
-    NOT: WoS/Scopus AU alanı soyadı başa yazar. Eski 'en uzun token = soyad'
-    sezgisi 'Jones, Robert' gibi adlarda (ad, soyaddan uzun) soyadı yanlış
-    seçip aynı kişiyi farklı bloklara dağıtıyordu — düzeltildi.
+    NOTE: The WoS/Scopus AU field writes the surname first. The old 'longest
+    token = surname' heuristic picked the wrong surname for names like
+    'Jones, Robert' (given name longer than the surname) and spread the same
+    person across different blocks — fixed.
     """
     raw = str(full or "")
     if "," in raw:
-        # "Soyad, Ad ..." — virgülden öncesi soyad, sonrası baş harf kaynağı
+        # "Surname, Given ..." — the part before the comma is the surname, the part after it is the source of the initials
         surname_part, _, given_part = raw.partition(",")
         surname = normalize_name(surname_part)
         initials = "".join(t[0] for t in normalize_name(given_part).split() if t)
         if surname:
             return surname, initials
-    # Virgül yok: "Soyad Baş-harfler" — ilk token soyad, kalanlar baş harf
+    # No comma: "Surname Initials" — the first token is the surname, the rest are initials
     parts = normalize_name(raw).split()
     if not parts:
         return "", ""

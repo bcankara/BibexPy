@@ -19,23 +19,24 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Optional
 
 
-# Ağır CPU işi (disambiguation blocking builder'ları) için AYRILMIŞ, sınırlı havuz.
-# Neden: bu işler `asyncio.to_thread` ile çalışırsa PAYLAŞILAN default thread havuzunu
-# kullanır. Bir scan iptal edilince `task.cancel()` yalnız asyncio task'ı iptal eder —
-# `build_author_blocks` gibi fonksiyonu çalıştıran thread Python'da ÖLDÜRÜLEMEZ. İptal
-# edilen scan'lerin orphan thread'leri default havuzu tüketir → export/merge/conversion
-# ve SPA-serving dâhil TÜM `to_thread` işleri kuyruğa girer = uygulama kilitlenir
-# (test bulgusu #7). Ağır işi ayrı havuza alınca orphan'lar burada izole kalır; default
-# havuz (uygulamanın geri kalanı) yanıt vermeye devam eder. blocking.py'deki kooperatif
-# iptal (should_cancel) sayesinde orphan'lar zaten ~bir iterasyonda biter.
+# A DEDICATED, bounded pool for heavy CPU work (the disambiguation blocking builders).
+# Why: if these jobs run via `asyncio.to_thread`, they use the SHARED default thread pool.
+# When a scan is cancelled, `task.cancel()` only cancels the asyncio task — the thread
+# running a function such as `build_author_blocks` CANNOT be KILLED in Python. The orphan
+# threads of cancelled scans exhaust the default pool → ALL `to_thread` jobs, including
+# export/merge/conversion and SPA serving, get queued = the application locks up
+# (test finding #7). Once the heavy work is moved to a separate pool, the orphans stay
+# isolated here; the default pool (the rest of the application) keeps responding. Thanks
+# to the cooperative cancellation (should_cancel) in blocking.py, the orphans finish
+# within roughly one iteration anyway.
 _CPU_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bibex-cpu")
 
 
 async def run_cpu(fn: Callable, *args, **kwargs):
-    """Ağır/iptal-edilebilir CPU işini AYRILMIŞ havuzda çalıştır (default havuzu koru).
+    """Run heavy/cancellable CPU work in the DEDICATED pool (protect the default pool).
 
-    `asyncio.to_thread` yerine bunu kullan: orphan thread'ler izole havuzda kalır,
-    uygulamanın geri kalanını (export/merge/serving) kilitlemez."""
+    Use this instead of `asyncio.to_thread`: orphan threads stay in the isolated pool and
+    do not lock up the rest of the application (export/merge/serving)."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_CPU_EXECUTOR, functools.partial(fn, *args, **kwargs))
 
@@ -54,12 +55,13 @@ class Job:
     project_id: str
     kind: str
     title: str
-    # i18n: title_key + title_params → frontend (JobProgress) display-time çevirir.
-    # title alanı okunabilir fallback (markdown/legacy) olarak kalır.
+    # i18n: title_key + title_params → the frontend (JobProgress) translates at display time.
+    # The title field stays as a readable fallback (markdown/legacy).
     title_key: Optional[str] = None
     title_params: Optional[dict[str, Any]] = None
-    # exclusive: aynı projede aynı anda başka bir exclusive iş varsa REDDEDİLİR
-    # (ağır scan/fill işlerinin üst üste binip thread havuzunu tüketmesini önler — #7).
+    # exclusive: if another exclusive job is already active in the same project, it is
+    # REJECTED (prevents heavy scan/fill jobs from overlapping and exhausting the thread
+    # pool — #7).
     exclusive: bool = False
     status: JobStatus = JobStatus.queued
     progress: float = 0.0
@@ -90,7 +92,7 @@ class Job:
 
 
 class JobContext:
-    """Worker fonksiyonuna geçirilen kontrol nesnesi."""
+    """Control object passed to the worker function."""
 
     def __init__(self, job: Job, runner: "JobRunner"):
         self._job = job
@@ -113,7 +115,7 @@ JobWorker = Callable[[JobContext], Awaitable[Any]]
 
 
 class JobRunner:
-    """Bellekte job kayıt + asyncio task'lar."""
+    """In-memory job registry + asyncio tasks."""
 
     def __init__(self):
         self._jobs: dict[str, Job] = {}
@@ -143,7 +145,7 @@ class JobRunner:
         return True
 
     def has_active_exclusive(self, project_id: str) -> bool:
-        """Bu projede aktif (kuyrukta/çalışan) bir exclusive iş var mı?"""
+        """Is there an active (queued/running) exclusive job in this project?"""
         return any(
             j.project_id == project_id and j.exclusive
             and j.status in (JobStatus.queued, JobStatus.running)
@@ -162,9 +164,9 @@ class JobRunner:
         title_params: Optional[dict[str, Any]] = None,
         exclusive: bool = False,
     ) -> Job:
-        # Tek-aktif-iş guard (#7): exclusive bir iş istenirken aynı projede zaten
-        # exclusive bir iş varsa reddet. Frontend buton kilidi desenkronize olsa bile
-        # (eski donma bug'ının tetikleyicisi) ağır işler üst üste binmez.
+        # Single-active-job guard (#7): when an exclusive job is requested and the same
+        # project already has an exclusive job, reject it. Even if the frontend button lock
+        # gets out of sync (the trigger of the old freeze bug), heavy jobs do not overlap.
         if exclusive and self.has_active_exclusive(project_id):
             from fastapi import HTTPException
             raise HTTPException(409, "job_already_running")
@@ -201,13 +203,13 @@ class JobRunner:
         finally:
             job.finished_at = time.time()
             self._notify(job.id, done=True)
-            # Otomatik audit log yazımı — her job sonunda
+            # Automatic audit log write — at the end of every job
             self._write_audit(job)
 
     def _write_audit(self, job: Job) -> None:
-        """Job tamamlandıktan sonra audit log'a yaz."""
+        """Write to the audit log after the job completes."""
         try:
-            from services import audit  # circular import'ı önle
+            from services import audit  # avoid the circular import
             duration = (job.finished_at - job.started_at) if (job.started_at and job.finished_at) else None
             details: dict = {
                 "job_id": job.id,
@@ -215,7 +217,7 @@ class JobRunner:
                 "status": job.status.value,
             }
             if isinstance(job.result, dict):
-                # Result alanlarının ilgili kısımlarını da ekle (verbose olmasın)
+                # Also include the relevant parts of the result fields (without making it verbose)
                 for k in ("method", "scopus_input", "wos_input", "merged_count", "duplicates_removed",
                           "stats", "enriched_count", "updated_count", "replacements", "snapshot",
                           "candidates", "clusters", "uncertain", "output_dataset",
@@ -225,13 +227,13 @@ class JobRunner:
                           "field", "label", "total", "missing_before", "no_doi", "target",
                           "enriched", "api_no_data", "failed", "missing_after",
                           "fill_rate_before", "fill_rate_after", "per_field_fill",
-                          "api", "doi",  # fill_all alt-özetleri (enrichment raporu için)
+                          "api", "doi",  # fill_all sub-summaries (for the enrichment report)
                           "api_success_by_source", "fields_updated", "doi_missing",
-                          # Smart Merge alanları
+                          # Smart Merge fields
                           "matched_pairs", "borderline_count", "borderline_pending",
                           "conflict_count", "match_stages", "field_source_distribution",
                           "lost_wos_count", "lost_scopus_count", "output_files",
-                          # Analiz klasörü
+                          # Analysis folder
                           "analysis_id"):
                     if k in job.result:
                         v = job.result[k]
@@ -253,7 +255,7 @@ class JobRunner:
                 user_action=f"job_{job.status.value}",
             )
         except Exception:
-            pass  # audit yazımı kritik değil — ana akışı bozmasın
+            pass  # writing the audit is not critical — it must not break the main flow
 
     @staticmethod
     def _status_label(s: JobStatus) -> str:
@@ -269,7 +271,7 @@ class JobRunner:
     def subscribe(self, job_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=500)
         self._listeners.setdefault(job_id, set()).add(q)
-        # İlk frame: mevcut state
+        # First frame: the current state
         job = self._jobs.get(job_id)
         if job:
             q.put_nowait(job.to_dict())

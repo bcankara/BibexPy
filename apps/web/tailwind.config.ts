@@ -1,15 +1,16 @@
 import type { Config } from "tailwindcss";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BibexPy v2 "Helium" KURUMSAL PALET (kullanıcı tablosu — logo ile uyumlu):
-//   Ana renk        : koyu lacivert #0c2847 (koyu ton #081c32 → başlık/üst menü)
-//   Yardımcı renk   : mor #4f1964 (koyu #371246 ikincil buton, açık #ede8f0 etiket)
-//   Vurgu / CTA     : petrol yeşili #0f766e
-//   Statuslar       : success #15803d · warning #a16207 · danger #b91c1c (mat/koyu)
-//   Zemin/metin     : bg #f7f9fc · kart #fff · border #d8dee8 · metin #172033/#5f6f85
+// BibexPy v2 "Helium" CORPORATE PALETTE (user's table — matches the logo):
+//   Primary color   : dark navy #0c2847 (dark tone #081c32 → header/top menu)
+//   Secondary color : purple #4f1964 (dark #371246 secondary button, light #ede8f0 label)
+//   Accent / CTA    : petrol green #0f766e
+//   Statuses        : success #15803d · warning #a16207 · danger #b91c1c (matte/dark)
+//   Background/text : bg #f7f9fc · card #fff · border #d8dee8 · text #172033/#5f6f85
 //
-// Skalalar Tailwind'in ham aile adlarına da atanır (override) → koddaki yüzlerce
-// `cyan-*`/`emerald-*`/... utility'si dosyalara dokunmadan kurumsal palete döner.
+// The scales are also assigned to Tailwind's raw family names (override) → the hundreds of
+// `cyan-*`/`emerald-*`/... utilities in the code switch to the corporate palette without
+// touching the files.
 // ─────────────────────────────────────────────────────────────────────────────
 const navy = {
   50: "#f4f7fa", 100: "#e7edf4", 200: "#c9d6e5", 300: "#a2b8d0", 400: "#7593b5",
@@ -44,33 +45,33 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Yüzey & arka plan — tablo: bg #f7f9fc, kart hover/açık ton #e7eaed.
+        // Surface & background — table: bg #f7f9fc, card hover/light tone #e7eaed.
         bg: { DEFAULT: "#f7f9fc", soft: "#e7eaed", card: "#FFFFFF" },
-        ink: { DEFAULT: "#172033", soft: "#243049" },     // ana metin / koyu yüzey metni
+        ink: { DEFAULT: "#172033", soft: "#243049" },     // main text / dark-surface text
         muted: "#5f6f85",
         border: "#d8dee8",
 
-        // Marka — ANA lacivert (#0c2847). `cyan` da bu skalayla EZİLİR →
-        // koddaki tüm `cyan-*` aksanları otomatik laciverte döner.
+        // Brand — PRIMARY navy (#0c2847). `cyan` is also OVERRIDDEN with this scale →
+        // all `cyan-*` accents in the code automatically turn navy.
         brand: navy,
         cyan: navy, blue: navy, sky: navy, indigo: navy,
 
-        // Yardımcı MOR (#4f1964 — logodaki Helium rozeti). `violet/purple/
-        // fuchsia-*` utility'leri bu skaladan gelir (etiket/ikincil vurgu).
+        // Secondary PURPLE (#4f1964 — the Helium badge in the logo). The `violet/purple/
+        // fuchsia-*` utilities come from this scale (label/secondary accent).
         violet: grape, purple: grape, fuchsia: grape,
 
-        // Vurgu / CTA — petrol (#0f766e). `teal-*` bu skaladan gelir.
+        // Accent / CTA — petrol (#0f766e). `teal-*` comes from this scale.
         teal: petrol,
 
-        // Status aileleri — tablodaki mat/koyu semantiklere demirli skalalar.
+        // Status families — scales anchored to the matte/dark semantics in the table.
         emerald: green, green: green, lime: green,
         red: red, rose: red,
         amber: amber, yellow: amber, orange: amber,
 
-        primary: { DEFAULT: "#0c2847", hover: "#081c32" },  // ana / koyu ton
+        primary: { DEFAULT: "#0c2847", hover: "#081c32" },  // primary / dark tone
         accent:  { DEFAULT: "#0f766e", hover: "#0d635d" },  // CTA petrol
 
-        // Semantik token'lar — tablo değerleri (DEFAULT) + açık zemin (soft).
+        // Semantic tokens — table values (DEFAULT) + light background (soft).
         success: { DEFAULT: "#15803d", soft: green[100] },
         warning: { DEFAULT: "#a16207", soft: amber[100] },
         danger:  { DEFAULT: "#b91c1c", soft: red[100] },
@@ -85,8 +86,8 @@ const config: Config = {
         soft: "0 4px 12px -2px rgba(12, 40, 71, 0.08)",
       },
       backgroundImage: {
-        // Geriye uyumluluk için tutulan token — artık gradient değil, ana koyu
-        // lacivert düz verilir. Yeni kullanımlarda doğrudan `bg-[#0c2847]`.
+        // Token kept for backward compatibility — it is no longer a gradient; the
+        // primary dark navy is applied as a flat color. In new usages, use `bg-[#0c2847]` directly.
         "brand-gradient":
           "linear-gradient(180deg, #0c2847 0%, #0c2847 100%)",
       },

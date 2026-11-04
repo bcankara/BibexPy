@@ -7,9 +7,9 @@ from services import audit, storage
 
 router = APIRouter(prefix="/projects/{project_id}/files", tags=["upload"])
 
-# Güvenlik: dosya adındaki path-traversal'ı önle
+# Security: prevent path traversal in the file name
 def _safe_name(name: str) -> str:
-    base = Path(name).name  # sadece son segment
+    base = Path(name).name  # only the last segment
     if not base or base in {".", ".."}:
         raise HTTPException(400, f"invalid_filename: {name!r}")
     return base
@@ -48,13 +48,13 @@ async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
     for upload in files:
         name = _safe_name(upload.filename or "untitled")
         dest = raw / name
-        # Aynı isim varsa numara ekle
+        # If the same name already exists, append a number
         i = 1
         stem, suffix = dest.stem, dest.suffix
         while dest.exists():
             dest = raw / f"{stem} ({i}){suffix}"
             i += 1
-        # Akışı diske yaz (yığın yığın — büyük dosyalar için)
+        # Write the stream to disk (chunk by chunk — for large files)
         with dest.open("wb") as out:
             while chunk := await upload.read(1024 * 1024):
                 out.write(chunk)
@@ -75,7 +75,7 @@ async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
         title=f"{len(saved)} dosya yüklendi",
         title_key="audit.titles.filesUploaded",
         title_params={"n": len(saved)},
-        analysis_id=None,  # proje-seviye: tüm analizlerde "kurulum" olarak görünür
+        analysis_id=None,  # project-level: appears as "setup" in all analyses
         details={
             "files": [{"name": f.name, "size": f.size, "kind": f.kind} for f in saved],
             "total_size": total_size,

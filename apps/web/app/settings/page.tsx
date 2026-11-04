@@ -17,17 +17,17 @@ import { cn } from "@/lib/cn";
 type TFn = (k: string, v?: Record<string, string | number>) => string;
 
 /**
- * Backend'den gelen metni (group label, field label/hint) frontend i18n ile
- * çevirir. Backend stabil ANAHTAR (group key / field.key) gönderir; locale
- * frontend'de olduğu için çeviri burada yapılır. i18n'de karşılık yoksa
- * backend metnine (fallback) düşülür → bilinmeyen alanlar yine de görünür.
+ * Translates text coming from the backend (group label, field label/hint) using the
+ * frontend i18n. The backend sends a stable KEY (group key / field.key); since the
+ * locale lives in the frontend, the translation is done here. If i18n has no match,
+ * it falls back to the backend text → unknown fields are still displayed.
  */
 function trf(t: TFn, key: string, fallback?: string | null): string {
   const v = t(key);
   return v === key ? (fallback ?? key) : v;
 }
 
-/** Path doğrulama durumunu locale'e göre metne çevirir (backend message yerine). */
+/** Translates the path validation status into text according to the locale (instead of the backend message). */
 function pathStatusMessage(t: TFn, v: PathValidation): string {
   if (v.valid) return t("settings.pathStatus.ready");
   if (v.exists && !v.is_dir) return t("settings.pathStatus.notDir");
@@ -72,9 +72,9 @@ export default function SettingsPage() {
     setTouched((prev) => new Set(prev).add(key));
   }
 
-  /** Depolama klasörü ANINDA uygulanır — global Save akışına girmez.
-   * Browse'tan seçim veya alandaki "Uygula" butonu/Enter tetikler; backend
-   * klasörü oluşturup yazılabilirliği doğrular (başarısızsa 400, geçiş olmaz). */
+  /** The storage folder is applied IMMEDIATELY — it does not go through the global Save flow.
+   * Triggered by a selection from Browse or by the "Apply" button/Enter in the field; the backend
+   * creates the folder and verifies it is writable (400 on failure, no switch happens). */
   const [storageApplying, setStorageApplying] = useState(false);
   async function applyStorageDir(path: string) {
     const p = path.trim();
@@ -84,7 +84,7 @@ export default function SettingsPage() {
     try {
       await api.updateSettings({ STORAGE_DIR: p });
       setSavedAt(Date.now());
-      await reload(); // active_storage + alan değeri tazelenir
+      await reload(); // active_storage + field value are refreshed
     } catch (e) {
       setError(translateApiError(t, e, "settings.saveFailed"));
     } finally {
@@ -95,7 +95,7 @@ export default function SettingsPage() {
   async function openStorageFolder() {
     if (openingFolder) return;
     setOpeningFolder(true);
-    try { await api.openFolder("storage"); } catch { /* sessiz */ }
+    try { await api.openFolder("storage"); } catch { /* silent */ }
     finally { setOpeningFolder(false); }
   }
 
@@ -120,7 +120,7 @@ export default function SettingsPage() {
       }
       await api.updateSettings(updates);
       setSavedAt(Date.now());
-      // 3sn sonra reload (server side maskelemeyi tazelemek için)
+      // reload after 3s (to refresh the server-side masking)
       setTimeout(reload, 600);
     } catch (e) {
       setError(translateApiError(t, e, "settings.saveFailed"));
@@ -139,7 +139,7 @@ export default function SettingsPage() {
 
   const dirty = touched.size > 0;
 
-  // Grup bazlı alanlar
+  // Fields by group
   const grouped: Record<string, SettingField[]> = {};
   if (data) {
     for (const f of data.fields) {
@@ -176,7 +176,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Dil seçimi — frontend tarafında çalışır */}
+        {/* Language selection — runs on the frontend side */}
         <Card>
           <CardHeader>
             <Languages className="h-4 w-4 text-brand-600" />
@@ -203,7 +203,7 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
-        {/* Notlar — backend yerine frontend i18n'den (locale'e göre TR/EN) */}
+        {/* Notes — from the frontend i18n instead of the backend (TR/EN by locale) */}
         {data && (
           <Card>
             <CardBody className="py-3 space-y-1.5">
@@ -222,7 +222,7 @@ export default function SettingsPage() {
           </Card>
         )}
 
-        {/* Gruplar */}
+        {/* Groups */}
         {loading ? (
           <Card>
             <CardBody className="text-center py-12 text-muted text-sm">{t("common.loading")}</CardBody>
@@ -259,15 +259,15 @@ export default function SettingsPage() {
                       field={f}
                       value={values[f.key] ?? ""}
                       touched={false}
-                      /* Save akışına GİRMEZ: yazım touched işaretlemez; Browse
-                         seçimi ve "Uygula" anında uygular. */
+                      /* Does NOT enter the Save flow: typing does not mark touched; Browse
+                         selection and "Apply" apply immediately. */
                       onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
                       onApply={applyStorageDir}
                       applying={storageApplying}
                     />
-                    {/* Şeffaflık: sunucunun ŞU AN kullandığı klasör + Explorer'da aç.
-                        Yapılandırılan klasör farklıysa (restart bekliyor) belirgin uyarı —
-                        "seçtim ama oraya kaydetmiyor" karışıklığını önler. */}
+                    {/* Transparency: the folder the server is using RIGHT NOW + open in Explorer.
+                        If the configured folder differs (waiting for restart), a prominent warning —
+                        prevents the "I selected it but it doesn't save there" confusion. */}
                     {data?.active_storage && (
                       <div className="rounded-lg border border-border bg-bg-soft/50 px-3 py-2 space-y-2">
                         <div className="flex items-center gap-2 text-xs">
@@ -375,11 +375,11 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
     onChange("LLM_PROVIDER", newId);
     const np = providers.find((p) => p.id === newId);
     if (!np) return;
-    // Provider değişince base_url ve model'i preset'e güncelle
+    // When the provider changes, update base_url and model to the preset
     if (np.id !== "custom") {
       onChange("LLM_BASE_URL", np.base_url);
       if (np.models.length > 0) {
-        // Mevcut model bu provider'da var mı kontrol et, yoksa ilkini al
+        // Check whether the current model exists in this provider; if not, take the first one
         const currentModel = values["LLM_MODEL"] || "";
         const exists = np.models.some((m) => m.id === currentModel);
         if (!exists) onChange("LLM_MODEL", np.models[0].id);
@@ -392,7 +392,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
 
   return (
     <div className="space-y-4">
-      {/* Provider seçimi */}
+      {/* Provider selection */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
           <Cpu className="h-3.5 w-3.5 text-muted" />
@@ -430,7 +430,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
         </div>
       </div>
 
-      {/* Base URL — sadece custom seçilirse veya gerekirse görünür */}
+      {/* Base URL — visible only when custom is selected or when needed */}
       {isCustom && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
@@ -456,7 +456,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
         </div>
       )}
 
-      {/* Model seçimi */}
+      {/* Model selection */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-ink flex-1">{t("settings.modelLabel")}</label>
@@ -565,8 +565,8 @@ function PathField({ field, value, touched, onChange, onApply, applying = false 
   value: string;
   touched: boolean;
   onChange: (v: string) => void;
-  /** Verilirse alan ANINDA-uygula modundadır: Browse seçimi direkt uygular,
-   * elle yazımda "Uygula" butonu/Enter uygular (global Save devre dışı). */
+  /** If provided, the field is in apply-IMMEDIATELY mode: a Browse selection applies
+   * directly; for manual typing, the "Apply" button/Enter applies (global Save is disabled). */
   onApply?: (v: string) => void;
   applying?: boolean;
 }) {
@@ -576,7 +576,7 @@ function PathField({ field, value, touched, onChange, onApply, applying = false 
   const [autoChecked, setAutoChecked] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Mount'ta mevcut path'i otomatik validate et
+  // Automatically validate the current path on mount
   useEffect(() => {
     if (autoChecked || !value.trim()) return;
     setAutoChecked(true);
@@ -658,7 +658,7 @@ function PathField({ field, value, touched, onChange, onApply, applying = false 
           onChange(p);
           setValidation(null);
           setAutoChecked(false);
-          // Anında-uygula modunda klasör seçimi bilinçli bir eylemdir — Save'siz uygula.
+          // In apply-immediately mode, choosing a folder is a deliberate action — apply it without Save.
           if (onApply) onApply(p);
         }}
       />
@@ -711,7 +711,7 @@ function FieldRow({ field, value, touched, revealed, onChange, onToggleReveal, h
   revealed: boolean;
   onChange: (v: string) => void;
   onToggleReveal: () => void;
-  /** #8: etiket yanına yardım balonu (? ikon) — bilinmeyen metrikler için. */
+  /** #8: help bubble (? icon) next to the label — for unfamiliar metrics. */
   helpText?: string;
 }) {
   const t = useT();

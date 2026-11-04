@@ -3,9 +3,9 @@ import { HelpCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /**
- * Küçük yardım ikonu (?) + hover/focus ile açılan açıklama balonu.
- * Bağımlılıksız (saf CSS group-hover/focus) → static export ve SSR güvenli.
- * Bilinmeyen metrikleri (Blocking eşiği, Jaro-Winkler vb.) yerinde açıklamak için.
+ * Small help icon (?) + an explanation bubble that opens on hover/focus.
+ * Dependency-free (pure CSS group-hover/focus) → safe for static export and SSR.
+ * For explaining unfamiliar metrics (Blocking threshold, Jaro-Winkler, etc.) in place.
  */
 export function InfoTip({ text, className }: { text: string; className?: string }) {
   return (

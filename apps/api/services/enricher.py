@@ -26,7 +26,7 @@ from services.bibex_adapter import _suppress_stdio
 
 
 def _active_path(project_id: str) -> Path:
-    """Aktif analiz dataset'i — filter/quality/disambiguation bunu okur/yazar."""
+    """Active analysis dataset — filter/quality/disambiguation read and write it."""
     src = merger.merged_dataset_path(project_id)
     if src is None:
         raise HTTPException(409, "no_merged_data")
@@ -34,8 +34,8 @@ def _active_path(project_id: str) -> Path:
 
 
 def _snapshot(project_id: str, df: pd.DataFrame, tag: str) -> str:
-    # Snapshot, AKTİF analiz klasörüne yazılır (proje kökü değil) — her merge kendi
-    # snapshot'larını taşır, yeni analiz eskileri devralmaz.
+    # The snapshot is written to the ACTIVE analysis folder (not the project root) — each
+    # merge carries its own snapshots; a new analysis does not inherit the old ones.
     snaps = analyses.work_dir(project_id) / "snapshots"
     snaps.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
@@ -55,7 +55,7 @@ def _is_blank(v) -> bool:
     return str(v).strip() in ("", "nan", "NaN")
 
 
-# Doluluk oranı raporu için izlenen alanlar (dashboard ile aynı küme)
+# Fields tracked for the fill-rate report (same set as the dashboard)
 _RATE_FIELDS = ("DI", "AB", "TI", "AU", "PY", "DE", "ID", "WC", "SC", "C1", "OI", "EM", "CR", "TC", "LA")
 
 
@@ -68,24 +68,24 @@ def _fill_rate(series) -> float:
 
 
 def _mirror_wc_sc(df: pd.DataFrame) -> int:
-    """WC<->SC karşılıklı kopya (deterministik): biri doluysa boş olanı onunla doldur.
+    """WC<->SC mutual copy (deterministic): if one is filled, fill the blank one with it.
 
-    DOI/API gerektirmez — WoS kayıtlarındaki tek-eksik WC/SC'yi anında tamamlar.
-    Doldurulan hücre sayısını döndürür.
+    Needs no DOI/API — immediately completes WC/SC in WoS records where only one of the two is missing.
+    Returns the number of cells filled.
     """
     if "WC" not in df.columns or "SC" not in df.columns:
         return 0
     wc_blank = df["WC"].map(_is_blank)
     sc_blank = df["SC"].map(_is_blank)
-    m1 = (~wc_blank) & sc_blank   # WC var, SC yok  -> SC = WC
-    m2 = (~sc_blank) & wc_blank   # SC var, WC yok  -> WC = SC
+    m1 = (~wc_blank) & sc_blank   # WC present, SC missing -> SC = WC
+    m2 = (~sc_blank) & wc_blank   # SC present, WC missing -> WC = SC
     df.loc[m1, "SC"] = df.loc[m1, "WC"]
     df.loc[m2, "WC"] = df.loc[m2, "SC"]
     return int(m1.sum() + m2.sum())
 
 
 async def _api_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: float = 0.95) -> dict[str, Any]:
-    """df'i YERİNDE güncelle: her DOI için tek extract_metadata çağrısı, tüm boş alanları doldur."""
+    """Update df IN PLACE: one extract_metadata call per DOI, filling all blank fields."""
     from bibex_core.modules.api_utils import extract_metadata
 
     if "DI" not in df.columns:
@@ -134,9 +134,10 @@ async def _api_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: 
 
 
 async def _doi_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: float = 0.4) -> dict[str, Any]:
-    """Eksik DOI'leri başlık+yıl+yazardan ters arayarak doldur (CrossRef + OpenAlex, doğrulamalı).
+    """Fill missing DOIs by reverse lookup from title+year+author (CrossRef + OpenAlex, verified).
 
-    Dengeli eşik + otomatik yazma; emin olunmayan kayıt boş kalır. df YERİNDE güncellenir.
+    Balanced threshold + automatic write; a record that is not confidently matched stays
+    blank. df is updated IN PLACE.
     """
     from bibex_core.modules.api_utils import resolve_doi
 
@@ -176,10 +177,10 @@ async def _doi_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: 
 
 
 async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
-    """Birleşik 'Fill all missing' — YALNIZ API geçişi (DOI başına tek çağrı, tüm boş alanlar).
+    """Unified 'Fill all missing' — API pass ONLY (one call per DOI, all blank fields).
 
-    ML geçişi YOKTUR. df bir kez okunur, API ile yerinde doldurulur, aktif dataset'e yazılır.
-    İptal edilse bile o ana dek elde edilen API kazanımları korunur.
+    There is NO ML pass. df is read once, filled in place via the API, and written to the active dataset.
+    Even if cancelled, the API gains obtained up to that point are preserved.
     """
     src = await asyncio.to_thread(_active_path, project_id)
     df = await asyncio.to_thread(dataset_io.read_dataset, src)
@@ -188,18 +189,18 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log("Snapshot taken")
     ctx.progress(0.05)
 
-    # Doluluk: işlem ÖNCESİ oranlar (rapor için)
+    # Fill rate: rates BEFORE processing (for the report)
     track = [c for c in _RATE_FIELDS if c in df.columns]
     before = {c: _fill_rate(df[c]) for c in track}
 
-    # 1) WC<->SC karşılıklı kopya — deterministik, DOI gerekmez, API'den ÖNCE (öncelikli).
+    # 1) WC<->SC mutual copy — deterministic, needs no DOI, runs BEFORE the API (takes priority).
     mirrored = _mirror_wc_sc(df)
     if mirrored:
         ctx.log(f"WC<->SC mirror: {mirrored} field(s) filled")
 
-    # 2-3) Ters DOI bulma + API geçişi. df YERİNDE güncellenir; iptal (CancelledError
-    #    veya ctx.cancelled) durumunda bile o ana dek elde edilen kazanımlar KORUNUR —
-    #    geçişleri sarıp finally'de aktif veri kümesine yazıyoruz.
+    # 2-3) Reverse DOI lookup + API pass. df is updated IN PLACE; even on cancellation
+    #    (CancelledError or ctx.cancelled) the gains obtained up to that point are
+    #    PRESERVED — we wrap the passes and write to the active dataset in the finally block.
     doi_stats = {"scanned": 0, "filled": 0}
     api_stats = {"total": 0, "enriched": 0}
     addr_stats = {"rows": 0, "addr": 0, "dois": 0}
@@ -207,18 +208,20 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     try:
         doi_stats = await _doi_pass(ctx, df, lo=0.05, hi=0.4)
         api_stats = await _api_pass(ctx, df, lo=0.4, hi=0.9)
-        # Adres tamamlama: kurumu olan ama ÜLKESİ eksik adreslere OpenAlex ülkesini
-        # deterministik ekle (API, LLM yok, ücretsiz — kullanıcı şeffaf, Fill'in parçası).
+        # Address completion: for addresses that have an institution but a MISSING COUNTRY,
+        # deterministically add the OpenAlex country (API, no LLM, free — transparent to
+        # the user, part of Fill).
         email = settings.crossref_email or settings.unpaywall_email or None
         addr_stats = await _complete_addresses_pass(ctx, df, email, lo=0.9, hi=0.97)
     except asyncio.CancelledError:
         cancelled = True
     finally:
-        _mirror_wc_sc(df)  # API tek alanı doldurduysa WC/SC eşitle
-        # Atomik yaz — iptal/kesinti anında ya da eşzamanlı poll okumasında
-        # aktif dataset asla yarım kalmasın (bkz. dataset_io.atomic_write_dataset)
-        # Aktif path'i yeniden çöz — uzun süren job boyunca migration .xlsx'ten
-        # .parquet'e geçmiş olabilir; eski src'ye yazmak zombi dosya üretir.
+        _mirror_wc_sc(df)  # if the API filled only one of the fields, equalize WC/SC
+        # Write atomically — so the active dataset is never left half-written on
+        # cancellation/interruption or during a concurrent poll read
+        # (see dataset_io.atomic_write_dataset)
+        # Re-resolve the active path — during a long-running job the migration may have
+        # moved from .xlsx to .parquet; writing to the old src creates a zombie file.
         dst = await asyncio.to_thread(_active_path, project_id) or src
         await asyncio.to_thread(dataset_io.atomic_write_dataset, df, dst)
         filter_engine._DF_CACHE.clear()
@@ -226,7 +229,7 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     if cancelled:
         raise asyncio.CancelledError()
 
-    # Doluluk: işlem SONRASI oranlar + alan-bazlı öncesi/sonrası
+    # Fill rate: rates AFTER processing + per-field before/after
     after = {c: _fill_rate(df[c]) for c in track}
     per_field_fill = {c: {"before": round(before[c], 4), "after": round(after[c], 4)} for c in track}
     overall_before = round(sum(before.values()) / len(before), 4) if before else 0.0
@@ -240,8 +243,8 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
     return {
         "method": "fill_all",
-        # Hangi analize ait olduğu — rapor yalnız AKTİF analizde gösterilsin diye
-        # (yeni bir merge eski enrichment raporunu taşımamalı).
+        # Which analysis it belongs to — so the report is shown only in the ACTIVE analysis
+        # (a new merge must not carry over the old enrichment report).
         "analysis_id": analyses.get_active_analysis_id(project_id),
         "total": int(len(df)),
         "enriched": int(api_stats["enriched"]),
@@ -257,13 +260,15 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
 async def _complete_addresses_pass(ctx: JobContext, df: pd.DataFrame, email: str | None,
                                    lo: float = 0.95, hi: float = 0.99) -> dict[str, int]:
-    """Adres tamamlama PASS'i (YALNIZ API, LLM YOK): kurumu olan ama ÜLKESİ eksik C1
-    adreslerine OpenAlex country_code'undan ülkeyi DETERMİNİSTİK ekler.
+    """Address completion PASS (API ONLY, NO LLM): DETERMINISTICALLY adds the country, taken
+    from the OpenAlex country_code, to C1 addresses that have an institution but a MISSING
+    COUNTRY.
 
-    df YERİNDE güncellenir (kendi snapshot/yazımı YOK — run_fill_all halleder). Var
-    olan ülke EZİLMEZ, kurum/şehir korunur. Ayrım: parse_c1_address.country None ise
-    adres ülkesizdir → ekle; doluysa (örn. 'India') atla. Ülke kaynağı: kurum adı
-    OpenAlex kurumuyla eşleşirse o ülke, yoksa tek-ülke makalesinde o ülke."""
+    df is updated IN PLACE (NO snapshot/write of its own — run_fill_all handles that). An
+    existing country is NOT OVERWRITTEN; institution/city are preserved. Distinction: if
+    parse_c1_address.country is None the address has no country → add it; if it is filled
+    (e.g. 'India') skip it. Country source: if the institution name matches an OpenAlex
+    institution, that country; otherwise, for a single-country paper, that country."""
     from bibex_core.modules.c1_utils import split_c1_addresses, parse_c1_address, append_country_to_c1
     from services.disambiguation.orcid import fetch_affiliations_for_doi
     from services.disambiguation.similarity import normalize_name
@@ -282,7 +287,8 @@ async def _complete_addresses_pass(ctx: JobContext, df: pd.DataFrame, email: str
         doi = df.at[idx, "DI"]
         if doi is None or not str(doi).strip() or str(doi).strip().lower() == "nan":
             continue
-        # Ülkesi eksik adres(ler): parse_c1_address.country None olanlar (son bileşen ülke değil).
+        # Address(es) with a missing country: those where parse_c1_address.country is None
+        # (the last component is not a country).
         tokens: list[str] = []
         for addr in split_c1_addresses(df.at[idx, main_col]):
             if parse_c1_address(addr)["country"] is None:
@@ -327,18 +333,18 @@ async def _complete_addresses_pass(ctx: JobContext, df: pd.DataFrame, email: str
     return {"rows": rows_changed, "addr": addr_filled, "dois": len(seen_doi)}
 
 
-# ── Geriye uyumluluk: ayrı API endpoint'i (UI artık run_fill_all kullanır; ML yoktur) ──
+# ── Backward compatibility: standalone API endpoint (the UI now uses run_fill_all; there is no ML) ──
 
 async def run_api_enrichment(ctx: JobContext, project_id: str, sources: list[str] | None = None) -> dict[str, Any]:
-    """Yalnız API geçişi — aktif dataset'e yazar."""
+    """API pass only — writes to the active dataset."""
     src = await asyncio.to_thread(_active_path, project_id)
     df = await asyncio.to_thread(dataset_io.read_dataset, src)
     ctx.log(f"Loaded: {len(df)} records")
     snap = _snapshot(project_id, df, "api")
     ctx.progress(0.05)
     stats = await _api_pass(ctx, df, lo=0.05, hi=0.95)
-    # Aktif path'i yeniden çöz — job boyunca migration .xlsx'ten .parquet'e
-    # geçmiş olabilir; eski src'ye yazmak zombi dosya üretir.
+    # Re-resolve the active path — during the job the migration may have moved from
+    # .xlsx to .parquet; writing to the old src creates a zombie file.
     dst = await asyncio.to_thread(_active_path, project_id) or src
     await asyncio.to_thread(dataset_io.atomic_write_dataset, df, dst)
     filter_engine._DF_CACHE.clear()

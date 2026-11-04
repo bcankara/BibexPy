@@ -16,17 +16,17 @@ from typing import Any
 from services import audit, storage
 
 # ─────────────────────────────────────────────────────────────────────────
-#  Metin temizleme
+#  Text cleaning
 # ─────────────────────────────────────────────────────────────────────────
 
-# Emoji + dingbat + ok işareti aralıkları (reportlab varsayılan fontu render edemez)
+# Emoji + dingbat + arrow ranges (reportlab's default font cannot render them)
 _EMOJI = re.compile(
     "["
-    "\U0001F000-\U0001FAFF"   # emoji blokları
-    "\U00002600-\U000027BF"   # misc semboller + dingbatlar
-    "\U0001F1E6-\U0001F1FF"   # bayraklar
-    "\U00002190-\U000021FF"   # oklar (→ ↩ vb.)
-    "\U00002B00-\U00002BFF"   # misc oklar/semboller
+    "\U0001F000-\U0001FAFF"   # emoji blocks
+    "\U00002600-\U000027BF"   # misc symbols + dingbats
+    "\U0001F1E6-\U0001F1FF"   # flags
+    "\U00002190-\U000021FF"   # arrows (→ ↩ etc.)
+    "\U00002B00-\U00002BFF"   # misc arrows/symbols
     "️"                  # variation selector
     "]+",
     flags=re.UNICODE,
@@ -38,10 +38,10 @@ def _strip_emoji(s: str) -> str:
 
 
 def _esc_inline(s: str) -> str:
-    """reportlab Paragraph mini-HTML için güvenli kaçış + sınırlı markdown.
+    """Safe escaping + limited markdown for reportlab Paragraph mini-HTML.
 
-    Önce XML özel karakterleri kaçırılır, ardından **kalın** ve `kod` işaretleri
-    kontrollü etiketlere çevrilir.
+    XML special characters are escaped first, then **bold** and `code` markers
+    are converted into controlled tags.
     """
     s = _strip_emoji(s)
     s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -51,14 +51,14 @@ def _esc_inline(s: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-#  PDF üretimi (markdown-benzeri metin → PDF)
+#  PDF generation (markdown-like text → PDF)
 # ─────────────────────────────────────────────────────────────────────────
 
 def render_pdf(title: str, md_text: str) -> bytes:
-    """Başlık + markdown-benzeri gövdeyi temiz bir PDF'e dönüştürür.
+    """Convert a title + markdown-like body into a clean PDF.
 
-    Desteklenen: # / ## / ### başlık, - / * madde, | a | b | tablo,
-    **kalın**, `kod`, boş satır = boşluk. Emoji'ler atılır.
+    Supported: # / ## / ### headings, - / * bullets, | a | b | tables,
+    **bold**, `code`, blank line = spacing. Emojis are dropped.
     """
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT
@@ -107,14 +107,14 @@ def render_pdf(title: str, md_text: str) -> bytes:
         raw = lines[i].rstrip()
         stripped = raw.strip()
 
-        # Tablo bloğu
+        # Table block
         if stripped.startswith("|"):
             flush_bullets()
             rows: list[list[str]] = []
             while i < n and lines[i].strip().startswith("|"):
                 cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
                 i += 1
-                # ayraç satırı ( |---|---| ) atla
+                # skip the separator row ( |---|---| )
                 if cells and all(set(c) <= set("-: ") for c in cells):
                     continue
                 rows.append(cells)
@@ -161,11 +161,11 @@ def render_pdf(title: str, md_text: str) -> bytes:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-#  Ham günlük → düz metin
+#  Raw log → plain text
 # ─────────────────────────────────────────────────────────────────────────
 
 def format_text_report(project_id: str) -> str:
-    """Operasyon günlüğünün temiz, markdown'sız, emojisiz düz metin sürümü."""
+    """Clean plain-text version of the operation log, without markdown or emoji."""
     meta = storage.get_project(project_id)
     entries = audit.read(project_id)
     name = meta.name if meta else project_id
@@ -216,10 +216,10 @@ def format_text_report(project_id: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-#  LLM metodoloji raporu için günlük digest'i
+#  Log digest for the LLM methodology report
 # ─────────────────────────────────────────────────────────────────────────
 
-# Günlük kind → İngilizce aksiyon etiketi (LLM'in İngilizce yazması için)
+# Log kind → English action label (so the LLM writes in English)
 _ACTION_EN = {
     "project_create": "Project created",
     "upload": "Source files uploaded",
@@ -244,7 +244,7 @@ _ACTION_EN = {
 
 
 def _clean_metrics(details: dict) -> dict:
-    """Digest için gürültüsüz metrik alt kümesi — sayılar + kısa değerler + küçük listeler."""
+    """Noise-free subset of metrics for the digest — numbers + short values + small lists."""
     out: dict[str, Any] = {}
     for k, v in (details or {}).items():
         if v is None or v == "":
@@ -266,16 +266,16 @@ def _clean_metrics(details: dict) -> dict:
 
 
 def build_log_digest(project_id: str) -> dict:
-    """LLM'e gönderilecek temiz, İngilizce-aksiyonlu kronolojik digest."""
+    """Clean chronological digest, with English actions, to be sent to the LLM."""
     meta = storage.get_project(project_id)
     entries = audit.read(project_id)
     steps: list[dict] = []
     for e in entries:
         kind = e.get("kind", "")
-        # job runner her job için completed/failed kaydı yazar; sadece anlamlı olanları al
+        # the job runner writes a completed/failed record for every job; keep only the meaningful ones
         ua = e.get("user_action") or ""
         if ua.startswith("job_") and ua != "job_completed":
-            continue  # failed/cancelled/queued/running ara kayıtları atla
+            continue  # skip the intermediate failed/cancelled/queued/running records
         ts = e.get("ts")
         steps.append({
             "ts": dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else None,
@@ -283,7 +283,7 @@ def build_log_digest(project_id: str) -> dict:
             "action": _ACTION_EN.get(kind, kind.replace("_", " ")),
             "metrics": _clean_metrics(e.get("details") or {}),
         })
-    # Toplam kayıt sayısı (varsa) — bağlam için
+    # Total record count (if available) — for context
     total_records = None
     try:
         from services import filter_engine

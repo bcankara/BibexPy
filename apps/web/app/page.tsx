@@ -52,12 +52,12 @@ export default function Home() {
 
   return (
     <div className="relative flex min-h-[100svh] w-full flex-col justify-center overflow-hidden bg-[#f7f9fc] text-ink">
-      {/* Atmosfer — ince grid + cyan hale (radial mask ile merkeze odaklı) */}
+      {/* Atmosphere — thin grid + cyan halo (focused on the centre via a radial mask) */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,#dbe3ee_1px,transparent_1px),linear-gradient(to_bottom,#dbe3ee_1px,transparent_1px)] [background-size:42px_42px] [mask-image:radial-gradient(ellipse_at_center,black_25%,transparent_72%)]" />
       <div className="pointer-events-none absolute left-1/2 top-10 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-300/25 blur-3xl" />
 
-      {/* Helium — v2 kod adı; arka plana köşelere/yanlara serpiştirilmiş ÇOK soluk
-          "Helium"/"He" filigranları (merkezde değil, dikkat dağıtmaz). */}
+      {/* Helium — v2 codename; VERY faint "Helium"/"He" watermarks scattered over the
+          background at the corners/sides (not in the centre, so they do not distract). */}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-0 select-none overflow-hidden">
         <span className="absolute left-[3%] top-[10%] -rotate-12 text-7xl font-black text-violet-900/[0.045]">Helium</span>
         <span className="absolute right-[4%] top-[18%] rotate-6 text-8xl font-black text-violet-900/[0.04]">He</span>
@@ -67,7 +67,7 @@ export default function Home() {
         <span className="absolute right-[24%] bottom-[3%] text-5xl font-black text-violet-900/[0.035]">Helium</span>
       </div>
 
-      {/* Dil seçici — sayfanın sağ üst köşesine yedirilmiş kompakt bayrak toggle (ayrı header yok) */}
+      {/* Language selector — compact flag toggle tucked into the top-right corner of the page (no separate header) */}
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/85 p-1 shadow-[0_8px_24px_-16px_rgba(15,23,42,0.5)] backdrop-blur">
           {(["en", "tr"] as Locale[]).map((l) => (
@@ -110,8 +110,8 @@ function Launcher() {
 
   return (
     <section className="flex flex-col items-center text-center">
-      {/* Tam marka lockup'ı tek görselde — atom + BIBEXPY + "V2.0.0 Helium"
-          rozeti + slogan (kaynak 3120×900, küçültünce keskin). */}
+      {/* Full brand lockup in a single image — atom + BIBEXPY + "V2.0.0 Helium"
+          badge + slogan (source 3120×900, stays sharp when scaled down). */}
       <img
         src="/images/bibexpy-logo-full.png"
         alt="BibexPy — V2.0.0 Helium — Bibliometrics Experience with Python"
@@ -123,7 +123,7 @@ function Launcher() {
         {t("home.heroTitle")}
       </h1>
 
-      {/* Ortada kare menü */}
+      {/* Square menu in the centre */}
       <nav className="mt-7 grid w-full max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
         {menu.map((m) => (
           <MenuTile key={m.label} {...m} />
@@ -193,7 +193,7 @@ function CitationAndAuthors({ authors }: { authors: string[] }) {
     <section className="relative z-10 mt-8">
       <div className="overflow-hidden rounded-[1.7rem] bg-white shadow-[0_44px_120px_-60px_rgba(12,40,71,0.5)] ring-1 ring-slate-900/10">
         <div className="grid lg:grid-cols-[1.55fr_1fr]">
-          {/* Yazarlar — beyaz panel */}
+          {/* Authors — white panel */}
           <div className="p-5 md:p-6">
             <div className="mb-4 inline-flex h-7 items-center gap-1.5 rounded-full bg-cyan-50 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-cyan-700 ring-1 ring-cyan-200/70">
               <Sparkles className="h-3.5 w-3.5" /> {t("home.authorsTitle")}
@@ -206,7 +206,7 @@ function CitationAndAuthors({ authors }: { authors: string[] }) {
             </div>
           </div>
 
-          {/* Cite + bağlantılar — koyu panel (#0c2847), markaya yedirilmiş */}
+          {/* Cite + links — dark panel (#0c2847), blended into the brand */}
           <div className="relative flex flex-col overflow-hidden bg-[#0c2847] p-5 text-white md:p-6">
             <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-cyan-500/25 blur-3xl" />
             <div className="pointer-events-none absolute inset-0 opacity-[0.22] [background-image:linear-gradient(to_right,#202a4a_1px,transparent_1px),linear-gradient(to_bottom,#202a4a_1px,transparent_1px)] [background-size:28px_28px]" />
@@ -239,7 +239,7 @@ function CitationAndAuthors({ authors }: { authors: string[] }) {
                 </button>
               </div>
 
-              {/* Önemli adresler — cite altındaki boşluğu dolduran sosyal/link şeridi */}
+              {/* Important links — social/link strip that fills the gap below the cite block */}
               <div className="mt-auto pt-4">
                 <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
                   {SOCIAL.map((s) => (

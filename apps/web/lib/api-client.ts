@@ -1,18 +1,18 @@
 /**
- * API base URL — RUNTIME origin tespiti (build-time env'e bağlı DEĞİL).
+ * API base URL — RUNTIME origin detection (NOT dependent on a build-time env).
  *
- * Neden runtime: static export tek bir build'den üretilir ama iki farklı
- * senaryoda çalışır — (1) `npm run dev` ayrı backend (port 8001), (2) `bibexpy`
- * paketi backend ile AYNI origin'de (herhangi bir port). Build-time
- * NEXT_PUBLIC_API_BASE kullanmak, .env.local'daki dev adresinin (localhost:8001)
- * pakete gömülüp "Failed to fetch" hatasına yol açmasına neden oluyordu.
+ * Why runtime: the static export is produced from a single build but runs in two
+ * different scenarios — (1) `npm run dev` with a separate backend (port 8001), (2) the
+ * `bibexpy` package on the SAME origin as the backend (any port). Using a build-time
+ * NEXT_PUBLIC_API_BASE caused the dev address in .env.local (localhost:8001) to be
+ * baked into the package and lead to a "Failed to fetch" error.
  *
- * Kural:
- *   • Next dev server portu (3000–3009) → ayrı backend http://<host>:8001/api
- *   • Diğer her durum (paket modu, herhangi bir port) → aynı origin "/api"
- *   • SSR/prerender (window yok) → "/api" (fetch'ler zaten client-side)
+ * Rule:
+ *   • Next dev server port (3000–3009) → separate backend http://<host>:8001/api
+ *   • Every other case (package mode, any port) → same origin "/api"
+ *   • SSR/prerender (no window) → "/api" (fetches are client-side anyway)
  *
- * Backend tüm router'ları `/api/...` altında mount eder.
+ * The backend mounts all routers under `/api/...`.
  */
 function resolveApiBase(): string {
   if (typeof window !== "undefined") {
@@ -28,24 +28,24 @@ function resolveApiBase(): string {
 export const BASE = resolveApiBase();
 
 /**
- * API origin (BASE'den `/api` çıkarılmış hali) ve Swagger docs URL'i — aynı
- * runtime mantığı. Paket modunda relative ("" / "/docs"), dev'de mutlak
- * (http://host:8001/docs). AppShell "API" linki bunu kullanır.
+ * API origin (BASE with `/api` stripped) and the Swagger docs URL — same
+ * runtime logic. Relative in package mode ("" / "/docs"), absolute in dev
+ * (http://host:8001/docs). The AppShell "API" link uses this.
  */
 export const API_ORIGIN = BASE.replace(/\/api$/, "");
 export const DOCS_URL = `${API_ORIGIN}/docs`;
 
 /**
- * API hatasını aktif locale'e göre çevirir.
+ * Translates an API error according to the active locale.
  *
- * Backend (FastAPI) HTTPException `detail`'i artık snake_case bir KOD döndürür
- * ("project_not_found") veya dinamik bilgi için "kod: ek-bilgi" formatında
- * ("file_read_failed: <python error>"). `http()` bunu Error.message'a
- * `"<status>: <detail>"` olarak koyar.
+ * The backend (FastAPI) HTTPException `detail` now returns a snake_case CODE
+ * ("project_not_found") or, for dynamic information, the "code: extra-info" format
+ * ("file_read_failed: <python error>"). `http()` puts this into Error.message as
+ * `"<status>: <detail>"`.
  *
- * Bilinen kod → `t("errors.<code>")` (+ varsa ek-bilgi). Bilinmeyen/ağ hatası
- * → ham metin veya `errors.generic`. Tüm catch bloklarında `e.message` yerine
- * bunu kullanın ki TR/EN tutarlı olsun.
+ * Known code → `t("errors.<code>")` (+ the extra info, if any). Unknown/network error
+ * → the raw text or `errors.generic`. Use this instead of `e.message` in all catch
+ * blocks so that TR/EN stays consistent.
  */
 export function translateApiError(
   t: (k: string, v?: Record<string, string | number>) => string,
@@ -67,10 +67,10 @@ export function translateApiError(
 }
 
 /**
- * Audit/Job başlığını locale'e göre çevirir. Backend `title_key` (+ `title_params`)
- * gönderirse `t(key, params)` ile çevrilir; yoksa okunabilir `title` fallback'i
- * gösterilir (legacy kayıtlar + markdown rapor için). AuditLogPanel, Report ve
- * JobProgress bunu kullanır.
+ * Translates an Audit/Job title according to the locale. If the backend sends `title_key`
+ * (+ `title_params`), it is translated with `t(key, params)`; otherwise the readable
+ * `title` fallback is shown (for legacy records + the markdown report). AuditLogPanel,
+ * Report and JobProgress use this.
  */
 export function translateTitle(
   t: (k: string, v?: Record<string, string | number>) => string,
@@ -82,20 +82,20 @@ export function translateTitle(
     details?: Record<string, unknown> | null;
   },
 ): string {
-  // 1) Backend açıkça title_key gönderdiyse (yeni kayıtlar) onu kullan.
+  // 1) If the backend explicitly sent a title_key (new records), use it.
   if (obj.title_key) {
     const v = t(obj.title_key, obj.title_params ?? undefined);
     if (v !== obj.title_key) return v;
   }
-  // 2) title_key yoksa (fix öncesi eski kayıtlar) kind + details'ten yeniden kur →
-  //    böylece eski geçmiş de seçilen dilde görünür (statik TR'de takılı kalmaz).
+  // 2) If there is no title_key (old records from before the fix), rebuild from kind + details →
+  //    so the old history also appears in the selected language (it does not get stuck in static TR).
   const derived = deriveAuditTitle(t, obj.kind, obj.details ?? undefined);
   if (derived != null) return derived;
-  // 3) Son çare: kaydedilmiş okunabilir metin.
+  // 3) Last resort: the stored readable text.
   return obj.title;
 }
 
-/** Eski (title_key'siz) audit kayıtlarını kind + details'ten locale'e göre kurar. */
+/** Rebuilds old (title_key-less) audit records from kind + details according to the locale. */
 function deriveAuditTitle(
   t: (k: string, v?: Record<string, string | number>) => string,
   kind?: string,
@@ -164,7 +164,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Sunucu sağlığı + aktif sürüm (footer'da "hangi sürüm çalışıyor" göstermek için).
+  // Server health + active version (to show "which version is running" in the footer).
   health: () =>
     http<{
       status: string;
@@ -212,7 +212,7 @@ export const api = {
   downloadUrl: (id: string, filename: string) =>
     `${BASE}/projects/${id}/convert/download/${encodeURIComponent(filename)}`,
 
-  // Merge — tek algoritma Smart Merge (method gönderilmez; backend yok sayar)
+  // Merge — a single algorithm, Smart Merge (method is not sent; the backend ignores it)
   startMerge: (id: string) =>
     http<{ job_id: string }>(`/projects/${id}/merge`, {
       method: "POST", body: JSON.stringify({}),
@@ -229,7 +229,7 @@ export const api = {
   mergeSummary: (id: string) =>
     http<MergeSummary>(`/projects/${id}/merge/summary`),
 
-  // Analizler — her birleştirme bağımsız klasör
+  // Analyses — each merge has its own independent folder
   listAnalyses: (id: string) =>
     http<AnalysesListResponse>(`/projects/${id}/merge/analyses`),
   activateAnalysis: (id: string, analysisId: string) =>
@@ -259,8 +259,8 @@ export const api = {
     http<FilterResponse>(`/projects/${id}/filter`, {
       method: "POST", body: JSON.stringify(body), signal,
     }),
-  // Filtreyi veri setine KALICI uygula — eşleşmeyenler çıkarılır (snapshot alınır),
-  // sonraki adımlar (Harmonizasyon/Export) filtrelenmiş veriyle çalışır.
+  // Apply the filter to the dataset PERMANENTLY — non-matching records are removed (a snapshot is taken),
+  // subsequent steps (Harmonization/Export) work with the filtered data.
   applyFilter: (id: string, spec: FilterSpec) =>
     http<{ applied: boolean; kept: number; removed: number; total_before: number; snapshot: string | null }>(
       `/projects/${id}/filter/apply`,
@@ -291,7 +291,7 @@ export const api = {
       source_formats: { id: string; label: string; extensions: string[] }[];
       target_formats: { id: string; label: string; extension: string }[];
     }>(`/tools/formats`),
-  /** Tek dosya yükle, hedef formata dönüştür ve indirme blob'u döndür. */
+  /** Upload a single file, convert it to the target format and return a download blob. */
   toolsConvert: async (file: File, source_format: string, target_format: string, output_name?: string, signal?: AbortSignal) => {
     const fd = new FormData();
     fd.append("file", file, file.name);
@@ -305,7 +305,7 @@ export const api = {
       throw new Error(`${res.status}: ${detail}`);
     }
     const blob = await res.blob();
-    // Filename'i Content-Disposition'dan çek
+    // Extract the filename from Content-Disposition
     const cd = res.headers.get("content-disposition") || "";
     const m = cd.match(/filename="?([^";]+)"?/);
     const filename = m ? m[1] : `converted_${Date.now()}`;
@@ -330,7 +330,7 @@ export const api = {
       method: "DELETE",
     }),
 
-  // Export folder (lokal disk)
+  // Export folder (local disk)
   suggestFolders: (id: string) => http<FolderSuggest>(`/projects/${id}/export-folder/suggest`),
   copyToFolder: (id: string, files: string[], target_folder: string) =>
     http<CopyReport>(`/projects/${id}/export-folder`, {
@@ -342,7 +342,7 @@ export const api = {
     http<{ job_id: string }>(`/projects/${id}/enrich/api`, {
       method: "POST", body: JSON.stringify({}),
     }),
-  // Birleşik doldurma — DOI başına tek API çağrısı, tüm boş alanlar (yalnız API; ML yoktur).
+  // Unified fill — one API call per DOI, all empty fields (API only; no ML).
   startFillAll: (id: string) =>
     http<{ job_id: string }>(`/projects/${id}/enrich/fill-all`, { method: "POST" }),
 
@@ -382,7 +382,7 @@ export const api = {
 
   // Quality / Charts
   qualityStats: (id: string) => http<QualityStats>(`/projects/${id}/quality/stats`),
-  // Genel Bakış tablosu indirme URL'i (CSV/XLSX) — doğrudan <a href> / fetch ile kullanılır.
+  // Overview table download URL (CSV/XLSX) — used directly with <a href> / fetch.
   qualityOverviewUrl: (id: string, fmt: "csv" | "xlsx") => `${BASE}/projects/${id}/quality/overview?fmt=${fmt}`,
   lastFillReport: (id: string) => http<{ report: FillReport | null }>(`/projects/${id}/quality/last-fill-report`),
   qualityCharts: (id: string) => http<QualityCharts>(`/projects/${id}/quality/charts`),
@@ -415,10 +415,10 @@ export const api = {
     http<void>(`/projects/${id}/audit`, { method: "DELETE" }),
   auditReportUrl: (id: string) => `${BASE}/projects/${id}/audit/report.md`,
 
-  // Rapor (Export sonrası son adım) — ham günlük + LLM metodoloji raporu
+  // Report (final step after Export) — raw log + LLM methodology report
   reportLogUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/log.${fmt}`,
-  // Audit log'dan türetilen veri akışı (Report sayfası şema çizer)
+  // Data flow derived from the audit log (the Report page draws a diagram)
   reportFlow: (id: string) => http<ReportFlow>(`/projects/${id}/report/flow`),
   methodologyUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
     `${BASE}/projects/${id}/report/methodology.${fmt}`,
@@ -427,7 +427,7 @@ export const api = {
   generateMethodology: (id: string) =>
     http<MethodologyReport>(`/projects/${id}/report/methodology`, { method: "POST" }),
 
-  // Ayarlar
+  // Settings
   getSettings: () => http<SettingsResponse>("/settings"),
   updateSettings: (updates: Record<string, string | number | boolean>) =>
     http<SettingsResponse>("/settings", { method: "PUT", body: JSON.stringify({ updates }) }),
@@ -436,11 +436,11 @@ export const api = {
       method: "POST", body: JSON.stringify({ path, create_if_missing }),
     }),
 
-  // Sistem dizin gezgini
+  // System directory browser
   browseFolder: (path = "") =>
     http<BrowseResponse>(`/system/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`),
-  // Sunucu tarafında bilinen bir klasörü OS dosya yöneticisinde aç (self-hosted:
-  // sunucu + tarayıcı aynı makine). Yol istemciden gönderilmez, sunucu çözer.
+  // Open a folder known on the server side in the OS file manager (self-hosted:
+  // server + browser on the same machine). The path is not sent from the client; the server resolves it.
   openFolder: (target: "storage" | "project", projectId?: string) =>
     http<{ opened: boolean; path: string }>("/system/open-folder", {
       method: "POST", body: JSON.stringify({ target, project_id: projectId ?? null }),
@@ -532,9 +532,9 @@ export type SettingsResponse = {
   env_file: string;
   notes: string[];
   llm_providers: LLMProviderPreset[];
-  /** Sunucunun ŞU AN kullandığı depolama klasörü. */
+  /** The storage folder the server is using RIGHT NOW. */
   active_storage?: string;
-  /** .env'deki STORAGE_DIR aktif olandan farklı — yeniden başlatma bekliyor. */
+  /** STORAGE_DIR in .env differs from the active one — pending a restart. */
   storage_pending_restart?: boolean;
 };
 
@@ -556,7 +556,7 @@ export type QualityStats = {
   db_distribution: Record<string, number>;
 };
 
-/** Son 'Fill all' işleminin kalıcı özeti (audit'ten). */
+/** Persistent summary of the last 'Fill all' operation (from the audit). */
 export type FillReport = {
   ts?: number;
   enriched?: number;
@@ -599,7 +599,7 @@ export type MergeFile = {
 
 export type MergeSummary = {
   has_merge: boolean;
-  /** Ham veriler aktif merge'den sonra değişti mi (yeni dosya eklendi → yeniden merge gerekir). */
+  /** Whether the raw data changed after the active merge (a new file was added → a re-merge is needed). */
   stale?: boolean;
   method?: "simple" | "enhanced" | "smart" | null;
   analysis?: {
@@ -624,7 +624,7 @@ export type MergeSummary = {
   files?: MergeFile[];
   lost_wos_count?: number;
   lost_scopus_count?: number;
-  // Smart-özel alanlar
+  // Smart-specific fields
   match_stages?: Record<string, number>;
   conflict_count?: number;
   field_source_distribution?: Record<string, number>;
@@ -738,20 +738,20 @@ export type Cluster = {
   reason: string;
   canonical_name?: string;
   country?: string;
-  tier?: number;          // 1 = deterministik (otomatik), 2 = LLM
+  tier?: number;          // 1 = deterministic (automatic), 2 = LLM
   source?: string;        // "deterministic" | "llm"
 };
 
 export type SplitGroup = {
   records: number[];
   fields: string[];
-  suffix: string;         // "" = en büyük grup (düz kalır); "(b)" "(c)" ...
+  suffix: string;         // "" = the largest group (stays plain); "(b)" "(c)" ...
 };
 export type AuthorSplit = {
   split_id: string;
-  name: string;           // orijinal yazılış (örn. "Mehmet A")
+  name: string;           // original spelling (e.g. "Mehmet A")
   norm?: string;
-  tier: number;           // 1 = net (alan-ayrık), 2 = sınırda (AI)
+  tier: number;           // 1 = clear-cut (field-disjoint), 2 = borderline (AI)
   source?: string;        // "deterministic" | "llm" | "manual"
   decision?: string;      // "split" | "keep" | "review"
   confidence?: number | null;

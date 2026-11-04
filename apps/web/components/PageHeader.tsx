@@ -9,10 +9,10 @@ type Props = {
   className?: string;
 };
 
-// Badge tonları — koyu navy banner (PageHeader brand-gradient) üzerinde:
-//   neutral = beyaz şeffaf (genel)
-//   live    = emerald (canlı/aktif durum, semantic)
-//   info    = cyan (bilgi — V2 marka rengi ile uyumlu)
+// Badge tones — on the dark navy banner (PageHeader brand-gradient):
+//   neutral = translucent white (general)
+//   live    = emerald (live/active state, semantic)
+//   info    = cyan (information — consistent with the V2 brand color)
 const BADGE_TONES: Record<string, string> = {
   neutral: "bg-white/15 text-white border-white/20",
   live: "bg-emerald-400/20 text-emerald-50 border-emerald-300/40",
@@ -22,8 +22,8 @@ const BADGE_TONES: Record<string, string> = {
 export function PageHeader({ title, subtitle, badges, right, className }: Props) {
   return (
     <>
-      {/* İç sayfaların üst bandı — düz dark zemin (#081c32). Hemen altında
-          pipeline (ProjectNav) gelir; ProjectNav proje-dışı sayfalarda null döner. */}
+      {/* Top band of the inner pages — flat dark background (#081c32). The pipeline
+          (ProjectNav) comes right below it; ProjectNav returns null on non-project pages. */}
       <section className={cn("bg-[#081c32] text-white", className)}>
       <div className="max-w-6xl mx-auto px-6 py-8">
         {badges && badges.length > 0 && (

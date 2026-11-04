@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { useProjectId } from "@/lib/use-project-id";
 
 /**
- * Eski "Hazırlık" (/upload) adımı, "Veri & Birleştirme" (/merge) içinde birleşti
- * (yükleme + Smart Merge tek adım; ayrı Prepare yok). Bu rota geriye uyumluluk +
- * eski yer imleri için /merge'e yönlendirir. Statik export'ta rota korunur diye
- * dosya silinmez, yönlendiren bir stub bırakılır.
+ * The old "Preparation" (/upload) step has been merged into "Data & Merge"
+ * (/merge) (upload + Smart Merge are a single step; there is no separate
+ * Prepare). This route redirects to /merge for backward compatibility and for
+ * old bookmarks. Since the route is kept in the static export, the file is
+ * not deleted; a redirecting stub is left in its place.
  */
 export default function UploadRedirect() {
   const id = useProjectId();

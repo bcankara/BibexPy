@@ -22,7 +22,7 @@ from services.disambiguation.deepseek_client import (
 )
 
 
-# Üretilen metinde her zaman bulunması gereken BibexPy künyesi (APA7, kullanıcı zorunlu kıldı).
+# The BibexPy citation that must always appear in the generated text (APA7, mandated by the user).
 BIBEXPY_CITATION = (
     "Kara, B. C., Şahin, A., & Dirsehan, T. (2025). BibexPy: Harmonizing the "
     "bibliometric symphony of Scopus and Web of Science. SoftwareX, 30, 102098. "
@@ -31,7 +31,7 @@ BIBEXPY_CITATION = (
 
 
 def _ensure_citation(text: str) -> str:
-    """LLM atfı eklemediyse deterministik olarak ekle (çift eklemeyi önle)."""
+    """Add the citation deterministically if the LLM did not include it (avoid adding it twice)."""
     low = text.lower()
     if "softx" in low or "dirsehan" in low or "102098" in low:
         return text
@@ -54,7 +54,7 @@ def _client() -> DeepSeekClient:
 
 
 def get_methodology(project_id: str) -> Optional[dict[str, Any]]:
-    """Saklanan metodoloji raporunu döndür (yoksa None)."""
+    """Return the stored methodology report (None if there is none)."""
     p = _report_path(project_id)
     if not p.exists():
         return None
@@ -65,12 +65,12 @@ def get_methodology(project_id: str) -> Optional[dict[str, Any]]:
 
 
 def generate_methodology(project_id: str) -> dict[str, Any]:
-    """Günlükten LLM ile İngilizce metodoloji raporu üret, sakla ve döndür."""
+    """Generate an English methodology report from the log using an LLM, store it and return it."""
     digest = report_export.build_log_digest(project_id)
     if not digest.get("steps"):
         raise HTTPException(400, "no_operations")
 
-    client = _client()  # anahtar yoksa burada llm_key_missing fırlatır
+    client = _client()  # raises llm_key_missing here if there is no key
     try:
         text = client.chat_text(
             METHODOLOGY_SYSTEM_PROMPT,

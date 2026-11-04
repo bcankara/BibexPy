@@ -4,20 +4,20 @@
   BibexPy v2 — pip wheel build (Windows).
 
 .DESCRIPTION
-  Üç parçayı python_pkg/src altına kopyalar ve tek bir self-contained wheel üretir:
+  Copies three parts under python_pkg/src and produces a single self-contained wheel:
     • apps/web/out/        → src/bibexpy/_web/      (Next.js static export)
-    • apps/api/{...}       → src/bibexpy/_server/   (FastAPI uygulaması)
-    • packages/bibex_core/ → src/bibex_core/        (çekirdek modüller)
+    • apps/api/{...}       → src/bibexpy/_server/   (FastAPI application)
+    • packages/bibex_core/ → src/bibex_core/        (core modules)
 
-  Kaynak gerçeği apps/ ve packages/ içinde kalır; buradaki kopyalar gitignore'lu
-  build artıklarıdır. Çıktı: python_pkg/dist/bibexpy-*.whl
+  The source of truth stays in apps/ and packages/; the copies here are
+  gitignored build artifacts. Output: python_pkg/dist/bibexpy-*.whl
 
 .EXAMPLE
   pwsh scripts/build_wheel.ps1
 #>
 $ErrorActionPreference = "Stop"
 
-# --- Yollar (script scripts/ altında; repo kökü bir üst dizin) ---
+# --- Paths (the script lives under scripts/; the repo root is one directory up) ---
 $Root       = Split-Path -Parent $PSScriptRoot
 $Web        = Join-Path $Root "apps\web"
 $Api        = Join-Path $Root "apps\api"
@@ -31,8 +31,8 @@ $DestCore   = Join-Path $Src  "bibex_core"
 function Invoke-Robocopy($from, $to, [string[]]$extra) {
     $base = @($from, $to, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP", "/XD", "__pycache__", "/XF", "*.pyc", "*.pyo")
     robocopy @base @extra | Out-Null
-    # robocopy: 0-7 başarı, >=8 hata
-    if ($LASTEXITCODE -ge 8) { throw "robocopy hata ($LASTEXITCODE): $from -> $to" }
+    # robocopy: 0-7 success, >=8 error
+    if ($LASTEXITCODE -ge 8) { throw "robocopy error ($LASTEXITCODE): $from -> $to" }
     $global:LASTEXITCODE = 0
 }
 
@@ -40,44 +40,44 @@ Write-Host "==> 1/6  Frontend static export (npm run build:static)" -ForegroundC
 Push-Location $Web
 try {
     if (-not (Test-Path "node_modules")) {
-        Write-Host "     node_modules yok — npm install" -ForegroundColor DarkGray
+        Write-Host "     node_modules missing — npm install" -ForegroundColor DarkGray
         npm install
-        if ($LASTEXITCODE -ne 0) { throw "npm install başarısız" }
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
     }
     npm run build:static
-    if ($LASTEXITCODE -ne 0) { throw "npm run build:static başarısız" }
+    if ($LASTEXITCODE -ne 0) { throw "npm run build:static failed" }
 } finally { Pop-Location }
 
 $Out = Join-Path $Web "out"
 if (-not (Test-Path (Join-Path $Out "index.html"))) {
-    throw "apps/web/out/index.html üretilmedi — static export başarısız olmuş olabilir"
+    throw "apps/web/out/index.html was not produced — the static export may have failed"
 }
 
-Write-Host "==> 2/6  Eski kopyaları temizle" -ForegroundColor Cyan
+Write-Host "==> 2/6  Clean old copies" -ForegroundColor Cyan
 foreach ($d in @($DestWeb, $DestServer, $DestCore)) {
     if (Test-Path $d) { Remove-Item -Recurse -Force $d }
 }
 
-Write-Host "==> 3/6  Frontend kopyala -> _web" -ForegroundColor Cyan
+Write-Host "==> 3/6  Copy frontend -> _web" -ForegroundColor Cyan
 Invoke-Robocopy $Out $DestWeb @()
 
-Write-Host "==> 4/6  Sunucu kopyala -> _server" -ForegroundColor Cyan
+Write-Host "==> 4/6  Copy server -> _server" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force $DestServer | Out-Null
 Copy-Item (Join-Path $Api "main.py")   $DestServer
 Copy-Item (Join-Path $Api "config.py") $DestServer
 foreach ($sub in @("routers", "services", "models", "jobs")) {
     Invoke-Robocopy (Join-Path $Api $sub) (Join-Path $DestServer $sub) @()
 }
-# _server'i Python alt-paketi yap — setuptools .py dosyalarini SADECE paket
-# olarak keşfederse wheel'e dahil eder (package-data ile .py guvenilir tasinmaz).
+# Make _server a Python sub-package — setuptools includes .py files in the wheel ONLY
+# if it discovers them as a package (.py files are not reliably carried via package-data).
 $initContent = @'
 """BibexPy gomulu FastAPI sunucusu (build-time kopya). Runtime sys.path e eklenir."""
 '@
 Set-Content -Path (Join-Path $DestServer "__init__.py") -Value $initContent -Encoding UTF8
 
-Write-Host "==> 5/6  bibex_core kopyala" -ForegroundColor Cyan
+Write-Host "==> 5/6  Copy bibex_core" -ForegroundColor Cyan
 Invoke-Robocopy $Core $DestCore @()
-# Vendored kopyada kendi pyproject'ine gerek yok (python_pkg/pyproject.toml kullanılır)
+# The vendored copy does not need its own pyproject (python_pkg/pyproject.toml is used)
 $nestedToml = Join-Path $DestCore "pyproject.toml"
 if (Test-Path $nestedToml) { Remove-Item -Force $nestedToml }
 
@@ -85,18 +85,19 @@ Write-Host "==> 6/6  Wheel build (python -m build)" -ForegroundColor Cyan
 Push-Location $Pkg
 try {
     python -m pip install --quiet --upgrade build
-    if ($LASTEXITCODE -ne 0) { throw "'build' paketi kurulamadı" }
+    if ($LASTEXITCODE -ne 0) { throw "could not install the 'build' package" }
     foreach ($d in @("dist", "build")) { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
     Get-ChildItem -Filter "*.egg-info" -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    # --wheel: sdist ara adımını atla. _server/_web build-time kopyaları git'te
-    # izlenmediğinden sdist'e girmez; wheel'i doğrudan kaynak ağacından kurmak hepsini dahil eder.
+    # --wheel: skip the intermediate sdist step. The _server/_web build-time copies are not
+    # tracked in git, so they do not make it into the sdist; building the wheel directly
+    # from the source tree includes them all.
     python -m build --wheel
-    if ($LASTEXITCODE -ne 0) { throw "python -m build başarısız" }
+    if ($LASTEXITCODE -ne 0) { throw "python -m build failed" }
 } finally { Pop-Location }
 
 Write-Host ""
-Write-Host "BASARILI. Uretilen paketler:" -ForegroundColor Green
+Write-Host "SUCCESS. Generated packages:" -ForegroundColor Green
 Get-ChildItem (Join-Path $Pkg "dist") | ForEach-Object { Write-Host "  $($_.FullName)" -ForegroundColor Green }
 Write-Host ""
-Write-Host "Kurulum testi:  pip install `"$(Join-Path $Pkg 'dist')\bibexpy-2.0.0-py3-none-any.whl`"" -ForegroundColor DarkGray
-Write-Host "Yayinlama:      python -m twine upload python_pkg/dist/*" -ForegroundColor DarkGray
+Write-Host "Install test:   pip install `"$(Join-Path $Pkg 'dist')\bibexpy-2.0.0-py3-none-any.whl`"" -ForegroundColor DarkGray
+Write-Host "Publishing:     python -m twine upload python_pkg/dist/*" -ForegroundColor DarkGray

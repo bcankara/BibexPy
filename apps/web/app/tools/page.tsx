@@ -68,7 +68,7 @@ const TARGET_OPTIONS: {
   },
 ];
 
-/** Yüklenen dosya uzantısından makul bir source format öner. */
+/** Suggest a reasonable source format from the uploaded file's extension. */
 function guessSource(filename: string): SourceId | null {
   const lower = filename.toLowerCase();
   const ext = lower.split(".").pop() || "";
@@ -76,7 +76,7 @@ function guessSource(filename: string): SourceId | null {
   if (ext === "tsv") return "tsv";
   if (ext === "txt" || ext === "isi") return "wos";
   if (ext === "csv") {
-    // Scopus CSV vs plain CSV — kesin söylenemez, kullanıcı seçsin. Default: scopus_csv.
+    // Scopus CSV vs plain CSV — cannot be determined reliably, let the user choose. Default: scopus_csv.
     return null;
   }
   return null;
@@ -114,7 +114,7 @@ export default function ToolsPage() {
     try {
       const r = await api.toolsConvert(file, source, target, outputName.trim() || undefined);
       setResult(r);
-      // Otomatik indirme tetikle
+      // Trigger the download automatically
       triggerDownload(r.blob, r.filename);
     } catch (e) {
       setError(translateApiError(t, e, "tools.errTitle"));
@@ -289,7 +289,7 @@ export default function ToolsPage() {
               </div>
             </section>
 
-            {/* Hata */}
+            {/* Error */}
             {error && (
               <div className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-red-700 flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -300,7 +300,7 @@ export default function ToolsPage() {
               </div>
             )}
 
-            {/* Sonuç */}
+            {/* Result */}
             {result && (
               <div className="rounded-lg border border-success/30 bg-success-soft/40 px-4 py-3 text-sm flex items-start gap-3">
                 <CheckCircle2 className="h-5 w-5 text-success mt-0.5 flex-shrink-0" />
@@ -336,8 +336,8 @@ export default function ToolsPage() {
           </CardBody>
         </Card>
 
-        {/* Tool ecosystem card — kullanıcı hedef formata göre hangi araçlarda
-            kullanabileceğini görür. Seçim değiştikçe gösterilen liste değişir. */}
+        {/* Tool ecosystem card — the user sees which tools the chosen target
+            format can be used in. The displayed list changes as the selection changes. */}
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-sm flex-1">{t("tools.section.ecosystem")}</h2>

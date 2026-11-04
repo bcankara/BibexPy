@@ -30,12 +30,12 @@ export function BorderlineReviewPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // String-backed: serbest yazıma izin verir ("0.", boş vb. ara durumlar snap-back
-  // yapmaz); sayıya parse edilip kullanılır, blur'da [0.80, 0.92] aralığına kelepçelenir.
+  // String-backed: allows free typing (intermediate states such as "0." or empty do not
+  // snap back); it is parsed to a number for use and clamped to the [0.80, 0.92] range on blur.
   const [threshold, setThreshold] = useState("0.88");
   const [statusFilter, setStatusFilter] = useState<"pending" | "all">("pending");
-  // Smart Merge adımında "kapı" (gate): önce uyarı + Evet/Hayır. "Evet" → inceleme
-  // açılır; "Hayır" → gizlenir (belirsiz çiftler ayrı kalır, merge olduğu gibi tamamlanır).
+  // "Gate" in the Smart Merge step: first a warning + Yes/No. "Yes" → the review
+  // opens; "No" → it is hidden (uncertain pairs stay separate, the merge completes as is).
   const [reviewing, setReviewing] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -90,9 +90,9 @@ export function BorderlineReviewPanel({
     setDecisions(next);
   }
 
-  // #3: GERÇEK "Tümünü seç" — görünür (filtrelenmiş) pending çiftlerin HEPSİNİ
-  // 'accept' işaretler; hepsi zaten seçiliyse temizler (toggle). Sağ üstteki
-  // "Tümünü göster" yalnız GÖRÜNÜMÜ değiştirir; seçim bu butonla yapılır.
+  // #3: REAL "Select all" — marks ALL visible (filtered) pending pairs as
+  // 'accept'; if all are already selected, it clears them (toggle). The "Show all"
+  // at the top right only changes the VIEW; selection is done with this button.
   const pendingVisible = useMemo(() => visible.filter((i) => i.status === "pending"), [visible]);
   const allVisibleSelected = pendingVisible.length > 0 && pendingVisible.every((i) => decisions[i.pair_id] === "accept");
 
@@ -137,13 +137,14 @@ export function BorderlineReviewPanel({
     }
   }
 
-  // Yüklenirken / hiç bekleyen belirsiz çift yokken / "Hayır" denmişken gizli kalır —
-  // Smart Merge zaten tamamlandı; kapı yalnızca gerçekten belirsizlik varsa görünür.
+  // Stays hidden while loading / when there are no pending uncertain pairs / after "No"
+  // was chosen — Smart Merge has already completed; the gate is shown only if there is
+  // genuine uncertainty.
   if (loading) return null;
   if (counts.pending === 0) return null;
   if (dismissed) return null;
 
-  // ── KAPI (gate): önce sor — "manuel kontrol etmek ister misiniz?" ──
+  // ── GATE: ask first — "would you like to check manually?" ──
   if (!reviewing) {
     return (
       <Card className="ring-1 ring-warning/30">
@@ -180,7 +181,7 @@ export function BorderlineReviewPanel({
     );
   }
 
-  // ── İNCELEME: "Evet" → çiftleri sor; "Kaydet ve tamamla" ile uygula ──
+  // ── REVIEW: "Yes" → ask about the pairs; apply with "Save and complete" ──
   return (
     <Card className="ring-1 ring-warning/30">
       <CardHeader>
@@ -242,7 +243,7 @@ export function BorderlineReviewPanel({
             </div>
           </div>
 
-          {/* Toplu kabul */}
+          {/* Bulk accept */}
           <div className="flex items-center gap-2 text-xs">
             <label className="flex items-center gap-1.5 text-muted">
               JW ≥
@@ -267,7 +268,7 @@ export function BorderlineReviewPanel({
             >
               <CheckSquare className="h-3 w-3" /> {t("borderline.bulkMark")}
             </button>
-            {/* #3: gerçek tümünü-seç (görünür pending hepsi) — toggle */}
+            {/* #3: real select-all (all visible pending) — toggle */}
             <button
               onClick={toggleSelectAllVisible}
               disabled={pendingVisible.length === 0}
@@ -289,14 +290,14 @@ export function BorderlineReviewPanel({
           </div>
         </div>
 
-        {/* Boş durum */}
+        {/* Empty state */}
         {visible.length === 0 && (
           <div className="text-center py-12 text-muted text-sm">
             {counts.pending === 0 ? t("borderline.noBorderline") : t("borderline.noFilterMatch")}
           </div>
         )}
 
-        {/* Pair listesi */}
+        {/* Pair list */}
         <div className="space-y-2">
           {visible.map((item) => (
             <BorderlineCard
@@ -368,7 +369,7 @@ function BorderlineCard({ pair, decision, onDecision }: {
         <RecordPanel label="Scopus" record={pair.scopus} compare={pair.wos} />
       </div>
 
-      {/* Butonlar */}
+      {/* Buttons */}
       <div className="flex items-center gap-2">
         <Button
           size="sm"

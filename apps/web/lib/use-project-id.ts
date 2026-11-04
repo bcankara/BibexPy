@@ -3,22 +3,25 @@
 import { useParams } from "next/navigation";
 
 /**
- * Proje ID'sini güvenilir biçimde okur — hem `npm run dev` (gerçek SSR) hem
- * `bibexpy` paketi (Next.js static export) için.
+ * Reads the project ID reliably — for both `npm run dev` (real SSR) and the
+ * `bibexpy` package (Next.js static export).
  *
- * SORUN: Static export'ta dinamik route'lar `generateStaticParams` placeholder'ı
- * `_` ile üretilir; server `params` prop'u build-time'da `"_"`'ye sabitlenir.
- * DEV modunda ise route gerçek olduğundan `useParams()` doğru ID'yi verir.
+ * PROBLEM: In a static export, dynamic routes are generated with the
+ * `generateStaticParams` placeholder `_`; the server `params` prop is pinned
+ * to `"_"` at build time. In DEV mode the route is real, so `useParams()`
+ * returns the correct ID.
  *
- * STRATEJİ (öncelik sırası):
- *  1. `useParams().id` — DEV'de hem sunucu hem client'ta GERÇEK ID döner; bu
- *     yüzden hydration uyuşmazlığı OLMAZ. (Bu hook'u birincil yapmamızın sebebi.)
- *  2. `useParams` placeholder `_` döndürürse (yalnızca static export build/SSR)
- *     → canlı URL'den (`window.location.pathname`) gerçek ID'yi al.
- *  3. Hiçbiri yoksa `_` (build zamanı; client'ta asla bu dala düşülmez).
+ * STRATEGY (in priority order):
+ *  1. `useParams().id` — in DEV it returns the REAL ID on both the server and
+ *     the client, so there is NO hydration mismatch. (This is why we made this
+ *     hook the primary source.)
+ *  2. If `useParams` returns the placeholder `_` (static export build/SSR only)
+ *     → take the real ID from the live URL (`window.location.pathname`).
+ *  3. If neither is available, `_` (build time; the client never reaches this
+ *     branch).
  *
- * Böylece DEV'de konsol temiz (uyuşmazlık yok, "_" fetch yok), static export'ta
- * da paket düzgün çalışır.
+ * This way the console stays clean in DEV (no mismatch, no "_" fetch), and the
+ * package also works correctly in a static export.
  */
 export function useProjectId(): string {
   const params = useParams<{ id: string }>();

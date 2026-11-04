@@ -38,18 +38,18 @@ async def stream_job(job_id: str):
 
     queue = job_runner.subscribe(job_id)
 
-    # Eğer job zaten bitmiş ise — son durumu hemen gönder ve kapat.
-    # Race condition: kullanıcı UI'da görür görmez subscribe oluyor, bu sırada job
-    # tamamlanmış olabilir. Bu durumda subscribe-ettikten sonra hiçbir event gelmez
-    # ve stream "yarım" görünür (ERR_INCOMPLETE_CHUNKED_ENCODING). Mevcut snapshot'u
-    # ilk event olarak emit edip ardından done emit edelim.
+    # If the job has already finished — send the final state immediately and close.
+    # Race condition: the user subscribes as soon as they see it in the UI, and the
+    # job may have completed in the meantime. In that case no event arrives after
+    # subscribing and the stream looks "incomplete" (ERR_INCOMPLETE_CHUNKED_ENCODING).
+    # Let us emit the current snapshot as the first event and then emit done.
     initial_snapshot = job.to_dict() if job else None
     finished_states = {"completed", "failed", "cancelled"}
     job_finished_already = (initial_snapshot or {}).get("status") in finished_states
 
     async def event_gen():
         try:
-            # İlk snapshot — UI'a anında güncel durumu göster
+            # Initial snapshot — show the UI the current state right away
             if initial_snapshot is not None:
                 yield {"event": "update", "data": json.dumps(initial_snapshot)}
                 if job_finished_already:
@@ -66,7 +66,7 @@ async def stream_job(job_id: str):
         finally:
             job_runner.unsubscribe(job_id, queue)
 
-    # ping_message_factory ile her 15 saniyede bir keep-alive yorum satırı gönder
-    # — bu, bazı reverse-proxy / browser tarafında bağlantıyı yarım kesik (chunked
-    # encoding incomplete) gibi gösteren durumları azaltır.
+    # Use ping_message_factory to send a keep-alive comment line every 15 seconds
+    # — this reduces cases where, on the reverse-proxy / browser side, the connection
+    # looks half-cut (chunked encoding incomplete).
     return EventSourceResponse(event_gen(), ping=15)

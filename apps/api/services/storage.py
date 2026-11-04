@@ -100,11 +100,11 @@ def _refresh_size(meta: ProjectMeta) -> None:
 
 
 def _robust_rmtree(path: Path) -> None:
-    """Windows'ta salt-okunur bit ve geçici dosya kilitlerine dayanıklı silme.
+    """Deletion that is robust against the read-only bit and transient file locks on Windows.
 
-    Çıplak shutil.rmtree, Windows'ta açık/salt-okunur bir dosya olduğunda
-    PermissionError (WinError 5/32) fırlatır. Burada salt-okunur bit kaldırılır
-    ve kısa beklemelerle birkaç kez denenir.
+    A bare shutil.rmtree raises PermissionError (WinError 5/32) on Windows when a file is
+    open or read-only. Here the read-only bit is cleared and the deletion is retried a few
+    times with short waits.
     """
     import os
     import shutil
@@ -122,7 +122,7 @@ def _robust_rmtree(path: Path) -> None:
     for _ in range(3):
         try:
             shutil.rmtree(path, onerror=_on_error)
-        except Exception as e:  # son denemede yeniden fırlatılır
+        except Exception as e:  # re-raised on the last attempt
             last_exc = e
         if not path.exists():
             return

@@ -19,7 +19,7 @@ import { StepNav } from "@/components/StepNav";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
 import { useProjectId } from "@/lib/use-project-id";
 
-// File System Access API tipleri (TS 5+ ile gelir ama her zaman değil)
+// File System Access API types (ship with TS 5+, but not always)
 declare global {
   interface Window {
     showDirectoryPicker?: (options?: { mode?: "read" | "readwrite"; startIn?: string }) => Promise<FileSystemDirectoryHandle>;
@@ -29,10 +29,10 @@ declare global {
 type FormatInfo = {
   fmt: ExportFormat;
   label: string;
-  info: string;          // runtime'da t() ile doldurulur
+  info: string;          // filled in at runtime via t()
   group: "ref" | "table";
   icon: React.ReactNode;
-  /** Mayıs 2026 itibariyle bu formatla doğrudan çalışan araçlar */
+  /** Tools that work directly with this format as of May 2026 */
   primary: ToolKey[];
   secondary: ToolKey[];
 };
@@ -47,10 +47,10 @@ type FormatStatic = {
 };
 
 /**
- * Format → araç ekosistemi haritası (Mayıs 2026 itibariyle).
+ * Format → tool ecosystem map (as of May 2026).
  *
- * "primary": format-natif olarak veya tek tıkla içe aktarılan araçlar.
- * "secondary": ek dönüşüm/aracı ile destekleyenler — daha az yaygın.
+ * "primary": tools that are format-native or import it with one click.
+ * "secondary": tools that support it via an extra conversion/intermediary — less common.
  *
  * Kaynaklar: VOSviewer (Van Eck & Waltman), bibliometrix/biblioshiny (Aria & Cuccurullo 2017,
  * "Science Mapping Analysis – A Primer with Biblioshiny" McGraw-Hill 2026), CiteSpace (Chen),
@@ -113,10 +113,11 @@ export default function ExportPage() {
   const [folderSuggest, setFolderSuggest] = useState<FolderSuggest | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string>("");
   const [outputFolder, setOutputFolder] = useState<string>("");
-  // Aynı anda birden çok format export edilebilir — tek slot'lu busy, ikinci
-  // tıklamada ilkinin spinner'ını "iptal edilmiş" gibi söndürüyordu.
+  // Multiple formats can be exported at the same time — a single-slot busy flag
+  // used to turn off the first one's spinner on a second click, as if it had been
+  // "cancelled".
   const [busyFmts, setBusyFmts] = useState<Set<ExportFormat>>(new Set());
-  const [, setCopyBusy] = useState(false);  // klasöre kopyalama akışının ayrı meşgul durumu
+  const [, setCopyBusy] = useState(false);  // separate busy state for the copy-to-folder flow
   const [error, setError] = useState<string | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -124,7 +125,7 @@ export default function ExportPage() {
   const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [copyProgress, setCopyProgress] = useState<{ done: number; total: number; current?: string } | null>(null);
   const supportsFSA = typeof window !== "undefined" && !!window.showDirectoryPicker;
-  // Duplicate file dialog: aynı format için mevcut dosyalar olduğunda kullanıcıya sor
+  // Duplicate file dialog: ask the user when files already exist for the same format
   const [dupDialog, setDupDialog] = useState<{ fmt: ExportFormat; existing: ConvertResult[] } | null>(null);
   const [mode, setMode] = useState<CopyMode>(supportsFSA ? "browser" : "path");
 
@@ -147,7 +148,7 @@ export default function ExportPage() {
     ? presets.find((p) => p.name === selectedPreset)?.spec
     : undefined;
 
-  /** Aynı format için mevcut dosyalar varsa dialog açar; yoksa direkt export. */
+  /** Opens the dialog if files already exist for the same format; otherwise exports directly. */
   function runExport(fmt: ExportFormat) {
     const existingSame = exports.filter((e) => e.name.toLowerCase().endsWith(`.${fmt}`));
     if (existingSame.length > 0) {
@@ -163,7 +164,7 @@ export default function ExportPage() {
     try {
       const result = await api.createExport(id, fmt, activeSpec, undefined, if_exists);
       await refresh();
-      // Burak: export'a basınca DİREKT indir — kullanıcı altta dosyayı aramasın/beklemesin.
+      // Burak: when export is pressed, download DIRECTLY — the user should not have to look for / wait for the file below.
       const name = (result as { name?: string } | undefined)?.name;
       if (name) {
         const a = document.createElement("a");
@@ -176,7 +177,7 @@ export default function ExportPage() {
     } catch (e) {
       setError(translateApiError(t, e, "export.exportFailed"));
     } finally {
-      // Yalnız KENDİ formatını temizle — paralel export'un göstergesine dokunma.
+      // Clear only OWN format — do not touch the parallel export's indicator.
       setBusyFmts((prev) => { const n = new Set(prev); n.delete(fmt); return n; });
     }
   }
@@ -248,12 +249,12 @@ export default function ExportPage() {
         const name = files[i];
         setCopyProgress({ done: i, total: files.length, current: name });
         try {
-          // Backend'den dosyayı fetch et
+          // Fetch the file from the backend
           const res = await fetch(api.downloadFromUrl(id, "exports", name));
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const blob = await res.blob();
 
-          // Klasöre yaz
+          // Write to the folder
           const fileHandle = await dirHandle.getFileHandle(name, { create: true });
           const writable = await fileHandle.createWritable();
           await writable.write(blob);
@@ -315,7 +316,7 @@ export default function ExportPage() {
 
       {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-red-700">{error}</div>}
 
-      {/* Filtre seçimi — sade kontrol şeridi (ağır kart yerine) */}
+      {/* Filter selection — a plain control strip (instead of a heavy card) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-white px-4 py-3 shadow-soft">
         <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{t("export.filterSelection")}</span>
         <button
@@ -344,7 +345,7 @@ export default function ExportPage() {
         </span>
       </div>
 
-      {/* Referans formatları */}
+      {/* Reference formats */}
       <Card>
         <CardHeader>
           <h2 className="font-semibold text-sm">{t("export.refFormats")}</h2>
@@ -363,7 +364,7 @@ export default function ExportPage() {
         </CardBody>
       </Card>
 
-      {/* Genel tablo formatları */}
+      {/* General table formats */}
       <Card>
         <CardHeader>
           <h2 className="font-semibold text-sm">{t("export.tableFormats")}</h2>
@@ -400,7 +401,7 @@ export default function ExportPage() {
   );
 }
 
-/** Aynı format için mevcut export varsa kullanıcıya 3 seçenek sunan modal. */
+/** Modal offering the user 3 options when an export already exists for the same format. */
 function DuplicateExportDialog({ fmt, existing, onCancel, onReplace, onKeep }: {
   fmt: ExportFormat;
   existing: ConvertResult[];
@@ -503,10 +504,10 @@ function CopyProgressCard({ progress }: { progress: { done: number; total: numbe
 }
 
 /**
- * Kompakt format satırı (Burak: "sayfa çok büyük, geniş kartlara gerek yok, ince
- * sağa doğru olsun"). İnce yatay satır: ikon + ad + kısa açıklama + indir.
- * Tıklayınca DİREKT indirir (doExport auto-download). Uyumlu araç rozetleri
- * kaldırıldı (sayfayı şişiriyordu); tam açıklama tooltip'te.
+ * Compact format row (Burak: "the page is too big, no need for wide cards, make it
+ * thin, toward the right"). Thin horizontal row: icon + name + short description +
+ * download. Clicking DOWNLOADS DIRECTLY (doExport auto-download). Compatible-tool
+ * badges were removed (they bloated the page); the full description is in the tooltip.
  */
 function FormatCard({ f, busy, onClick }: { f: FormatInfo; busy: boolean; onClick: () => void }) {
   const t = useT();
@@ -533,7 +534,7 @@ function FormatCard({ f, busy, onClick }: { f: FormatInfo; busy: boolean; onClic
           </span>
         )}
       </div>
-      {/* Bu formatla çalışan araçlar — "nerede kullanılır" rehberi (Burak). */}
+      {/* Tools that work with this format — a "where is it used" guide (Burak). */}
       <div className="space-y-1.5 border-t border-border/60 pt-2.5">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-muted/70">
           {t("export.usedIn")}

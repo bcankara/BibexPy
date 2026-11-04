@@ -32,21 +32,21 @@ def test_flow_from_recorded_operations(monkeypatch, tmp_path):
     aid, _ = analyses.create_analysis(pid, "smart")
     analyses.finalize_analysis(pid, aid)
 
-    # 1) Smart Merge özeti (gerçek run_smart_merge'in yazdığı şema)
+    # 1) Smart Merge summary (the schema written by the real run_smart_merge)
     audit.write(pid, kind="merge", title="merge", details={
         "method": "smart", "wos_input": 1417, "scopus_input": 1702,
         "matched_pairs": 1144, "intra_wos_removed": 1, "intra_scopus_removed": 2,
         "match_stages": {"DOI exact": 1083, "Title+Year+Surname": 61},
         "borderline_count": 6, "merged_count": 1972,
     }, analysis_id=aid)
-    # 2) Borderline kabulleri (6 çift onaylandı -> 6 kayıt çıktı)
+    # 2) Borderline acceptances (6 pairs approved -> 6 records removed)
     audit.write(pid, kind="merge_borderline", title="bl",
                 details={"applied_changes": 6}, analysis_id=aid)
-    # 3) Kalıcı filtre (yıl aralığı) — 12 kayıt çıkarıldı
+    # 3) Permanent filter (year range) — 12 records removed
     audit.write(pid, kind="filter_apply", title="filter", details={
         "before": 1966, "after": 1954, "removed": 12, "filter_keys": ["year"],
     }, analysis_id=aid)
-    # 4) Elle silme — 3 kayıt
+    # 4) Manual delete — 3 records
     audit.write(pid, kind="records_delete", title="del",
                 details={"deleted": 3}, after={"total": 1951}, analysis_id=aid)
 
@@ -64,10 +64,10 @@ def test_flow_from_recorded_operations(monkeypatch, tmp_path):
     assert flow["steps"][1]["removed"] == 12
     assert flow["steps"][1]["criteria"] == ["year"]
     assert flow["steps"][2]["after"] == 1951
-    # merged.xlsx yok -> final_total None'a düşer (canlı sayım opsiyonel)
+    # no merged.xlsx -> final_total falls back to None (the live count is optional)
     assert flow["final_total"] is None
 
-    # Vektörel PDF çıktısı — EN ve TR
+    # Vector PDF output — EN and TR
     r = client.get(f"/api/projects/{pid}/report/flow.pdf")
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF")
@@ -87,5 +87,5 @@ def test_flow_without_merge_is_empty(monkeypatch, tmp_path):
     assert flow["has_merge"] is False
     assert flow["inputs"] is None
     assert flow["steps"] == []
-    # Merge yoksa çizilecek şema da yok -> 409
+    # If there is no merge, there is no diagram to draw either -> 409
     assert client.get(f"/api/projects/{pid}/report/flow.pdf").status_code == 409

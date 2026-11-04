@@ -1,20 +1,21 @@
 /**
  * BibexPy v2 — Next.js config
  *
- * İki mod:
- *  - Dev (`npm run dev`)            → standart SSR, port 3000, ayrı backend (8001)
- *  - Build (`build:static`)         → static export, FastAPI içine gömülür, tek port
+ * Two modes:
+ *  - Dev (`npm run dev`)            → standard SSR, port 3000, separate backend (8001)
+ *  - Build (`build:static`)         → static export, embedded into FastAPI, single port
  *
- * `BIBEXPY_BUILD_MODE=static` çevre değişkeniyle export modu açılır.
+ * Export mode is enabled via the `BIBEXPY_BUILD_MODE=static` environment variable.
  *
- * API adresi: ARTIK build-time env'den OKUNMUYOR. `lib/api-client.ts` runtime'da
- * window.location origin'inden tespit ediyor (dev 300x → 8001, paket → relative /api).
- * Bu yüzden eski `env: { NEXT_PUBLIC_API_BASE }` bloğu kaldırıldı — .env.local'daki
- * dev adresinin static export'a gömülüp "Failed to fetch" yaratması engellendi.
+ * API address: it is NO LONGER read from a build-time env. `lib/api-client.ts` detects it
+ * at runtime from the window.location origin (dev 300x → 8001, package → relative /api).
+ * For this reason the old `env: { NEXT_PUBLIC_API_BASE }` block was removed — this prevents
+ * the dev address in .env.local from being baked into the static export and causing
+ * "Failed to fetch".
  *
- * Dinamik route'lar (`projects/[id]/...`) generateStaticParams placeholder `_` ile
- * üretilir; FastAPI gerçek-ID URL'lerini `_` HTML'ine serve eder. Gerçek ID
- * client-side `lib/use-project-id.ts` (window.location.pathname) ile okunur.
+ * Dynamic routes (`projects/[id]/...`) are generated with the generateStaticParams
+ * placeholder `_`; FastAPI serves real-ID URLs from the `_` HTML. The real ID is
+ * read client-side via `lib/use-project-id.ts` (window.location.pathname).
  */
 /** @type {import('next').NextConfig} */
 const isStaticBuild = process.env.BIBEXPY_BUILD_MODE === "static";
@@ -22,17 +23,17 @@ const isStaticBuild = process.env.BIBEXPY_BUILD_MODE === "static";
 const nextConfig = {
   reactStrictMode: true,
   experimental: { typedRoutes: false },
-  // Static export — paketleme için
+  // Static export — for packaging
   ...(isStaticBuild && {
     output: "export",
-    // <img> optimizasyonu Next sunucusu gerektirir; export'ta kapalı olmalı.
+    // <img> optimization requires a Next server; it must be disabled in the export.
     images: { unoptimized: true },
-    // Trailing slash → out/projects/_/upload/index.html (dizin yapısı) — FastAPI
-    // catch-all'ı için daha kolay.
+    // Trailing slash → out/projects/_/upload/index.html (directory structure) — easier
+    // for the FastAPI catch-all.
     trailingSlash: true,
-    // Build sırasında type-check ve lint'i atla — bunlar dev'de `npm run typecheck`
-    // ve editor üzerinden zaten kontrol ediliyor. Build'in amacı sadece çalışan
-    // static asset üretmek; check'ler build'i kilitlerse paketleme akışı tıkanır.
+    // Skip type-check and lint during the build — they are already checked in dev via
+    // `npm run typecheck` and through the editor. The build's only purpose is to produce
+    // working static assets; if the checks block the build, the packaging flow stalls.
     typescript: { ignoreBuildErrors: true },
     eslint: { ignoreDuringBuilds: true },
   }),

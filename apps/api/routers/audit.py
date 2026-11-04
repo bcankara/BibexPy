@@ -29,7 +29,7 @@ class AuditEntry(BaseModel):
 def list_entries(project_id: str, limit: int = 200):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    # Aktif analizin geçmişi (+ proje-seviye kurulum) — her analizin AYRI geçmişi.
+    # History of the active analysis (+ project-level setup) — each analysis has its SEPARATE history.
     active = analyses.get_active_analysis_id(project_id)
     return audit.read(project_id, limit=limit, analysis_id=active)
 

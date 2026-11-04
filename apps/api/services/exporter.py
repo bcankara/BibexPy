@@ -27,8 +27,8 @@ VALID_FORMATS = {"wos", "vos", "bib", "ris", "csv", "xlsx", "tsv"}
 # rep(M$SR, ...) with no guard), so these exports must carry SR.
 _SR_FORMATS = {"xlsx", "csv", "tsv"}
 
-# Format anahtarı → gerçek dosya uzantısı (anahtardan farklı olanlar). WoS plain-text
-# ve VOSviewer tab-text çıktıları .txt'dir (.wos/.vos standart değil; WoS = savedrecs.txt).
+# Format key → actual file extension (only those that differ from the key). WoS plain-text
+# and VOSviewer tab-text outputs are .txt (.wos/.vos are not standard; WoS = savedrecs.txt).
 _EXT = {"wos": "txt", "vos": "txt"}
 
 
@@ -49,7 +49,7 @@ def _load_filtered(project_id: str, spec: Optional[dict[str, Any]]) -> pd.DataFr
     return df
 
 
-# ── SR (Short Reference) — bibliometrix/biblioshiny uyumu ────────────────
+# ── SR (Short Reference) — bibliometrix/biblioshiny compatibility ────────
 
 def _blank(v: Any) -> bool:
     s = str(v).strip()
@@ -57,7 +57,7 @@ def _blank(v: Any) -> bool:
 
 
 def _fmt_year(v: Any) -> str:
-    """PY hücresini R'ın paste()'inin yazacağı gibi yaz: 2020.0 → "2020"."""
+    """Write the PY cell the way R's paste() would: 2020.0 → "2020"."""
     if _blank(v):
         return "NA"
     try:
@@ -70,7 +70,7 @@ def _fmt_year(v: Any) -> str:
 
 
 def _first_author(au: Any) -> str:
-    """AU'nun ilk ';' parçası, virgüller boşluğa çevrilmiş (bibliometrix SR())."""
+    """The first ';' part of AU, with commas converted to spaces (bibliometrix SR())."""
     if _blank(au):
         return "NA"
     first = str(au).split(";")[0].strip().replace(",", " ")
@@ -79,9 +79,9 @@ def _first_author(au: Any) -> str:
 
 
 def _sr_source(row: pd.Series, has_j9: bool, has_ji: bool, has_so: bool) -> str:
-    """Kaynak kısaltması: J9 → (J9+JI boşsa SO) → (kalan boş J9 için JI, noktalar
-    boşluğa). J9 kolonu hiç yoksa JI (boşsa SO) kullanılır — bibliometrix SR()
-    ile aynı öncelik zinciri."""
+    """Source abbreviation: J9 → (SO if J9 and JI are blank) → (JI for the remaining
+    blank J9, with dots turned into spaces). If there is no J9 column at all, JI
+    (SO if blank) is used — the same precedence chain as bibliometrix SR()."""
     j9 = row.get("J9") if has_j9 else None
     ji = row.get("JI") if has_ji else None
     so = row.get("SO") if has_so else None
@@ -98,19 +98,19 @@ def _sr_source(row: pd.Series, has_j9: bool, has_ji: bool, has_so: bool) -> str:
 
 
 def ensure_sr(df: pd.DataFrame) -> pd.DataFrame:
-    """SR / SR_FULL kolonlarını yoksa üret (bibliometrix `metaTagExtraction`
-    Field="SR" algoritmasına sadık).
+    """Generate the SR / SR_FULL columns if they are missing (faithful to the
+    bibliometrix `metaTagExtraction` Field="SR" algorithm).
 
-    biblioshiny, xlsx/csv import'unda convert2df ÇAĞIRMAZ: dosyayı ham okur ve
-    SR'nin zaten var olduğunu varsayar (`wcTable` içinde korumasız
-    `rep(M$SR, lengths(WC))` — SR yoksa "differing number of rows: 0, N" ile
-    yükleme çöker). Format: "SOYAD AD, YIL, KAYNAK-KISALTMASI"; duplikeler
-    bibliometrix'in İTERATİF kuralıyla ayrıştırılır (3 kopya → X, X-a, X-a-b).
+    On xlsx/csv import, biblioshiny does NOT call convert2df: it reads the file raw and
+    assumes SR already exists (an unguarded `rep(M$SR, lengths(WC))` inside
+    `wcTable` — if SR is missing, loading crashes with "differing number of rows: 0, N").
+    Format: "SURNAME NAME, YEAR, SOURCE-ABBREVIATION"; duplicates are
+    disambiguated with bibliometrix's ITERATIVE rule (3 copies → X, X-a, X-a-b).
     """
     if "SR" in df.columns and df["SR"].astype(str).str.strip().ne("").any():
         return df
     if "AU" not in df.columns:
-        return df  # SR üretilemez; biblioshiny'ye ham veri de zaten yetmezdi
+        return df  # SR cannot be generated; raw data would not have been enough for biblioshiny anyway
 
     has_j9 = "J9" in df.columns
     has_ji = "JI" in df.columns
@@ -125,8 +125,8 @@ def ensure_sr(df: pd.DataFrame) -> pd.DataFrame:
         parts.append(re.sub(r"\s+", " ", sr).strip())
 
     sr_full = list(parts)
-    # Bibliometrix'in birleşik (compounding) süffiks döngüsü: her turda
-    # duplicated() sonrası kalanlara -a, sonra -b ... eklenir.
+    # Bibliometrix's compounding suffix loop: in each round, after duplicated(),
+    # -a is appended to the remaining duplicates, then -b, and so on.
     letters = "abcdefghijklmnopqrstuvwxyz"
     sr = list(parts)
     for i in range(len(letters)):
@@ -217,8 +217,8 @@ def write_dataset(df: pd.DataFrame, fmt: str, output: Any) -> None:
         finally:
             tmp_xlsx.unlink(missing_ok=True)
     elif fmt == "vos":
-        # VOSviewer için tab-separated (bibliometrix uyumlu temel kolonlar);
-        # hiçbiri yoksa tüm tabloyu yaz (boş dosya üretme).
+        # Tab-separated for VOSviewer (basic bibliometrix-compatible columns);
+        # if none of them exist, write the whole table (do not produce an empty file).
         cols = [c for c in ("AU", "TI", "SO", "PY", "VL", "IS", "PG", "DI", "DE", "ID", "AB", "TC", "DT", "DB", "WC", "SC")
                 if c in df.columns]
         (df[cols] if cols else df).to_csv(output, sep="\t", index=False, encoding="utf-8")
@@ -257,7 +257,7 @@ def export(
         if not name.lower().endswith(f".{ext}"):
             name = f"{name}.{ext}"
     else:
-        # wos/vos gibi anahtar≠uzantı durumunda formatı isimde tut: export_..._wos.txt
+        # When key≠extension (as with wos/vos), keep the format in the name: export_..._wos.txt
         name = f"export_{stamp}_{fmt}.{ext}" if ext != fmt else f"export_{stamp}.{ext}"
     output = exports / Path(name).name
 

@@ -14,7 +14,7 @@ from services import storage
 
 router = APIRouter(prefix="/projects/{project_id}/download", tags=["downloads"])
 
-# İndirilebilir alt klasörler. analyses/ direkt değil, alt klasörleri ile gelir (frontend gerekirse path bildirir).
+# Downloadable subfolders. analyses/ is not served directly; it comes through its subfolders (the frontend supplies the path if needed).
 ALLOWED = {"raw", "processed", "merged", "exports", "snapshots"}
 
 

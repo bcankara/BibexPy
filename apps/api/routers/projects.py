@@ -14,7 +14,7 @@ def list_projects():
 @router.post("", response_model=ProjectMeta, status_code=status.HTTP_201_CREATED)
 def create_project(payload: ProjectCreate):
     meta = storage.create_project(payload.name, payload.description)
-    # Sürecin ilk adımı — günlüğün en başına "proje oluşturuldu" kaydı düşülür.
+    # First step of the workflow — a "project created" entry goes at the very top of the log.
     audit.write(
         meta.id,
         kind="project_create",
@@ -42,8 +42,8 @@ def delete_project(project_id: str):
     try:
         storage.delete_project(project_id)
     except Exception as e:
-        # Yakalanmazsa 500 ServerErrorMiddleware'den döner ve CORS başlığı taşımaz
-        # (tarayıcıda yanıltıcı "CORS" hatası). HTTPException iç katmandan geçip
-        # CORS başlığı alır ve kullanıcıya gerçek nedeni gösterir.
+        # If not caught, the 500 comes back from ServerErrorMiddleware without a CORS
+        # header (a misleading "CORS" error in the browser). An HTTPException passes
+        # through the inner layer, gets the CORS header and shows the user the real cause.
         raise HTTPException(409, f"project_delete_failed: {e}")
     return None

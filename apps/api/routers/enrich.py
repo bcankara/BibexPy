@@ -8,12 +8,12 @@ router = APIRouter(prefix="/projects/{project_id}/enrich", tags=["enrich"])
 
 
 class ApiEnrichRequest(BaseModel):
-    sources: list[str] | None = None  # ileride seçimli kullanmak için
+    sources: list[str] | None = None  # reserved for optional source selection later
 
 
 @router.post("/fill-all")
 async def start_fill_all(project_id: str):
-    """Birleşik doldurma: DOI başına tek API çağrısı, tüm boş alanlar (yalnız API; ML yoktur)."""
+    """Unified fill: one API call per DOI, all empty fields (API only; no ML)."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
 

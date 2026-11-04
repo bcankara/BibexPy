@@ -15,9 +15,9 @@ type Props = {
 };
 
 /**
- * Çoklu seçim toplu eylem çubuğu — yalnız SİLME.
- * (API ile "seçilenleri doldur" kaldırıldı; doldurma artık Harmonization'da
- * tek "Fill all" akışıdır. Tekil düzenleme satır-içi edit ile yapılır.)
+ * Multi-select bulk action bar — DELETE only.
+ * (The API-based "fill selected" was removed; filling is now the single "Fill all"
+ * flow in Harmonization. Individual editing is done with inline edit.)
  */
 export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props) {
   const t = useT();
@@ -30,7 +30,7 @@ export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props
 
   if (count === 0) return null;
 
-  // Seçimi UID ve DOI olarak ayır (UID öncelikli)
+  // Split the selection into UID and DOI (UID takes priority)
   function splitKeys(): { uids: string[]; dois: string[] } {
     const uids: string[] = [];
     const dois: string[] = [];

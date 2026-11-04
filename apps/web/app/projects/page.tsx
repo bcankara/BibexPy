@@ -16,8 +16,8 @@ export default function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
-  // Silinmekte / klasörü açılmakta olan proje id'si — o kartın butonu spinner'a
-  // döner + kilitlenir (yeniden-giriş engellenir).
+  // Id of the project being deleted / whose folder is being opened — that card's
+  // button turns into a spinner + gets locked (re-entry is prevented).
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
 
@@ -139,8 +139,8 @@ export default function ProjectsPage() {
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </Link>
-                  {/* Projenin gerçek disk klasörünü Explorer/Finder'da aç —
-                      kullanıcı verinin nereye kaydedildiğini görebilsin. */}
+                  {/* Open the project's real on-disk folder in Explorer/Finder —
+                      so the user can see where the data is saved. */}
                   <Button
                     variant="ghost"
                     size="sm"

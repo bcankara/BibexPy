@@ -16,11 +16,12 @@ import pandas as pd
 from .similarity import jaro_winkler, name_initials, normalize_name
 
 
-# Kooperatif iptal: ağır builder'lar bir thread'de (asyncio.to_thread) çalışır.
-# task.cancel() thread'i ÖLDÜREMEZ — bu yüzden builder, döngü içinde periyodik
-# olarak `should_cancel()` kontrol eder ve iptalde erken çıkar. Böylece orphan
-# thread paylaşılan havuzu (ve uygulamayı) kilitlemez. _CANCEL_EVERY: kontrol
-# sıklığı (her N satır/blok), çağrı maliyetini ihmal edilebilir tutar.
+# Cooperative cancellation: heavy builders run in a thread (asyncio.to_thread).
+# task.cancel() CANNOT KILL the thread — so the builder periodically checks
+# `should_cancel()` inside its loop and exits early on cancellation. This way an
+# orphaned thread does not lock up the shared pool (and the application).
+# _CANCEL_EVERY: check frequency (every N rows/blocks), which keeps the cost of
+# the call negligible.
 CancelCheck = Optional[Callable[[], bool]]
 _CANCEL_EVERY = 256
 
@@ -33,25 +34,27 @@ def _split_authors(value: str) -> list[str]:
     return [a.strip() for a in re.split(r";|\band\b", str(value or "")) if a.strip()]
 
 
-# Ayrıştırma (split) eki: sistemin kendi koyduğu "(b)", "(c)" ... veya "(7)" işareti.
-# Bu ek, daha önce FARKLI kişi olarak ayrılmış bir yazarı belirtir — birleştirme
-# adayı olarak görülmemelidir (yoksa scan, kendi split'ini geri alır). Hem tek harf
-# (b-z) hem de sayısal (build_author_splits'in 8+ grupta ürettiği "(7)" gibi) ekleri kapsar.
+# Split suffix: the "(b)", "(c)" ... or "(7)" marker that the system itself adds.
+# This suffix denotes an author who was previously separated out as a DIFFERENT
+# person — it must not be treated as a merge candidate (otherwise the scan undoes
+# its own split). It covers both single-letter (b-z) and numeric suffixes (such as
+# the "(7)" that build_author_splits produces for groups of 8+).
 _SPLIT_SUFFIX_RE = re.compile(r"\s*\((?:[b-z]|\d+)\)\s*$", re.IGNORECASE)
 
 
 def _split_suffix(name: str) -> str:
-    """İsimdeki ayrıştırma ekini döndür ('b', 'c', '7' ... ) ya da boş ('' = düz/asıl)."""
+    """Return the split suffix of the name ('b', 'c', '7' ...) or empty ('' = plain/original)."""
     m = _SPLIT_SUFFIX_RE.search(str(name or ""))
     return m.group(0).strip().strip("()").lower() if m else ""
 
 
 def _base_name(name: str) -> str:
-    """Ayrıştırma eki olmadan normalize isim ('LIU L (b)' -> 'liu l').
+    """Normalized name without the split suffix ('LIU L (b)' -> 'liu l').
 
-    Kümeleme/benzerlik için kullanılan KANONİK norm budur: '(b)' eki norm'a
-    karışmaz, böylece 'LIU L (b)' yapay olarak 'LIU LEI'ye benzemez (cross-base
-    sızıntısı önlenir) ve gerçek kök isimle aynı bloğa düşer.
+    This is the CANONICAL norm used for clustering/similarity: the '(b)' suffix
+    does not leak into the norm, so 'LIU L (b)' does not artificially resemble
+    'LIU LEI' (cross-base leakage is prevented) and falls into the same block as
+    the real base name.
     """
     return normalize_name(_SPLIT_SUFFIX_RE.sub("", str(name or "")))
 
@@ -65,21 +68,21 @@ def _split_affs(value: str) -> list[str]:
     return parts
 
 
-# ───────────── Tier sınıflandırma yardımcıları ─────────────
-# 3 katmanlı güven (Fellegi-Sunter 1969 match / possible-match / non-match):
-#   Tier 1 (auto)  — çok yüksek benzerlik + paylaşılan bağlam → LLM'siz birleştir
-#   Tier 2 (llm)   — orta benzerlik / belirsiz → LLM hakemliğine gönder
-#   Tier 3 (skip)  — tek varyant / uzak → dokunma
+# ───────────── Tier classification helpers ─────────────
+# 3-tier confidence (Fellegi-Sunter 1969 match / possible-match / non-match):
+#   Tier 1 (auto)  — very high similarity + shared context → merge without the LLM
+#   Tier 2 (llm)   — medium similarity / uncertain → send to the LLM for arbitration
+#   Tier 3 (skip)  — single variant / distant → leave untouched
 
-# Alan/kategori kolonları — kurumdan daha kararlı sinyal (kişi kurum değiştirir
-# ama alanını nadiren değiştirir). WC: WoS kategorileri, SC: araştırma alanları,
-# DE: yazar anahtar kelimeleri, ID: Keywords Plus.
+# Field/category columns — a more stable signal than affiliation (a person changes
+# affiliation but rarely changes their field). WC: WoS categories, SC: research
+# areas, DE: author keywords, ID: Keywords Plus.
 _FIELD_COLS = ("WC", "SC", "DE", "ID")
 
 
 def _row_fields(row) -> set[str]:
-    """Bir kaydın alan/kategori/anahtar-kelime token kümesi (normalize).
-    pandas NaN / boş / 'nan' değerleri sahte token üretmesin diye elenir.
+    """Set of field/category/keyword tokens of a record (normalized).
+    pandas NaN / empty / 'nan' values are filtered out so they do not produce bogus tokens.
     """
     out: set[str] = set()
     for col in _FIELD_COLS:
@@ -97,10 +100,10 @@ def _row_fields(row) -> set[str]:
 
 
 def _field_signal(members: list[dict]) -> bool | None:
-    """Alan sinyali (kurum yerine konu/kategori bazlı):
-        None  → hiç alan verisi yok → sinyal yok, isim benzerliğine güven
-        True  → en az iki mention ortak alan/kategori paylaşıyor → aynı kişi lehine
-        False → alan verisi var ama örtüşme yok → farklı alanlar, aynı-isim/farklı-kişi şüphesi
+    """Field signal (based on subject/category rather than affiliation):
+        None  → no field data at all → no signal, rely on name similarity
+        True  → at least two mentions share a field/category → in favor of the same person
+        False → field data exists but there is no overlap → different fields, same-name/different-person suspicion
     """
     sets = [m.get("fields") or set() for m in members]
     if not any(sets):
@@ -114,21 +117,21 @@ def _field_signal(members: list[dict]) -> bool | None:
 
 
 def _greedy_cluster(members: list[dict], threshold: float) -> list[list[dict]]:
-    """Mention'ları norm benzerliğine göre transitif öbekle (≥ threshold → aynı küme).
+    """Transitively cluster mentions by norm similarity (≥ threshold → same cluster).
 
-    İstisna: split eki ('(b)', '(c)' ...) TAŞIYAN bir mention, sistemin daha önce
-    bilerek ayırdığı bir kimliktir → hiçbir birleştirme kümesine sokulmaz (tek başına
-    kalır, sonra <2 varyant filtresiyle elenir). Aksi halde scan kendi split'ini geri
-    alır (örn. 'LIU L (b)'yi 'LIU LEI' ile birleştirmeye çalışır).
+    Exception: a mention that CARRIES a split suffix ('(b)', '(c)' ...) is an identity
+    the system deliberately separated earlier → it is not put into any merge cluster
+    (it stays on its own and is later dropped by the <2 variants filter). Otherwise the
+    scan would undo its own split (e.g. try to merge 'LIU L (b)' with 'LIU LEI').
     """
     clustered: list[list[dict]] = []
     for m in members:
         if m.get("suffix"):
-            clustered.append([m])  # ayrıştırılmış kimlik → izole, asla birleşme adayı
+            clustered.append([m])  # separated identity → isolated, never a merge candidate
             continue
         placed = False
         for cluster in clustered:
-            # Hedef küme bir split-kimliği içeriyorsa oraya da koyma.
+            # If the target cluster contains a split identity, do not put it there either.
             if any(x.get("suffix") for x in cluster):
                 continue
             if any(jaro_winkler(m["norm"], x["norm"]) >= threshold for x in cluster):
@@ -141,7 +144,7 @@ def _greedy_cluster(members: list[dict], threshold: float) -> list[list[dict]]:
 
 
 def _min_pairwise_jw(norms: set[str]) -> float:
-    """Bir varyant kümesindeki en düşük ikili Jaro-Winkler (küme tutarlılığı ölçüsü)."""
+    """Lowest pairwise Jaro-Winkler in a variant cluster (a measure of cluster cohesion)."""
     items = sorted(norms)
     if len(items) < 2:
         return 1.0
@@ -153,7 +156,7 @@ def _min_pairwise_jw(norms: set[str]) -> float:
 
 
 def _candidate(key: str, ci: int, cluster: list[dict], variant_field: str, tier: int) -> dict:
-    """Bir öbeği UI/LLM şemasına uygun aday objesine dönüştür."""
+    """Convert a cluster into a candidate object that fits the UI/LLM schema."""
     names = sorted({m["name"] for m in cluster})
     cand = {
         "id": f"{key}_{ci}",
@@ -175,20 +178,20 @@ def build_author_blocks(
     auto_threshold: float = 0.95,
     should_cancel: CancelCheck = None,
 ) -> list[dict]:
-    """Yazar adlarını blok blok grupla; saf eşik mantığıyla tier'lara ayır.
+    """Group author names block by block; split them into tiers with pure threshold logic.
 
-    3 katman (Fellegi-Sunter match / possible-match / non-match):
-      • Tier 1 (auto)  — isim benzerliği ≥ auto_threshold (0.95) VE alan çelişkisi yok
-                         → LLM'siz birleştir önerisi (block["auto"])
-      • Tier 2 (llm)   — 0.75–0.95 arası, ya da ≥0.95 ama alanlar farklı
-                         → LLM hakemliğine (block["members"])
-      • Tier 3 (skip)  — tek varyant / < sim_threshold → dokunma
+    3 tiers (Fellegi-Sunter match / possible-match / non-match):
+      • Tier 1 (auto)  — name similarity ≥ auto_threshold (0.95) AND no field conflict
+                         → merge suggestion without the LLM (block["auto"])
+      • Tier 2 (llm)   — between 0.75–0.95, or ≥0.95 but the fields differ
+                         → sent to LLM arbitration (block["members"])
+      • Tier 3 (skip)  — single variant / < sim_threshold → leave untouched
 
-    Alan sinyali: WC/SC/DE/ID (konu/kategori). Kurumdan daha kararlı çünkü kişi
-    kurum değiştirir ama alanını nadiren değiştirir. `mode` parametresi geriye
-    uyumluluk için durur, davranışı etkilemez.
+    Field signal: WC/SC/DE/ID (subject/category). More stable than affiliation because
+    a person changes affiliation but rarely changes their field. The `mode` parameter
+    is kept for backward compatibility and does not affect behavior.
 
-    Dönüş: bloklar; her blokta opsiyonel "auto" (Tier 1) ve "members" (Tier 2).
+    Returns: blocks; each block has an optional "auto" (Tier 1) and "members" (Tier 2).
     """
     if "AU" not in df.columns:
         return []
@@ -204,11 +207,11 @@ def build_author_blocks(
         affs = _split_affs(row.get("C1", "") or row.get("C1raw", ""))
         coauthors = authors
         year = str(row.get("PY", "") or "").strip()
-        fields = _row_fields(row)  # WC/SC/DE/ID — alan sinyali (kurumdan kararlı)
+        fields = _row_fields(row)  # WC/SC/DE/ID — field signal (more stable than affiliation)
         for au in authors:
-            # Blok anahtarı + benzerlik, split eki ('(b)') OLMADAN hesaplanır; aksi
-            # halde '(b)' hem initials'ı ('l b') hem norm'u kirletip yapay benzerlik
-            # üretir ve cross-base sızıntısına yol açar.
+            # The block key + similarity are computed WITHOUT the split suffix ('(b)');
+            # otherwise '(b)' pollutes both the initials ('l b') and the norm, producing
+            # artificial similarity and causing cross-base leakage.
             base_au = _SPLIT_SUFFIX_RE.sub("", au).strip()
             surname, initials = name_initials(base_au)
             if not surname:
@@ -217,8 +220,8 @@ def build_author_blocks(
             blocks[key].append({
                 "record": int(idx),
                 "name": au,
-                "norm": normalize_name(base_au),  # suffix'siz kanonik norm
-                "base": _base_name(au),           # = norm; çatışma tespiti için açıkça
+                "norm": normalize_name(base_au),  # canonical norm without the suffix
+                "base": _base_name(au),           # = norm; explicit, for conflict detection
                 "suffix": _split_suffix(au),      # '' / 'b' / 'c' / '7' ...
                 "affiliations": affs,
                 "coauthors": [c for c in coauthors if c != au],
@@ -226,28 +229,28 @@ def build_author_blocks(
                 "fields": fields,
             })
 
-    # Her blok: sim_threshold (0.75) bileşenleri → saf eşik mantığı
-    #   bileşen ≥2 varyant + min ikili JW ≥ auto_threshold (0.95) → Tier 1 (otomatik)
-    #   bileşen ≥2 varyant + 0.75–0.95 arası                      → Tier 2 (LLM)
-    #   tek varyant / <0.75                                       → Tier 3 (atla)
+    # Each block: sim_threshold (0.75) components → pure threshold logic
+    #   component ≥2 variants + min pairwise JW ≥ auto_threshold (0.95) → Tier 1 (automatic)
+    #   component ≥2 variants + between 0.75–0.95                       → Tier 2 (LLM)
+    #   single variant / <0.75                                          → Tier 3 (skip)
     out: list[dict] = []
     for key, members in blocks.items():
-        # Blok döngüsü: bloklar az ama her biri ağır (_greedy_cluster O(n²)) →
-        # her blokta kontrol et (modulo'suz); iptalde o ana kadarki sonucu döndür.
+        # Block loop: there are few blocks but each one is heavy (_greedy_cluster is O(n²)) →
+        # check on every block (no modulo); on cancellation return the result so far.
         if should_cancel and should_cancel():
             return out
         if len({m["norm"] for m in members}) < 2:
-            continue  # birleştirilecek varyant yok
+            continue  # no variants to merge
 
         auto_clusters: list[dict] = []
         llm_members: list[dict] = []
         for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
             comp_norms = {m["norm"] for m in comp}
             if len(comp_norms) < 2:
-                continue  # tek varyantlı bileşen → birleştirme yok (Tier 3)
+                continue  # single-variant component → no merge (Tier 3)
             if _min_pairwise_jw(comp_norms) >= auto_threshold and _field_signal(comp) is not False:
-                # İsimler ≥0.95 VE (ortak alan VAR ya da alan verisi YOK) → otomatik (Tier 1).
-                # Alan verisi var ama örtüşmüyorsa (_field_signal False) → AI'a düşer.
+                # Names ≥0.95 AND (shared field EXISTS or field data is ABSENT) → automatic (Tier 1).
+                # If field data exists but does not overlap (_field_signal False) → falls to the AI.
                 auto_clusters.append(_candidate(key, ci, comp, "name_variants", tier=1))
             else:
                 llm_members.append(_candidate(key, ci, comp, "name_variants", tier=2))
@@ -264,9 +267,9 @@ def build_author_blocks(
 
 
 def _field_components(recs: list[dict]) -> list[list[dict]]:
-    """Kayıtları 'ortak kategori paylaşıyorlar' bağına göre bileşenlere ayır.
-    Bir kayıt birden çok bileşene değiyorsa o bileşenler birleşir (transitif).
-    Sonuç bileşenler birbirinden alan bakımından TAM AYRIK olur.
+    """Split records into components by the 'share a common category' relation.
+    If a record touches more than one component, those components merge (transitive).
+    The resulting components are COMPLETELY DISJOINT from each other in terms of fields.
     """
     comps: list[list[dict]] = []
     for r in recs:
@@ -284,16 +287,16 @@ def _field_components(recs: list[dict]) -> list[list[dict]]:
 
 
 def build_author_splits(df: pd.DataFrame, should_cancel: CancelCheck = None) -> list[dict]:
-    """Yazar AYRIŞTIRMA: aynı yazılışa sahip bir isim, alan bakımından ayrık
-    kayıt gruplarına bölünüyorsa muhtemelen FARKLI kişilerdir → ayrıştırma önerisi.
+    """Author SPLITTING: if a name with the same spelling divides into record groups
+    that are disjoint in terms of fields, they are probably DIFFERENT people → split suggestion.
 
-    Tier 1 (net): tüm kayıtların alan verisi var ve 2+ tam-ayrık gruba bölünüyor
-                  → "şu alanlar şuradan ayrı" gerekçesiyle ayrıştır (en büyük grup
-                  düz kalır, diğerleri (b) (c)... eki alır).
-    Tier 2 (sınırda): bazı kayıtlarda alan verisi yok → AI'a sor (ayır / bırak).
-    Aksi (tek grup / zincirlenmiş ortak alan) → ayrıştırma yok.
+    Tier 1 (clear): all records have field data and split into 2+ fully-disjoint groups
+                  → split with the rationale "these fields are separate from those" (the
+                  largest group stays plain, the others get a (b) (c)... suffix).
+    Tier 2 (borderline): some records have no field data → ask the AI (split / keep).
+    Otherwise (single group / chained shared fields) → no split.
 
-    Dönüş: split önerileri; her biri {split_id, name, norm, tier, groups[], reason}.
+    Returns: split suggestions; each one is {split_id, name, norm, tier, groups[], reason}.
     """
     if "AU" not in df.columns:
         return []
@@ -307,8 +310,8 @@ def build_author_splits(df: pd.DataFrame, should_cancel: CancelCheck = None) -> 
             continue
         fields = _row_fields(row)
         for au in authors:
-            # Zaten ayrıştırılmış isim ('ZIPF A (b)') TEKRAR split adayı olmamalı —
-            # yoksa her scan onu yeniden bölüp 'ZIPF A (b) (b)' üretir (idempotent değil).
+            # An already-split name ('ZIPF A (b)') must NOT become a split candidate AGAIN —
+            # otherwise every scan would split it again and produce 'ZIPF A (b) (b)' (not idempotent).
             if _split_suffix(au):
                 continue
             nm = normalize_name(au)
@@ -323,17 +326,17 @@ def build_author_splits(df: pd.DataFrame, should_cancel: CancelCheck = None) -> 
         if should_cancel and should_cancel():
             return out
         if len(recs) < 2:
-            continue  # tek kayıt → ayrıştıracak bir şey yok
+            continue  # single record → nothing to split
         with_fields = [r for r in recs if r["fields"]]
         unknown = [r for r in recs if not r["fields"]]
         if len(with_fields) < 2:
-            continue  # alan sinyali yok → karar verilemez (atla)
+            continue  # no field signal → cannot decide (skip)
 
         comps = _field_components(with_fields)
         if len(comps) < 2:
-            continue  # tek (zincirlenmiş) grup → aynı kişi, ayrıştırma yok
+            continue  # single (chained) group → same person, no split
 
-        comps.sort(key=len, reverse=True)  # en büyük grup düz kalır
+        comps.sort(key=len, reverse=True)  # the largest group stays plain
         groups = []
         for gi, comp in enumerate(comps):
             gfields = sorted({f for r in comp for f in r["fields"]})
@@ -366,7 +369,7 @@ def build_affiliation_blocks(
     auto_threshold: float = 0.95,
     should_cancel: CancelCheck = None,
 ) -> list[dict]:
-    """Affiliation varyantlarını ilk-anlamlı-token bazlı blocking. Bkz. build_author_blocks."""
+    """Blocking of affiliation variants based on the first meaningful token. See build_author_blocks."""
     if "C1" not in df.columns and "C1raw" not in df.columns:
         return []
 
@@ -380,7 +383,7 @@ def build_affiliation_blocks(
             norm = normalize_name(aff)
             if not norm:
                 continue
-            # ilk anlamlı token (stopword olmayan)
+            # first meaningful token (not a stopword)
             tokens = [t for t in norm.split() if t not in {"the", "of", "and", "for", "univ", "university"}]
             key = tokens[0] if tokens else norm[:5]
             blocks[key].append({
@@ -401,13 +404,13 @@ def build_affiliation_blocks(
         for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
             comp_norms = {m["norm"] for m in comp}
             if len(comp_norms) < 2:
-                continue  # tek varyant → birleştirme yok (Tier 3)
+                continue  # single variant → no merge (Tier 3)
             cand = {
                 "id": f"{key}_{ci}",
                 "variants": sorted({m["raw"] for m in comp}),
                 "records": sorted({m["record"] for m in comp})[:100],
             }
-            # Affiliation: yüksek string benzerliği tek başına güçlü sinyal (bağlam yok).
+            # Affiliation: high string similarity alone is a strong signal (no context).
             if _min_pairwise_jw(comp_norms) >= auto_threshold:
                 cand["tier"] = 1
                 auto_clusters.append(cand)
@@ -433,10 +436,10 @@ def build_country_blocks(
     auto_threshold: float = 0.95,
     should_cancel: CancelCheck = None,
 ) -> list[dict]:
-    """Ülke adı standartlaştırma — C1'in ülke bileşeni.
+    """Country name standardization — the country component of C1.
 
-    Tier 1 (deterministik): ISO sözlüğü varyantı kanonik ada eşler (USA -> United States).
-    Tier 2 (LLM): sözlükte olmayan tokenler benzerlik bazlı kümelenip hakeme sorulur.
+    Tier 1 (deterministic): the ISO dictionary maps a variant to the canonical name (USA -> United States).
+    Tier 2 (LLM): tokens not in the dictionary are clustered by similarity and sent to the arbiter.
     """
     from bibex_core.modules.c1_utils import canonical_country, extract_country_from_c1, _is_org
 
@@ -460,9 +463,10 @@ def build_country_blocks(
                 r["variants"].add(t)
                 r["records"].add(int(idx))
             else:
-                # Açıkça-ülke-olmayan tokenleri (kurum / posta kodu) LLM'e GÖNDERME —
-                # kurum=ülke karmasını kaynağında önler. Şehirler LLM'e gider ve prompt
-                # onları 'uncertain'e atar (önerilmez). Eksik ülke ayrı API eylemiyle tamamlanır.
+                # Do NOT send clearly-non-country tokens (institution / postal code) to the LLM —
+                # this prevents the institution=country mix-up at the source. Cities go to the LLM
+                # and the prompt puts them into 'uncertain' (not suggested). A missing country is
+                # filled in by a separate API action.
                 if _is_org(t) or any(ch.isdigit() for ch in t):
                     continue
                 key = t.lower()
@@ -473,7 +477,7 @@ def build_country_blocks(
     for canon, data in resolved.items():
         variants = sorted(data["variants"])
         if all(v.strip().lower() == canon.lower() for v in variants):
-            continue  # zaten kanonik — değişiklik yok
+            continue  # already canonical — no change
         auto_clusters.append({
             "id": f"country_{re.sub(r'[^a-z0-9]+', '_', canon.lower()).strip('_')}",
             "variants": variants,
@@ -517,11 +521,12 @@ def build_org_rollup(
     auto_threshold: float = 0.95,
     should_cancel: CancelCheck = None,
 ) -> list[dict]:
-    """Affiliation → üst kurum toplama.
+    """Affiliation → parent institution rollup.
 
-    Her C1 adresini ayrıştırıp üst kurumu çıkarır; aynı kuruma ait adres varyantlarını
-    kümeler. Tier 1: tek-net adres veya yüksek kurum-adı benzerliği. Tier 2: sınırda
-    varyantlar LLM hakemliğine. Apply eşleşen TAM adresi üst kurumla DEĞİŞTİRİR.
+    Parses each C1 address and extracts the parent institution; clusters address
+    variants that belong to the same institution. Tier 1: single clear address or high
+    institution-name similarity. Tier 2: borderline variants go to LLM arbitration.
+    Apply REPLACES the matching FULL address with the parent institution.
     """
     from collections import Counter
     from bibex_core.modules.c1_utils import parse_c1_address, split_c1_addresses
@@ -538,7 +543,7 @@ def build_org_rollup(
             info = parse_c1_address(addr)
             inst = info["institution"]
             if not inst:
-                continue  # parse edilemedi → atla (yanlış rollup yazma)
+                continue  # could not be parsed → skip (do not write a wrong rollup)
             norm = normalize_name(inst)
             if not norm:
                 continue
@@ -556,11 +561,11 @@ def build_org_rollup(
             parent = Counter(m["parent"] for m in comp).most_common(1)[0][0]
             variants = sorted({m["raw"] for m in comp})
             if len(variants) == 1 and variants[0].strip() == parent.strip():
-                continue  # tek adres zaten üst kuruma eşit
+                continue  # the single address already equals the parent institution
             cand = {
                 "id": f"org_{key}_{ci}",
-                "variants": variants,           # tam orijinal adresler (apply bunları değiştirir)
-                "canonical_name": parent,       # önerilen üst kurum
+                "variants": variants,           # full original addresses (apply replaces these)
+                "canonical_name": parent,       # suggested parent institution
                 "records": sorted({m["record"] for m in comp})[:1000],
             }
             comp_norms = {m["norm"] for m in comp}

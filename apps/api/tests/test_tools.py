@@ -49,7 +49,7 @@ def _convert(client, target_format: str, output_name: str = "mydata"):
 
 def _disposition_name(resp) -> str:
     cd = resp.headers.get("content-disposition", "")
-    # attachment; filename="mydata.txt" (veya filename*=...)
+    # attachment; filename="mydata.txt" (or filename*=...)
     for part in cd.split(";"):
         part = part.strip()
         if part.lower().startswith("filename="):
@@ -58,18 +58,18 @@ def _disposition_name(resp) -> str:
 
 
 @pytest.mark.parametrize("target,expected_ext", [
-    ("vos", ".txt"),   # VOSviewer TSV → .txt (eskiden .vos — BUG)
-    ("wos", ".txt"),   # WoS plain text → .txt (eskiden .wos — BUG)
-    ("tsv", ".tsv"),   # anahtar=uzantı → değişmez
-    ("csv", ".csv"),   # anahtar=uzantı → değişmez
+    ("vos", ".txt"),   # VOSviewer TSV → .txt (used to be .vos — BUG)
+    ("wos", ".txt"),   # WoS plain text → .txt (used to be .wos — BUG)
+    ("tsv", ".tsv"),   # key=extension → unchanged
+    ("csv", ".csv"),   # key=extension → unchanged
 ])
 def test_tools_convert_extension(client, target, expected_ext):
     r = _convert(client, target)
     assert r.status_code == 200, r.text
     name = _disposition_name(r)
     assert name.lower().endswith(expected_ext), f"{target} → {name} (beklenen {expected_ext})"
-    # wos/vos için .wos/.vos İLE BİTMEMELİ
+    # for wos/vos it must NOT END WITH .wos/.vos
     if expected_ext == ".txt":
         assert not name.lower().endswith((".wos", ".vos")), name
-    # Header de doğru target'ı bildirmeli
+    # The header must also report the correct target
     assert r.headers.get("x-target-format") == target

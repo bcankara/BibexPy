@@ -11,13 +11,13 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv()
 
-# Tüm dış API çağrıları için (connect, read) timeout — tek bir API takılırsa
-# tüm enrichment işinin süresiz kilitlenmesini önler.
+# (connect, read) timeout for all external API calls — if a single API hangs,
+# this prevents the entire enrichment job from locking up indefinitely.
 REQUEST_TIMEOUT = (5, 20)
 
 
 def _get_with_retry(url: str, *, headers: dict | None = None, attempts: int = 3, **kw):
-    """requests.get + zorunlu timeout + 429/503 üstel backoff (Retry-After saygılı)."""
+    """requests.get + mandatory timeout + exponential backoff on 429/503 (honours Retry-After)."""
     last = None
     for i in range(attempts):
         try:
@@ -41,7 +41,7 @@ def _get_with_retry(url: str, *, headers: dict | None = None, attempts: int = 3,
     raise last if last else requests.RequestException(f"request failed: {url}")
 
 
-# ── Ters DOI arama (eksik DI'yi başlık+yıl+yazardan bul) ────────────────────────
+# ── Reverse DOI lookup (find a missing DI from title + year + author) ───────────
 def _norm_title(s) -> str:
     s = re.sub(r"[^a-z0-9 ]", " ", str(s).lower())
     return re.sub(r"\s+", " ", s).strip()
@@ -55,7 +55,7 @@ def _title_sim(a, b) -> float:
 
 
 def _first_surname(authors) -> str:
-    """'ZHANG C; GUO R' / 'Zhang, Chen; ...' -> ilk yazarın soyadı (küçük harf)."""
+    """'ZHANG C; GUO R' / 'Zhang, Chen; ...' -> surname of the first author (lowercase)."""
     if not authors:
         return ""
     first = str(authors).split(";")[0].strip()
@@ -65,14 +65,15 @@ def _first_surname(authors) -> str:
 
 
 def _verify_candidate(c_title, c_year, c_surname, title, year, surname) -> bool:
-    """Dengeli ama KESİN doğrulama: başlık benzerliği >= 0.90, yıl ±1, ilk yazar soyadı.
+    """Balanced but STRICT verification: title similarity >= 0.90, year ±1, first-author surname.
 
-    Kesinlik (precision) > geri-çağırma: emin olunmayan aday REDDEDİLİR (yanlış DOI
-    yazmaktansa boş bırak).
-      • Yıl: ikisi de varsa ve parse edilebiliyorsa ±1; parse edilemezse aday REDDEDİLİR
-        (sessizce atlanmaz — eski hata: except: pass yılı tamamen devre dışı bırakıyordu).
-      • Soyad: ikisi de varsa TAM eşleşmeli (substring değil — 'li' artık 'oliveira'yı
-        kabul etmez).
+    Precision > recall: a candidate we are not sure about is REJECTED (leave the field
+    empty rather than write a wrong DOI).
+      • Year: if both are present and parseable, they must be within ±1; if it cannot be
+        parsed, the candidate is REJECTED (it is not silently skipped — old bug: a bare
+        except: pass disabled the year check entirely).
+      • Surname: if both are present they must match EXACTLY (not as a substring — 'li'
+        no longer accepts 'oliveira').
     """
     if _title_sim(c_title, title) < 0.90:
         return False
@@ -81,9 +82,9 @@ def _verify_candidate(c_title, c_year, c_surname, title, year, surname) -> bool:
             if abs(int(float(str(c_year))) - int(float(str(year)))) > 1:
                 return False
         except (TypeError, ValueError):
-            return False  # aday yılı yorumlanamıyor → güvenli tarafta kal, reddet
+            return False  # candidate year cannot be interpreted → stay on the safe side, reject
     if surname and c_surname and surname != c_surname:
-        return False  # tam eşleşme şart (substring kabul edilmez)
+        return False  # exact match required (a substring is not accepted)
     return True
 
 
@@ -148,17 +149,18 @@ def _resolve_doi_cached(title: str, year: str, surname: str, crossref_email: str
         sim = _title_sim(c_title, title)
         if sim > best_sim:
             best_sim, best_doi = sim, doi
-    # YALNIZ başarılı sonucu cache'le — geçici ağ hatası "boş" olarak kalıcı yapışmasın.
+    # Cache ONLY a successful result — so a transient network error does not stick permanently as "empty".
     if best_doi:
         _DOI_LOOKUP_CACHE[key] = best_doi
     return best_doi
 
 
 def resolve_doi(title, authors=None, year=None, *, crossref_email: str | None = None):
-    """Eksik DOI'yi başlık+yıl+yazardan ters arar (CrossRef -> OpenAlex), doğrular, döndürür.
+    """Reverse-searches a missing DOI by title + year + author (CrossRef -> OpenAlex), verifies it, returns it.
 
-    Dengeli eşik: başlık ~0.90, yıl ±1, (varsa) ilk yazar soyadı. Emin değilse None
-    döner (asla uydurmaz). Sonuç (title, year, surname, email) ile cache'lenir.
+    Balanced threshold: title ~0.90, year ±1, first-author surname (if available). Returns
+    None when unsure (never fabricates a value). The result is cached by
+    (title, year, surname, email).
     """
     if not title or not str(title).strip():
         return None
@@ -174,7 +176,7 @@ def resolve_doi(title, authors=None, year=None, *, crossref_email: str | None = 
 
 
 def _decode_inverted_abstract(inv: dict) -> str:
-    """OpenAlex abstract_inverted_index ({token: [pozisyonlar]}) → düz metin."""
+    """OpenAlex abstract_inverted_index ({token: [positions]}) → plain text."""
     if not isinstance(inv, dict) or not inv:
         return ""
     positions: list[tuple[int, str]] = []
@@ -188,9 +190,9 @@ def _decode_inverted_abstract(inv: dict) -> str:
 def load_api_config() -> dict:
     """Load API configuration from API_config.json.
 
-    Once BIBEXPY_CONFIG_DIR (paket modu, orn. ~/.bibexpy), sonra kaynak-agaci
-    konumuna bakar. Bulunamazsa sessizce bos dict doner — v2 sunucusunda API
-    anahtarlari env/config.py'den gelir, bu dosya zorunlu degildir.
+    Looks first at BIBEXPY_CONFIG_DIR (package mode, e.g. ~/.bibexpy), then at the
+    source-tree location. Silently returns an empty dict if nothing is found — on the
+    v2 server the API keys come from env/config.py, so this file is not required.
     """
     candidates = []
     cfg_dir = os.environ.get("BIBEXPY_CONFIG_DIR")
@@ -244,7 +246,7 @@ def extract_metadata_from_crossref(doi: str, email: str = None) -> dict:
             if 'author' in work:
                 authors = [f"{a.get('given', '')} {a.get('family', '')}".strip() for a in work['author']]
                 metadata['AU'] = '; '.join(authors)
-                # ORCID (OI) — CrossRef'te çoğu zaman boş ama varsa kesin sinyal.
+                # ORCID (OI) — often empty in CrossRef, but a definitive signal when present.
                 orcids = []
                 for a in work['author']:
                     oid = str(a.get('ORCID') or "").replace("https://orcid.org/", "").replace("http://orcid.org/", "").strip()
@@ -286,8 +288,8 @@ def extract_metadata_from_crossref(doi: str, email: str = None) -> dict:
             if 'URL' in work:
                 metadata['UR'] = work['URL']
             
-            # Subject -> yalnız anahtar kelime (DE). WC/SC gerçek WoS/Scopus
-            # kategorileri DEĞİLDİR; onları ML enrichment doldurur (de-collapse).
+            # Subject -> keywords (DE) only. WC/SC are NOT real WoS/Scopus
+            # categories; ML enrichment fills those in (de-collapse).
             if 'subject' in work and work['subject']:
                 metadata['DE'] = '; '.join(work['subject'])
             
@@ -302,7 +304,7 @@ def extract_metadata_from_crossref(doi: str, email: str = None) -> dict:
     return {}
 
 def truncate_url(url: str, max_length: int = 2079) -> str:
-    """Excel'in URL karakter limitine uygun olarak URL'yi kısalt"""
+    """Truncate the URL to fit Excel's URL character limit"""
     if not url or len(url) <= max_length:
         return url
     return url[:max_length-3] + "..."
@@ -343,9 +345,9 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                 institutions = []
                 author_institutions = []  # For author-institution pairs
                 orcids = []          # WoS OI: 'Author/0000-0000-0000-0000'
-                researcher_ids = []  # WoS RI: 'Author/<OpenAlex A-ID>' (yedek kimlik)
-                rors = []            # benzersiz ROR kurum URI'leri
-                countries = []       # ISO ülke kodları (yazar kurumlarından)
+                researcher_ids = []  # WoS RI: 'Author/<OpenAlex A-ID>' (fallback identifier)
+                rors = []            # unique ROR institution URIs
+                countries = []       # ISO country codes (from author institutions)
 
                 for authorship in work['authorships']:
                     if 'author' in authorship and 'display_name' in authorship['author']:
@@ -353,13 +355,13 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                         author_name = author['display_name']
                         authors.append(author_name)
 
-                        # ORCID (OI) — disambiguation'ın altın standardı
+                        # ORCID (OI) — the gold standard for disambiguation
                         orcid = author.get('orcid')
                         if orcid:
                             oid = str(orcid).replace("https://orcid.org/", "").strip()
                             if oid:
                                 orcids.append(f"{author_name}/{oid}")
-                        # Yazar kimliği (RI yedek) — OpenAlex A-ID
+                        # Author identifier (RI fallback) — OpenAlex A-ID
                         aid = author.get('id')
                         if aid:
                             researcher_ids.append(f"{author_name}/{str(aid).replace('https://openalex.org/', '').strip()}")
@@ -379,7 +381,7 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
 
                             if author_insts:
                                 author_institutions.append(f"{author_name} [{'; '.join(author_insts)}]")
-                        # Yazar-seviyesi countries[] (kurum yoksa da gelebilir)
+                        # Author-level countries[] (may be present even when there is no institution)
                         for cc in authorship.get('countries', []) or []:
                             if cc:
                                 countries.append(str(cc).strip().upper())
@@ -392,7 +394,7 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                 # Author-Institution pairs
                 if author_institutions:
                     metadata['AF'] = '; '.join(author_institutions)
-                # ORCID (OI) + ResearcherID (RI) + ROR + ülke kodları
+                # ORCID (OI) + ResearcherID (RI) + ROR + country codes
                 if orcids:
                     metadata['OI'] = '; '.join(orcids)
                 if researcher_ids:
@@ -406,7 +408,7 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
             if 'publication_year' in work:
                 metadata['PY'] = work['publication_year']
             
-            # Journal/Publisher — yeni şema primary_location.source (host_venue deprecated).
+            # Journal/Publisher — new schema primary_location.source (host_venue is deprecated).
             venue = {}
             ploc = work.get('primary_location') or {}
             if isinstance(ploc, dict) and isinstance(ploc.get('source'), dict):
@@ -423,7 +425,7 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
             if isinstance(ploc, dict) and ploc.get('landing_page_url'):
                 metadata['UR'] = truncate_url(ploc['landing_page_url'])
 
-            # Abstract — OpenAlex 'abstract_inverted_index' verir; düz 'abstract' yok.
+            # Abstract — OpenAlex provides 'abstract_inverted_index'; there is no plain 'abstract'.
             if work.get('abstract'):
                 metadata['AB'] = work['abstract']
             elif work.get('abstract_inverted_index'):
@@ -431,15 +433,16 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                 if ab:
                     metadata['AB'] = ab
 
-            # Concepts -> DE (anahtar kelime).
+            # Concepts -> DE (keywords).
             if 'concepts' in work:
                 concepts = [c['display_name'] for c in work['concepts'] if 'display_name' in c]
                 if concepts:
                     metadata['DE'] = '; '.join(concepts)
 
-            # Topics -> WC (subfield, daha özel) + SC (field, daha geniş). OpenAlex konu
-            # sınıflandırması; WoS taksonomisiyle birebir değil ama açık/şeffaf. WC ve SC
-            # ikisi de boş olan kayıtlarda devreye girer (first-non-empty-wins).
+            # Topics -> WC (subfield, more specific) + SC (field, broader). This is the
+            # OpenAlex topic classification; it does not map one-to-one onto the WoS
+            # taxonomy but is open/transparent. It kicks in for records where both WC and
+            # SC are empty (first-non-empty-wins).
             topics = work.get('topics') or ([work['primary_topic']] if work.get('primary_topic') else [])
             if topics:
                 subfields, fields = [], []
@@ -474,10 +477,10 @@ def extract_metadata_from_openalex(doi: str, email: str = None) -> dict:
                 if oa_details:
                     metadata['OA'] = '; '.join(oa_details)
             
-            # NOT: OpenAlex 'referenced_works' CR'ye YAZILMAZ — bu alan
-            # openalex.org/W... URL listesi döndürür; WoS atıf dilbilgisine
-            # (AUTHOR, YIL, KAYNAK, Vn, Pn) çevrilemez ve VOSviewer/bibliometrix
-            # için kullanılamaz veri üretir.
+            # NOTE: OpenAlex 'referenced_works' is NOT written to CR — this field
+            # returns a list of openalex.org/W... URLs; it cannot be converted to the
+            # WoS citation grammar (AUTHOR, YEAR, SOURCE, Vn, Pn) and would produce data
+            # that is unusable for VOSviewer/bibliometrix.
 
             return metadata
     except Exception as e:
@@ -501,7 +504,7 @@ def extract_metadata_from_scopus(doi: str, api_key: str) -> dict:
                 work = data['abstracts-retrieval-response']
                 metadata = {}
                 
-                # Coredata'yı kontrol et
+                # Check coredata
                 if 'coredata' in work:
                     coredata = work['coredata']
                     
@@ -566,7 +569,7 @@ def extract_metadata_from_scopus(doi: str, api_key: str) -> dict:
                     if 'citedby-count' in coredata:
                         metadata['TC'] = coredata['citedby-count']
                 
-                # Authors ve Affiliations
+                # Authors and Affiliations
                 if 'authors' in work:
                     authors = []
                     affiliations = []
@@ -589,7 +592,7 @@ def extract_metadata_from_scopus(doi: str, api_key: str) -> dict:
                                 if oid:
                                     orcids.append(f"{full_name}/{oid}")
 
-                                # Yazar affiliations
+                                # Author affiliations
                                 if 'affiliation' in author:
                                     author_affs = []
                                     if isinstance(author['affiliation'], list):
@@ -615,8 +618,8 @@ def extract_metadata_from_scopus(doi: str, api_key: str) -> dict:
                     if orcids:
                         metadata['OI'] = '; '.join(orcids)
 
-                # Subject Areas (ASJC) -> DE + WC/SC. Yalnız Scopus key aktifse buraya gelinir.
-                # NOT: tek alan olduğunda Elsevier 'subject-area'yı liste yerine TEK dict döndürür.
+                # Subject Areas (ASJC) -> DE + WC/SC. This is reached only if the Scopus key is active.
+                # NOTE: when there is a single area, Elsevier returns 'subject-area' as a SINGLE dict instead of a list.
                 sa = (work.get('subject-areas') or {}).get('subject-area')
                 if isinstance(sa, dict):
                     sa = [sa]
@@ -680,12 +683,12 @@ def extract_metadata_from_datacite(doi: str) -> dict:
                 if 'types' in work and 'resourceTypeGeneral' in work['types']:
                     metadata['DT'] = work['types']['resourceTypeGeneral']
                 
-                # Keywords, Science Categories ve Web of Science Categories
+                # Keywords, Science Categories and Web of Science Categories
                 if 'subjects' in work and work['subjects']:
                     all_subjects = [subj.get('subject', '') for subj in work['subjects'] if 'subject' in subj]
                     if all_subjects:
-                        metadata['DE'] = '; '.join(all_subjects)  # yalnız DE; WC/SC ML'den
-                
+                        metadata['DE'] = '; '.join(all_subjects)  # DE only; WC/SC come from ML
+
                 # Language
                 if 'language' in work:
                     metadata['LA'] = work['language']
@@ -922,7 +925,7 @@ def extract_metadata_from_semantic_scholar(doi: str, api_key: str = None) -> dic
             if 'url' in work:
                 metadata['UR'] = work['url']
             
-            # Fields of Study -> yalnız DE; WC/SC ML'den
+            # Fields of Study -> DE only; WC/SC come from ML
             if 'fieldsOfStudy' in work and work['fieldsOfStudy']:
                 metadata['DE'] = '; '.join(work['fieldsOfStudy'])
             
@@ -941,34 +944,34 @@ def extract_metadata_from_semantic_scholar(doi: str, api_key: str = None) -> dic
     return {}
 
 def truncate_url_list(url_list: str, max_length: int = 2079) -> str:
-    """Excel'in URL uzunluk sınırına uygun şekilde URL listesini kısalt"""
-    # Eğer URL listesi boşsa veya zaten sınırın altındaysa direkt döndür
+    """Truncate the URL list to fit Excel's URL length limit"""
+    # If the URL list is empty or already under the limit, return it as is
     if not url_list or len(url_list) <= max_length:
         return url_list
-    
-    # URL'leri ayır
+
+    # Split the URLs
     urls = url_list.split('; ')
     result = []
     current_length = 0
-    
-    # Her URL için
+
+    # For each URL
     for i, url in enumerate(urls):
-        # İlk URL için ayırıcı gerekmez, diğerleri için '; ' (2 karakter) gerekir
+        # The first URL needs no separator; the others need '; ' (2 characters)
         separator_length = 0 if not result else 2
-        
-        # Bu URL'yi eklersek toplam uzunluk
+
+        # Total length if we add this URL
         new_length = current_length + len(url) + separator_length
-        
-        # Eğer bu URL'yi eklemek sınırı aşmayacaksa
-        if new_length <= max_length - 3:  # "..." için 3 karakter rezerve et
+
+        # If adding this URL will not exceed the limit
+        if new_length <= max_length - 3:  # reserve 3 characters for "..."
             result.append(url)
             current_length = new_length
         else:
-            # Sınıra ulaşıldı, "..." ekle ve döngüyü kır
+            # Limit reached: append "..." and break out of the loop
             result.append("...")
             break
-    
-    # URL'leri birleştir
+
+    # Join the URLs
     return '; '.join(result)
 
 def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, semantic_scholar_key: str = None, unpaywall_email: str = None, crossref_email: str = None) -> dict:
@@ -976,10 +979,10 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
     metadata = current_data.copy()
     api_sources = {}  # Track which fields came from which API
 
-    # Erken çıkış için: API'lerin doldurabileceği alanlar. OI(ORCID)/RI/ROR/CC yeni
-    # eklendi (yazar/kurum kimliği — disambiguation için).
-    # CR listede DEĞİL: hiçbir API atıf listesini WoS dilbilgisinde döndürmüyor
-    # (OpenAlex URL, Crossref ham JSON) — CR yalnız kaynak dosyadan gelir.
+    # For the early exit: fields the APIs can fill. OI (ORCID)/RI/ROR/CC were newly
+    # added (author/institution identifiers — for disambiguation).
+    # CR is NOT in the list: no API returns the citation list in WoS grammar
+    # (OpenAlex gives URLs, Crossref gives raw JSON) — CR comes only from the source file.
     _FILLABLE = ("DI", "DT", "AU", "AF", "TI", "PY", "SO", "PU", "SN", "UR", "AB", "DE",
                  "C1", "TC", "LA", "WC", "SC", "OI", "RI", "ROR", "CC")
 
@@ -1024,7 +1027,7 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
             if crossref_data:
                 for key, value in crossref_data.items():
                     if pd.isna(metadata.get(key, None)) or str(metadata.get(key, '')).strip() == '':
-                        # URL içeren alanları kısalt
+                        # Truncate fields that contain URLs
                         if isinstance(value, str) and ('http://' in value or 'https://' in value):
                             value = truncate_url_list(value)
                         metadata[key] = value
@@ -1043,7 +1046,7 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
             if openalex_data:
                 for key, value in openalex_data.items():
                     if pd.isna(metadata.get(key, None)) or str(metadata.get(key, '')).strip() == '':
-                        # URL içeren alanları kısalt
+                        # Truncate fields that contain URLs
                         if isinstance(value, str) and ('http://' in value or 'https://' in value):
                             value = truncate_url_list(value)
                         metadata[key] = value
@@ -1055,8 +1058,8 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
         except Exception as e:
             print(f" [ERROR: {str(e)}]")
 
-        # Erken çıkış: CrossRef + OpenAlex sonrası doldurulacak alan kalmadıysa
-        # diğer 5 API'yi hiç deneme (en büyük hız kazancı).
+        # Early exit: if no fields are left to fill after CrossRef + OpenAlex, do not
+        # try the other 5 APIs at all (the biggest speed gain).
         if not _remaining():
             for field in metadata:
                 if isinstance(metadata[field], str) and ('http://' in metadata[field] or 'https://' in metadata[field]):
@@ -1159,11 +1162,11 @@ def extract_metadata(doi: str, current_data: dict, scopus_api_key: str = None, s
         except Exception as e:
             print(f" [ERROR: {str(e)}]")
         
-        # API kaynaklarını ekle
+        # Add the API sources
         if api_sources:
             metadata['API_Sources'] = api_sources
         
-        # Son kontrol: Tüm URL içeren alanları kontrol et ve gerekirse kısalt
+        # Final check: check all fields that contain URLs and truncate them if necessary
         for field in metadata:
             if isinstance(metadata[field], str) and ('http://' in metadata[field] or 'https://' in metadata[field]):
                 metadata[field] = truncate_url_list(metadata[field])

@@ -1,14 +1,14 @@
 # BibexPy v2 — PyPI paketi (pip install bibexpy)
 #
-# Bu paket, geliştirme kaynağı `apps/` ve `packages/bibex_core` içindeki kodun
-# DAĞITIM ambalajıdır. Build script (scripts/build_wheel.*) şu üç parçayı
-# `src/` altına kopyalayıp wheel üretir:
+# This package is the DISTRIBUTION wrapper for the development sources in `apps/`
+# and `packages/bibex_core`. The build script (scripts/build_wheel.*) copies the
+# following three parts under `src/` and produces the wheel:
 #   • apps/web/out/        → src/bibexpy/_web/      (Next.js static export)
-#   • apps/api/{...}       → src/bibexpy/_server/   (FastAPI uygulaması)
-#   • packages/bibex_core/ → src/bibex_core/        (çekirdek modüller, vendored)
+#   • apps/api/{...}       → src/bibexpy/_server/   (FastAPI application)
+#   • packages/bibex_core/ → src/bibex_core/        (core modules, vendored)
 #
-# Son kullanıcı:  pip install bibexpy && bibexpy
-# Node.js / npm GEREKMEZ — frontend önceden build edilmiş statik dosyalar olarak gelir.
+# End user:  pip install bibexpy && bibexpy
+# Node.js / npm is NOT required — the frontend ships as pre-built static files.
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -42,20 +42,20 @@ classifiers = [
 ]
 
 dependencies = [
-    # --- FastAPI stack (apps/api/requirements.txt ile aynı) ---
+    # --- FastAPI stack (same as apps/api/requirements.txt) ---
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "python-multipart>=0.0.9",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
     "sse-starlette>=2.0.0",
-    # --- bibex_core bağımlılıkları (vendored paket kendi deps'ini PyPI'dan ister) ---
+    # --- bibex_core dependencies (the vendored package requests its own deps from PyPI) ---
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "openpyxl>=3.1.2",
-    # Veri Akış Şeması PDF çıktısı (services/report_flow.py) bunu doğrudan
-    # import ediyor; tanımlı olmadığı için pip kurulumlarında PDF indirme
-    # ModuleNotFoundError ile 500 veriyordu.
+    # The Data Flow Diagram PDF output (services/report_flow.py) imports this
+    # directly; because it was not declared, the PDF download returned a 500 with
+    # ModuleNotFoundError on pip installs.
     "reportlab>=4.0",
     "pyarrow>=15",
     "scikit-learn>=1.3.0",
@@ -78,21 +78,22 @@ Homepage = "https://bibexpy.com"
 Repository = "https://github.com/bcankara/BibexPy"
 Paper = "https://doi.org/10.1016/j.softx.2025.102098"
 
-# --- setuptools yapılandırması ---
-# _server bir alt-paket olarak keşfedilir (build script `_server/__init__.py`
-# ekler) → tüm .py modülleri wheel'e dahil. ÖNEMLİ: setuptools, `.py`
-# dosyalarını package-data ile güvenilir taşımaz (onları modül sanıp dışlar);
-# bu yüzden _server paket olarak keşfedilmek ZORUNDA. _web ise saf statik
-# dosya (html/js/css) olduğundan package-data glob'u ile taşınır.
+# --- setuptools configuration ---
+# _server is discovered as a sub-package (the build script adds
+# `_server/__init__.py`) → all .py modules are included in the wheel. IMPORTANT:
+# setuptools does not reliably ship `.py` files via package-data (it treats them as
+# modules and excludes them); that is why _server MUST be discovered as a package.
+# _web, on the other hand, is pure static files (html/js/css), so it is shipped via
+# the package-data glob.
 #
-# Runtime'da cli.py, _server dizinini sys.path'e ekleyerek flat import'ları
-# (from config import ..., from routers import ...) çözer; dotted erişim
-# (bibexpy._server.config) ile çakışmaz çünkü o yol hiç kullanılmaz.
+# At runtime, cli.py resolves the flat imports (from config import ..., from routers
+# import ...) by adding the _server directory to sys.path; this does not conflict
+# with dotted access (bibexpy._server.config) because that path is never used.
 [tool.setuptools]
 package-dir = { "" = "src" }
 include-package-data = false
-# Paketler açıkça listelenir (find_packages('src') çıktısı) — deterministik.
-# _server alt-ağacı paket olarak dahil edilir ki .py modülleri wheel'e girsin.
+# Packages are listed explicitly (the output of find_packages('src')) — deterministic.
+# The _server subtree is included as packages so that the .py modules end up in the wheel.
 packages = [
     "bibexpy",
     "bibexpy._server",
@@ -106,6 +107,6 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-# _web saf statik UI + _samples örnek veri seti ("Simple Project") —
-# recursive glob (setuptools>=62 `**` destekler).
+# _web is the pure static UI + _samples is the example dataset ("Simple Project") —
+# recursive glob (setuptools>=62 supports `**`).
 bibexpy = ["_web/**/*", "_web/**/.*", "_samples/**/*"]

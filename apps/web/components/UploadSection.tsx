@@ -13,14 +13,14 @@ import { useT } from "@/lib/i18n";
 import { useConfirm } from "@/components/Dialogs";
 
 /**
- * Birleşik "Veri & Birleştirme" adımının yükleme bölümü (Burak): ham Scopus CSV /
- * WoS TXT dosyalarını listeler + yükler ve doğrudan **Smart Merge** başlatır.
- * Ayrı "Prepare" adımı yok — hazırlık merge job'unun ilk fazında örtük yapılır.
- * Bu yüzden burada konsolide (processed) dosya GÖSTERİLMEZ.
+ * Upload section of the unified "Data & Merge" step (Burak): lists + uploads the raw
+ * Scopus CSV / WoS TXT files and starts **Smart Merge** directly.
+ * There is no separate "Prepare" step — preparation happens implicitly in the first
+ * phase of the merge job. That is why no consolidated (processed) file is SHOWN here.
  *
- *   variant="empty"  → yalnız büyük dropzone (henüz dosya yok)
- *   variant="ready"  → ham dosyalar (Scopus/WoS) + "Smart Merge" butonu
- *   variant="stale"  → ready + üstte "yeni dosya eklendi, yeniden birleştir" uyarısı
+ *   variant="empty"  → only the large dropzone (no files yet)
+ *   variant="ready"  → raw files (Scopus/WoS) + the "Smart Merge" button
+ *   variant="stale"  → ready + a "new file added, merge again" warning on top
  */
 export function UploadSection({
   projectId, files, variant, onStartMerge, starting, onChanged,
@@ -36,7 +36,7 @@ export function UploadSection({
   const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Silinmekte olan dosya adı — o satırın Trash butonu spinner'a döner + kilitlenir.
+  // Name of the file being deleted — that row's Trash button turns into a spinner + gets locked.
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   const scopus = files.filter((f) => f.kind === "scopus_csv");
@@ -69,7 +69,7 @@ export function UploadSection({
     }
   }
 
-  // Boş: yalnız büyük dropzone
+  // Empty: only the large dropzone
   if (variant === "empty" || !hasFiles) {
     return (
       <Card>

@@ -8,15 +8,15 @@ import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 /**
- * Uygulama-içi onay (confirm) ve bildirim (toast) sistemi.
- * Native `window.confirm` / `window.alert` yerine tasarımlı bileşenler.
+ * In-app confirmation (confirm) and notification (toast) system.
+ * Custom-designed components instead of the native `window.confirm` / `window.alert`.
  *
- * Kullanım:
+ * Usage:
  *   const confirm = useConfirm();
  *   if (!(await confirm({ message: "...", tone: "danger" }))) return;
  *
  *   const toast = useToast();
- *   toast("Kaydedildi", { tone: "success" });
+ *   toast("Saved", { tone: "success" });
  */
 
 type Tone = "default" | "danger" | "success" | "warning" | "info";

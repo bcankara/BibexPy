@@ -62,11 +62,11 @@ class ApplyFilterRequest(BaseModel):
 
 @router.post("/apply")
 def apply_filter_permanently(project_id: str, payload: ApplyFilterRequest):
-    """Aktif filtreyi veri setine KALICI uygula: eşleşmeyen satırlar çıkarılır.
+    """Apply the active filter to the dataset PERMANENTLY: non-matching rows are removed.
 
-    Böylece sonraki adımlar (Harmonizasyon, Export) filtrelenmiş veriyle
-    çalışır — filtre yalnızca görünüm olarak kalmaz. Önce snapshot alınır;
-    Geçmiş'ten geri yüklenebilir.
+    This way the following steps (Harmonization, Export) work with the filtered
+    data — the filter does not remain just a view. A snapshot is taken first;
+    it can be restored from History.
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
@@ -89,7 +89,7 @@ def apply_filter_permanently(project_id: str, payload: ApplyFilterRequest):
     if kept == 0:
         raise HTTPException(400, "filter_matches_no_records")
 
-    # Snapshot + kalıcı yaz (records router'daki desenle aynı)
+    # Snapshot + persistent write (same pattern as in the records router)
     from routers.records import _save_dataset, _snapshot_dataset
     snapshot = _snapshot_dataset(project_id, df, "filter_apply")
     saved_path = _save_dataset(project_id, filtered.reset_index(drop=True))

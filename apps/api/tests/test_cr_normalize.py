@@ -32,9 +32,9 @@ if str(_PACKAGES) not in sys.path:
 from bibex_core.cr_normalize import count_refs, normalize_cr  # noqa: E402
 
 
-# ── Gerçek örnekler (12.487 kayıtlık korpustan) ──────────────────────────
+# ── Real examples (from the 12,487-record corpus) ────────────────────────
 
-# Scopus "new format": yazarlar ';' ile, referans sonunda "(yyyy)".
+# Scopus "new format": authors separated by ';', "(yyyy)" at the end of the reference.
 REAL_NEW_FORMAT = [
     (
         "FAHLE L.; HOLLEY E.A.; WALTON G.; PETRUSKA A.J.; BRUNE J.F., ANALYSIS OF "
@@ -49,14 +49,14 @@ REAL_NEW_FORMAT = [
         "USAMENTIAGA R, 2012, MACH. VIS. APPL, V23, P179",
     ),
     (
-        # Cilt var, sayfa yok
+        # Volume present, no pages
         "HULL J.; EWART I.J., AUTOMATION IN CONSTRUCTION CONSERVATION DATA "
         "PARAMETERS FOR BIM-ENABLED HERITAGE ASSET MANAGEMENT, AUTOM CONSTR, "
         "119, (2020)",
         "HULL J, 2020, AUTOM CONSTR, V119",
     ),
     (
-        # Cilt + sayı, sayfa yok
+        # Volume + issue, no pages
         "PIVAC D., AVAILABILITY OF HISTORICAL CADASTRAL DATA, LAND, 10, 9, (2021)",
         "PIVAC D, 2021, LAND, V10",
     ),
@@ -66,55 +66,55 @@ REAL_NEW_FORMAT = [
         "JING L, 2002, INT J ROCK MECH MIN SCI, V39, P409",
     ),
     (
-        # Kitap: yalnız yazar + başlık + yıl. Başlık kaynak sanılmamalı.
+        # Book: only author + title + year. The title must not be mistaken for the source.
         "ALSTON B.; HARRELL J.; SHAW I., ANCIENT EGYPTIAN MATERIALS AND "
         "TECHNOLOGY, (2000)",
         "ALSTON B, 2000",
     ),
     (
-        # Tek yazar, yalnız yıl
+        # Single author, year only
         "LOUCKS L.J., (1981)",
         "LOUCKS LJ, 1981",
     ),
     (
-        # Cilt "730-732" bir aralık — cilt de kaynak da sayılmamalı
+        # Volume "730-732" is a range — it must be counted neither as volume nor as source
         "SAAVEDRA E.; LOPEZ A.J.; LAMAS J.; FIORUCCI M.P.; RAMIL A.; RIVAS T., "
         "FINITE ELEMENT MODEL OF GRANITE ABLATION WITH UV LASER, "
         "MAT. SCIENCE FORUM, 730-732, PP. 519-524, (2013)",
         "SAAVEDRA E, 2013, MAT. SCIENCE FORUM, P519",
     ),
     (
-        # Kısaltılmış tireli ilk adlar → WoS "AC" yazımı; cilt yok, sayfa var
+        # Abbreviated hyphenated first names → WoS "AC" form; no volume, pages present
         "HAUGSTVEDT A.-C.; KROGSTIE J., MOBILE AUGMENTED REALITY FOR CULTURAL "
         "HERITAGE: A TECHNOLOGY ACCEPTANCE STUDY, ISMAR 2012, PP. 247-255, (2012)",
         "HAUGSTVEDT AC, 2012, ISMAR 2012, P247",
     ),
     (
-        # Yazar yok, kurum adı — yine de korunur
+        # No author, institution name — still preserved
         "MINISTER OF CULTURE AND TOURISM, (2005)",
         "MINISTER OF CULTURE AND TOURISM, 2005",
     ),
 ]
 
-# Gerçek WoS CR hücreleri (aynı korpustan) — bunlar hiç değişmemeli.
+# Real WoS CR cells (from the same corpus) — these must not change at all.
 REAL_WOS_CELLS = [
     "MILDENHALL B, 2022, COMMUN ACM, V65, P99, DOI 10.1145/3503250;"
     "PASZKE A, 2019, ADV NEUR IN, V32;"
     "TANCIK M., 2020, NEURIPS;"
     "WANG Z., 2021, ARXIV",
-    # ASCE DOI'si "(1234)" ile biter — Scopus'un "(yyyy)" işaretiyle karıştırılmamalı
+    # The ASCE DOI ends with "(1234)" — it must not be confused with Scopus's "(yyyy)" marker
     "SU YY, 2006, J CONSTR ENG M, V132, P1234, "
     "DOI 10.1061/(ASCE)0733-9364(2006)132:12(1234);"
     "KONTOGIANNI V, 2004, J GEOTECH GEOENVIRON, V130, P1004, "
     "DOI 10.1061/(ASCE)1090-0241(2004)130:10(1004)",
-    # Yılsız girdiler ve yazarsız WoS referansı
+    # Year-less entries and a WoS reference without an author
     "AGISOFT, AGISOFT METASHAPE USER MANUAL;"
     "2015, PHOTOGRAMM ENG REM S, V81, P1, DOI 10.14358/PERS.81.3.A1-A26;"
     "[ANONYMOUS], 2002, HAWAIIS RUSSIAN ADV",
 ]
 
 
-# ── Birim: Scopus "new format" ───────────────────────────────────────────
+# ── Unit: Scopus "new format" ────────────────────────────────────────────
 
 @pytest.mark.parametrize("raw,expected", REAL_NEW_FORMAT)
 def test_new_format_real_samples(raw, expected):
@@ -122,7 +122,7 @@ def test_new_format_real_samples(raw, expected):
 
 
 def test_new_format_multi_author_semicolons_are_not_reference_boundaries():
-    """Bir referansın içindeki ';' yazar ayırıcıdır — referans bölünmemeli."""
+    """A ';' inside a reference is an author separator — the reference must not be split."""
     raw = ("Anderson E.W.; Fornell C.; Lehmann D.R., Customer Satisfaction, "
            "Market Share, And Profitability, J Marketing, 58, 3, pp. 53-66, (1994)")
     assert normalize_cr(raw) == "Anderson EW, 1994, J MARKETING, V58, P53"
@@ -132,7 +132,7 @@ def test_new_format_multi_author_semicolons_are_not_reference_boundaries():
 def test_single_page_and_en_dash_range():
     single = "Smith J.; Doe A., A Title, J Test, 7, pp. 5, (2001)"
     assert normalize_cr(single) == "Smith J, 2001, J TEST, V7, P5"
-    # en dash (U+2013) sayfa aralığı
+    # en dash (U+2013) page range
     dashed = "Smith J.; Doe A., A Title, J Test, 7, pp. 12–34, (2001)"
     assert normalize_cr(dashed) == "Smith J, 2001, J TEST, V7, P12"
 
@@ -145,7 +145,7 @@ def test_doi_is_carried_over_when_present():
     assert out.startswith("Aria M, 2017, J INFORMETRICS, V11, P959")
 
 
-# ── Birim: Scopus "classic format" (yıl metin ortasında) ─────────────────
+# ── Unit: Scopus "classic format" (year in the middle of the text) ───────
 
 def test_classic_format():
     raw = ("Aria M., Cuccurullo C., bibliometrix: An R-tool for comprehensive "
@@ -155,7 +155,7 @@ def test_classic_format():
 
 
 def test_classic_format_semicolon_separates_references():
-    """Classic biçimde yazarlar virgülle ayrıldığı için ';' referans sınırıdır."""
+    """In the classic format authors are separated by commas, so ';' is the reference boundary."""
     raw = ("Aria M., A Tool, (2017) J Informetrics, 11, pp. 959-975; "
            "Cobo M., Science Mapping, (2011) J Am Soc Inf Sci, 62, pp. 1382-1402")
     out = normalize_cr(raw)
@@ -164,7 +164,7 @@ def test_classic_format_semicolon_separates_references():
     assert count_refs(out) == 2
 
 
-# ── Birim: WoS girdisi aynen geri döner ──────────────────────────────────
+# ── Unit: WoS input is returned unchanged ────────────────────────────────
 
 @pytest.mark.parametrize("cell", REAL_WOS_CELLS)
 def test_wos_cells_pass_through_byte_identical(cell):
@@ -172,11 +172,12 @@ def test_wos_cells_pass_through_byte_identical(cell):
     assert normalize_cr(cell) == cell
 
 
-# ── Birim: karışık hücre ─────────────────────────────────────────────────
+# ── Unit: mixed cell ─────────────────────────────────────────────────────
 
 def test_mixed_format_cell():
-    """Tek bir hücre hem WoS hem Scopus referansı taşıyabilir (gerçek veride
-    85 satır böyle) — her referans kendi dilbilgisine göre işlenmeli."""
+    """A single cell can carry both WoS and Scopus references (in the real data
+    85 rows are like this) — each reference must be processed according to its
+    own grammar."""
     cell = ("MILDENHALL B, 2022, COMMUN ACM, V65, P99, DOI 10.1145/3503250;"
             "PIVAC D., AVAILABILITY OF HISTORICAL CADASTRAL DATA, LAND, 10, 9, (2021); "
             "ALSTON B.; HARRELL J.; SHAW I., ANCIENT EGYPTIAN MATERIALS, (2000)")
@@ -187,12 +188,12 @@ def test_mixed_format_cell():
     assert count_refs(out) == 3
 
 
-# ── Birim: dönüştürülemeyen referanslar ──────────────────────────────────
+# ── Unit: references that cannot be converted ────────────────────────────
 
 def test_year_less_reference_is_preserved_with_neutralized_semicolons():
-    """Yıl yoksa dönüştürme yapılamaz; referans ATILMAZ, yalnızca içindeki ';'
-    virgüle çevrilir — böylece WoS yazıcısının ';' bölmesi referansı parçalamaz
-    ve VOSviewer ham dizeyle eşleştirme yapabilir."""
+    """Without a year no conversion is possible; the reference is NOT dropped, only
+    the ';' inside it is turned into a comma — so the WoS writer's ';' split does
+    not fragment the reference and VOSviewer can match on the raw string."""
     raw = ("RUBANO V.; VITALI F., MAKING ACCESSIBILITY ACCESSIBLE, "
            "PROCEEDINGS OF THE 2021 IEEE CCNC, PP. 1-6")
     out = normalize_cr(raw)
@@ -209,7 +210,7 @@ def test_book_reference_without_year_is_kept():
 
 
 def test_bare_year_fragment_does_not_crash():
-    """Gerçek Scopus verisinde 559 adet çıplak '(yyyy)' parçası var."""
+    """The real Scopus data contains 559 bare '(yyyy)' fragments."""
     assert normalize_cr("(2021)") == "(2021)"
     cell = "PIVAC D., A TITLE, LAND, 10, 9, (2021); (2020)"
     out = normalize_cr(cell)
@@ -217,7 +218,7 @@ def test_bare_year_fragment_does_not_crash():
     assert normalize_cr(out) == out
 
 
-# ── Birim: idempotency ve güvenli girdiler ───────────────────────────────
+# ── Unit: idempotency and safe inputs ────────────────────────────────────
 
 @pytest.mark.parametrize("raw", [r for r, _ in REAL_NEW_FORMAT] + REAL_WOS_CELLS + [
     "(2021)",
@@ -234,7 +235,7 @@ def test_empty_nan_and_non_string_input():
     assert normalize_cr(None) == ""
     assert normalize_cr(float("nan")) == ""
     assert normalize_cr("nan") == ""
-    # Sayısal hücre → çökmeden dizeye çevrilir
+    # Numeric cell → converted to a string without crashing
     assert normalize_cr(2020) == "2020"
 
 
@@ -244,11 +245,11 @@ def test_count_refs():
     assert count_refs(float("nan")) == 0
     assert count_refs("A, 2020, X") == 1
     assert count_refs("A, 2020, X; B, 2021, Y; C, 2022, Z") == 3
-    # Boş parçalar sayılmaz
+    # Empty fragments are not counted
     assert count_refs("A, 2020, X; ; B, 2021, Y;") == 2
 
 
-# ── Entegrasyon: wos export'u WoS dilbilgisi yazar ───────────────────────
+# ── Integration: the wos export writes WoS grammar ───────────────────────
 
 SCOPUS_CR = (
     "FAHLE L.; HOLLEY E.A.; WALTON G., ANALYSIS OF SLAM-BASED LIDAR DATA, "
@@ -274,7 +275,7 @@ def client(monkeypatch, tmp_path):
 
 
 def _cr_blocks(text: str) -> list[list[str]]:
-    """WoS metnindeki her kaydın CR bloğunu (devam satırları dâhil) döndür."""
+    """Return the CR block of every record in the WoS text (continuation lines included)."""
     blocks: list[list[str]] = []
     current: list[str] | None = None
     for line in text.splitlines():
@@ -300,7 +301,7 @@ def test_wos_export_writes_wos_grammar_cr_and_fills_nr(client):
         "PY": [2023, 2023],
         "SO": ["J DOC", "J DOC"],
         "CR": [SCOPUS_CR, WOS_CR],
-        "NR": ["", ""],          # boş NR — CR'den doldurulmalı
+        "NR": ["", ""],          # empty NR — must be filled from CR
     }), adir / "merged.parquet")
     analyses.finalize_analysis(pid, aid)
     _DF_CACHE.clear()
@@ -317,14 +318,14 @@ def test_wos_export_writes_wos_grammar_cr_and_fills_nr(client):
     scopus_refs, wos_refs = blocks
     assert len(scopus_refs) == 3 and len(wos_refs) == 2
 
-    # 1) Scopus dilbilgisi kalmamalı: hiçbir yerde "(yyyy);" ya da satır sonunda
-    #    "(yyyy)" olmamalı.
+    # 1) No Scopus grammar may remain: "(yyyy);" must appear nowhere, nor
+    #    "(yyyy)" at the end of a line.
     assert re.search(r"\(\d{4}\)\s*;", text) is None
     for refs in blocks:
         for ref in refs:
             assert not re.search(r"\(\d{4}\)\s*$", ref), ref
 
-    # 2) Her CR satırı ya WoS biçiminde ya da ';'siz nötrleştirilmiş olmalı.
+    # 2) Every CR line must either be in WoS form or neutralized without ';'.
     wos_shaped = re.compile(r"^[^,;]+,\s*(?:1[5-9]|20)\d{2}(?:,|$)")
     for refs in blocks:
         for ref in refs:
@@ -336,23 +337,24 @@ def test_wos_export_writes_wos_grammar_cr_and_fills_nr(client):
         "PIVAC D, 2021, LAND, V10",
         "ALSTON B, 2000",
     ]
-    # WoS kaynaklı satır olduğu gibi yazılmalı
+    # A row sourced from WoS must be written as is
     assert wos_refs == [
         "MILDENHALL B, 2022, COMMUN ACM, V65, P99, DOI 10.1145/3503250",
         "PASZKE A, 2019, ADV NEUR IN, V32",
     ]
 
-    # 3) CR'si dolu her kayıt için NR boş olmamalı ve referans sayısını vermeli.
+    # 3) For every record with a filled CR, NR must be non-empty and must give the
+    #    reference count.
     nr_values = [line[3:].strip() for line in text.splitlines() if line.startswith("NR ")]
     assert nr_values == ["3", "2"]
 
 
-# ── NR=0 + dolu CR: export sınırında sayımdan düzeltilir ─────────────────
+# ── NR=0 + filled CR: corrected from the count at the export boundary ────
 
 def test_wos_txt_export_recounts_zero_nr(tmp_path):
-    """NR=0 iken CR dolu (eski merge'lerin scopus_fallback satırları): WoS txt
-    yazıcısı NR'yi referans sayımından yazmalı — '0' dizgeyi tarif etmiyor.
-    Gerçekten referanssız kayıtta (CR boş) NR 0 kalabilir."""
+    """CR is filled while NR=0 (scopus_fallback rows from old merges): the WoS txt
+    writer must write NR from the reference count — '0' does not describe the string.
+    In a record that truly has no references (CR empty), NR may stay 0."""
     from bibex_core.xlsx2vos import convert_excel_to_wos
 
     df = pd.DataFrame({
@@ -374,18 +376,19 @@ def test_wos_txt_export_recounts_zero_nr(tmp_path):
     text = out.read_text(encoding="utf-8")
 
     nr_lines = [ln.strip() for ln in text.splitlines() if ln.startswith("NR ")]
-    assert nr_lines[0] == "NR 2", nr_lines  # 2 referans sayıldı, 0 değil
-    # CR'sız kayıtta NR 0 aynen kalır (gerçekten referanssız)
+    assert nr_lines[0] == "NR 2", nr_lines  # 2 references counted, not 0
+    # In a record without CR, NR 0 stays as it is (truly no references)
     assert nr_lines[1] in ("NR 0", "NR 0.0"), nr_lines
-    # Dönüştürülmüş CR: hiçbir satırda Scopus kalıntısı "(yyyy)" sonu olmamalı
+    # Converted CR: no line may end with a leftover Scopus "(yyyy)" tail
     assert not re.search(r"\(\d{4}\)\s*$", text.split("ER")[0], re.MULTILINE) or True
     assert "ANDERSON EW, 1994" in text
 
 
-# ── WoS yazar virgülü: "SOYAD, II, YIL" → "SOYAD II, YIL" ────────────────
-# Clarivate export kanalına göre iki yazım da sahada var (bir ham exportta
-# %67,6 virgüllü ölçüldü; başka bir exportta %0). Virgüllü biçim VOSviewer'ın
-# yapısal ayrıştırmasını bozuyor → iki yazım tek anahtara indirgenir.
+# ── WoS author comma: "SURNAME, II, YEAR" → "SURNAME II, YEAR" ───────────
+# Depending on the Clarivate export channel, both spellings occur in the field
+# (67.6% comma form was measured in one raw export; 0% in another). The comma
+# form breaks VOSviewer's structural parsing → both spellings are reduced to a
+# single key.
 
 def test_wos_author_comma_stripped():
     cr = ("HESKETT, JL, 1994, HARVARD BUS REV, V72, P164; "
@@ -399,13 +402,13 @@ def test_wos_author_comma_stripped():
 
 
 def test_wos_institutional_authors_untouched():
-    """Kurum-yazarlı ve anonim referanslarda virgülden sonra yıl gelir — dokunulmaz."""
+    """In institutional-author and anonymous references the year follows the comma — left untouched."""
     cr = "OECD, 2019, HLTH EXP; [Anonymous], 2013, NATURE, V13, P41; UNWTO, 2011, TOURISM"
     assert normalize_cr(cr) == cr
 
 
 def test_wos_comma_form_in_mixed_cell():
-    """Virgüllü WoS + Scopus yeni-format aynı hücrede: ikisi de normalize olur."""
+    """Comma-form WoS + Scopus new-format in the same cell: both get normalized."""
     cr = ("ZEITHAML, VA, 1996, J MARKETING, V60, P31; "
           "ANDERSON E.W.; FORNELL C., CUSTOMER SATISFACTION, JOURNAL OF MARKETING, "
           "58, PP. 53-66, (1994)")

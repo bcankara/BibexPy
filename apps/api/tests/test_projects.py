@@ -15,13 +15,13 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client(monkeypatch, tmp_path):
-    # Test storage'ını izole et
+    # Isolate the test storage
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    # apps/api/ köküne path ekle
+    # Add the apps/api/ root to the path
     api_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(api_root))
 
-    # config/main'i temiz import et (env'i her testte yeniden okumak için)
+    # Import config/main fresh (so the env is re-read in every test)
     for mod in list(sys.modules):
         if mod.startswith(("main", "config", "routers", "services", "models")):
             sys.modules.pop(mod, None)
@@ -37,24 +37,24 @@ def test_health(client):
 
 
 def test_project_lifecycle(client):
-    # Boşken liste boş
+    # The list is empty when there are no projects
     assert client.get("/api/projects").json() == []
 
-    # Oluştur
+    # Create
     r = client.post("/api/projects", json={"name": "Test1", "description": "x"})
     assert r.status_code == 201
     pid = r.json()["id"]
     assert len(pid) == 12
 
-    # Listele
+    # List
     assert len(client.get("/api/projects").json()) == 1
 
-    # Tekil getir
+    # Fetch a single project
     r = client.get(f"/api/projects/{pid}")
     assert r.status_code == 200
     assert r.json()["name"] == "Test1"
 
-    # Sil
+    # Delete
     r = client.delete(f"/api/projects/{pid}")
     assert r.status_code == 204
     assert client.get(f"/api/projects/{pid}").status_code == 404
@@ -63,7 +63,7 @@ def test_project_lifecycle(client):
 def test_file_upload(client):
     pid = client.post("/api/projects", json={"name": "UploadTest"}).json()["id"]
 
-    # CSV ve TXT yükle
+    # Upload a CSV and a TXT
     files = [
         ("files", ("scopus.csv", io.BytesIO(b"col1,col2\n1,2\n"), "text/csv")),
         ("files", ("savedrecs.txt", io.BytesIO(b"FN Clarivate\nVR 1.0\n"), "text/plain")),
@@ -75,11 +75,11 @@ def test_file_upload(client):
     kinds = {f["kind"] for f in saved}
     assert kinds == {"scopus_csv", "wos_txt"}
 
-    # Listede görünsün
+    # They should appear in the list
     r = client.get(f"/api/projects/{pid}/files")
     assert len(r.json()) == 2
 
-    # Sil
+    # Delete
     r = client.delete(f"/api/projects/{pid}/files/scopus.csv")
     assert r.status_code == 204
     assert len(client.get(f"/api/projects/{pid}/files").json()) == 1

@@ -1,13 +1,13 @@
 import pandas as pd
-from tqdm import tqdm  # İlerleme çubuğu için tqdm kütüphanesi
+from tqdm import tqdm  # tqdm library for the progress bar
 
 from bibex_core.cr_normalize import normalize_cr, count_refs
 
 def convert_excel_to_wos(input_excel_path, output_txt_path):
-    # Excel dosyasını pandas kullanarak aç
+    # Open the Excel file using pandas
     df = pd.read_excel(input_excel_path)
 
-    # Başlıklara göre sütun isimlerini eşleştir
+    # Map the column names according to the headers
     desired_columns = {
         "PT": "PT",           # Publication Type
         "AU": "AU",           # Authors
@@ -53,55 +53,55 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
         "DA": "DA"            # Date of Export
     }
 
-    # Değerleri saklamak için boş listeler oluştur
+    # Create empty lists to hold the values
     values_dict = {column: [] for column in desired_columns}
 
-    # Verileri başlıklara göre al
+    # Fetch the data according to the headers
     for idx, row in df.iterrows():
         for key, header_name in desired_columns.items():
             cell_value = row.get(header_name, "")
             values_dict[key].append(cell_value if pd.notna(cell_value) else "")
 
     with open(output_txt_path, 'w', encoding='utf-8') as file:
-        # Dosya başlangıcı (bir kere)
+        # File header (written once)
         file.write("FN Clarivate Analytics Web of Science\n")
         file.write("VR 1.0\n\n")
 
-        # Her kayıt için bilgileri dosyaya yaz
+        # Write the information for each record to the file
         for idx in range(len(df)):
-            # Her kayıt PT ile başlar
+            # Every record starts with PT
             pt_value = values_dict["PT"][idx] if values_dict["PT"][idx] else "J"
             file.write(f"PT {pt_value}\n")
 
-            # AU (Author) bilgisi
+            # AU (Author) information
             au = values_dict["AU"][idx]
             if au:
-                au_list = au.split(';')  # Yazarları ayır
+                au_list = au.split(';')  # Split the authors
                 formatted_au_list = [author.strip() for author in au_list if author.strip()]
-                file.write(f"AU {formatted_au_list[0]}\n")  # AU belirtecinin ilk satırını AU satırına yaz
+                file.write(f"AU {formatted_au_list[0]}\n")  # Write the first author on the AU tag's first line
                 for author in formatted_au_list[1:]:
-                    file.write(f"   {author}\n")  # Diğer yazarları alt satırlara yaz ve önde üç boşluk bırak
+                    file.write(f"   {author}\n")  # Write the other authors on subsequent lines, indented by three spaces
             else:
                 file.write("AU \n")
 
-            # AF (Author Full Name) bilgisi
+            # AF (Author Full Name) information
             af = values_dict["AF"][idx]
             if af:
-                af_list = af.split(';')  # Yazar tam isimlerini ayır
-                file.write(f"AF {af_list[0].strip()}\n")  # AF belirtecinin ilk satırını AF satırına yaz
+                af_list = af.split(';')  # Split the author full names
+                file.write(f"AF {af_list[0].strip()}\n")  # Write the first name on the AF tag's first line
                 for author_full in af_list[1:]:
-                    file.write(f"   {author_full.strip()}\n")  # Diğer isimleri alt satırlara yaz ve önde üç boşluk bırak
+                    file.write(f"   {author_full.strip()}\n")  # Write the other names on subsequent lines, indented by three spaces
             else:
                 file.write("AF \n")
 
-            # Diğer makale bilgilerini yaz
-            file.write(f"TI {values_dict['TI'][idx]}\n")  # Makale başlığı
-            file.write(f"SO {values_dict['SO'][idx]}\n")  # Kaynak başlık (Source)
-            file.write(f"LA {values_dict['LA'][idx]}\n")  # Dil bilgisi (Language)
-            file.write(f"DT {values_dict['DT'][idx]}\n")  # Belge türü (Document Type)
-            file.write(f"DE {values_dict['DE'][idx]}\n")  # Anahtar kelimeler (Keywords)
+            # Write the other article information
+            file.write(f"TI {values_dict['TI'][idx]}\n")  # Article title
+            file.write(f"SO {values_dict['SO'][idx]}\n")  # Source title (Source)
+            file.write(f"LA {values_dict['LA'][idx]}\n")  # Language information (Language)
+            file.write(f"DT {values_dict['DT'][idx]}\n")  # Document type (Document Type)
+            file.write(f"DE {values_dict['DE'][idx]}\n")  # Keywords (Keywords)
             file.write(f"ID {values_dict['ID'][idx]}\n")  # Keywords Plus
-            file.write(f"AB {values_dict['AB'][idx]}\n")  # Özet (Abstract)
+            file.write(f"AB {values_dict['AB'][idx]}\n")  # Abstract (Abstract)
 
             # C1 (Author Address) information - Each address on a new line
             c1 = values_dict['C1'][idx]
@@ -114,18 +114,18 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
                 
                 # If we have both authors and addresses
                 if authors and addresses:
-                    # İlk satır için "C1" kullan
+                    # Use "C1" for the first line
                     file.write(f"C1 [{authors[0]}] {addresses[0]}\n")
                     
-                    # Diğer satırlar için "   " ile başla
+                    # Start the other lines with "   "
                     current_addr_idx = 1
                     
-                    # Normal eşleşmeleri yaz
+                    # Write the normal matches
                     for i in range(1, min(len(authors), len(addresses))):
                         file.write(f"   [{authors[i]}] {addresses[i]}\n")
                         current_addr_idx = i + 1
                         
-                    # Eğer fazla yazar varsa, son adresle eşleştir
+                    # If there are extra authors, pair them with the last address
                     if len(authors) > len(addresses):
                         last_address = addresses[-1]
                         for i in range(current_addr_idx, len(authors)):
@@ -155,16 +155,16 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
             else:
                 file.write("CR \n")
 
-            # Diğer gerekli bilgileri yaz
-            # NR boş ya da 0 iken CR doluysa CR'den say — WoS okuyucuları NR'yi
-            # referans sayısı olarak kullanır. NR=0 + dolu CR, eski merge'lerin
-            # scopus_fallback satırlarında görülen yanlış degerdir; gerçekten
-            # referanssız kayıtların CR'ı zaten boştur.
+            # Write the other required information
+            # If NR is empty or 0 while CR is filled, count from CR — WoS readers use NR
+            # as the reference count. NR=0 + filled CR is the wrong value seen in the
+            # scopus_fallback rows of old merges; records that genuinely have no
+            # references already have an empty CR.
             nr = values_dict['NR'][idx]
             if str(nr).strip() in ("", "nan", "NaN", "None", "0", "0.0") and cr:
                 nr = count_refs(cr)
-            file.write(f"NR {nr}\n")  # Atıf sayısı (Number of References)
-            file.write(f"TC {values_dict['TC'][idx]}\n")  # Toplam atıf sayısı (Times Cited)
+            file.write(f"NR {nr}\n")  # Reference count (Number of References)
+            file.write(f"TC {values_dict['TC'][idx]}\n")  # Total citation count (Times Cited)
             file.write(f"Z9 {values_dict['Z9'][idx]}\n")  # Total Times Cited
             file.write(f"U1 {values_dict['U1'][idx]}\n")  # Usage Count (Last 180 Days)
             file.write(f"U2 {values_dict['U2'][idx]}\n")  # Usage Count (Since 2013)
@@ -189,10 +189,10 @@ def convert_excel_to_wos(input_excel_path, output_txt_path):
             file.write(f"UT {values_dict['UT'][idx]}\n")  # Accession Number
             file.write(f"DA {values_dict['DA'][idx]}\n")  # Date of Export
 
-            # Her kayıt ER ile biter
+            # Every record ends with ER
             file.write("ER\n\n")
 
-        # Dosya sonu
+        # End of file
         file.write("EF\n")
 
     print(f"Successfully converted file to WoS format: '{output_txt_path}'")

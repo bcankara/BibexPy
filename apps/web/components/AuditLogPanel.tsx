@@ -11,7 +11,7 @@ import { useT } from "@/lib/i18n";
 import { useConfirm, useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
 
-// Locale-aware label resolver — runtime'da t() ile çevrilir
+// Locale-aware label resolver — translated at runtime via t()
 const KIND_ICONS: Record<string, { icon: React.ReactNode; color: string; labelKey: string }> = {
   upload:                  { icon: <Upload className="h-3.5 w-3.5" />,  color: "text-info",      labelKey: "audit.kinds.upload" },
   convert:                 { icon: <FileText className="h-3.5 w-3.5" />, color: "text-info",      labelKey: "audit.kinds.convert" },
@@ -43,11 +43,11 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-  // Hangi snapshot şu an geri yükleniyor — o satırın butonu spinner'a döner + kilitlenir.
+  // Which snapshot is currently being restored — that row's button turns into a spinner + gets locked.
   const [restoringSnapshot, setRestoringSnapshot] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
-  // onClose'u ref'te tut — parent her render'da yeni closure verse de efekt yeniden
-  // çalışıp listeyi tekrar çekmesin / animasyonu sıfırlamasın.
+  // Keep onClose in a ref — even if the parent passes a new closure on every render, the
+  // effect must not re-run and re-fetch the list / reset the animation.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -211,7 +211,7 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
 
   return (
     <div className="mt-2 space-y-2">
-      {/* Akış özeti — büyük sayı kartları */}
+      {/* Flow summary — large number cards */}
       <div className="grid grid-cols-4 gap-1.5">
         <SummaryCell label={t("audit.smart.rawInput")} value={`${totalInput}`} sub={`${wos} + ${scp}`} tone="muted" />
         <SummaryCell label={t("audit.smart.matched")} value={`${matched}`} sub={`${dedupRate.toFixed(1)}% ${t("audit.smart.dedupShort")}`} tone="brand" />
@@ -219,7 +219,7 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
         <SummaryCell label={t("audit.smart.output")} value={`${merged}`} sub={`${lostWos}+${lostScp} ${t("audit.smart.lostShort")}`} tone="success" />
       </div>
 
-      {/* Stage dağılımı */}
+      {/* Stage distribution */}
       {Object.keys(stages).length > 0 && (
         <div className="rounded-md border border-border bg-bg-soft/40 px-2 py-1.5">
           <div className="text-[9px] font-semibold uppercase tracking-wider text-muted mb-1 flex items-center gap-1">
@@ -255,7 +255,7 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* Süre + status */}
+      {/* Duration + status */}
       {(durationSec != null || outputFiles.length > 0) && (
         <div className="flex items-center gap-2 text-[10px] text-muted">
           {durationSec != null && (
@@ -319,7 +319,7 @@ function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onR
           </div>
           <p className="text-sm text-ink font-medium mt-0.5">{translateTitle(t, entry)}</p>
 
-          {/* Smart Merge için zengin özet — JSON dump değil */}
+          {/* Rich summary for Smart Merge — not a JSON dump */}
           {isSmartMerge && entry.details && (
             <SmartMergeSummary details={entry.details as Record<string, unknown>} />
           )}

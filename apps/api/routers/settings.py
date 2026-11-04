@@ -21,7 +21,7 @@ from config import reload_settings, settings
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-# LLM sağlayıcı preset'leri — UI dropdown'larda kullanılır
+# LLM provider presets — used in the UI dropdowns
 LLM_PROVIDERS = {
     "deepseek": {
         "label": "DeepSeek",
@@ -63,15 +63,15 @@ LLM_PROVIDERS = {
 }
 
 
-# Hangi alanlar UI'dan yönetilebilir
+# Which fields can be managed from the UI
 EDITABLE_KEYS = {
-    # Depolama
+    # Storage
     "STORAGE_DIR":              {"label": "Proje Depolama Klasörü",    "secret": False, "group": "storage",
                                  "type": "path",
                                  "default": "./storage",
                                  "hint": "Tüm projeler burada saklanır. Klasör seçilince anında aktif olur — Kaydet ve yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; elle taşıyın."},
-    # API anahtarları / e-postaları — zenginleştirme kaynakları.
-    # Önemli: Crossref, OpenAlex ve Unpaywall ÜCRETSİZdir; yalnızca Scopus anahtar ister.
+    # API keys / emails — enrichment sources.
+    # Important: Crossref, OpenAlex and Unpaywall are FREE; only Scopus requires a key.
     "SCOPUS_API_KEY":           {"label": "Scopus API Key",            "secret": True,  "group": "api",
                                  "hint": "Yalnızca Scopus zenginleştirmesi için gerekli (Elsevier, kurumsal/ücretli). Diğer tüm kaynaklar ücretsizdir."},
     "SEMANTIC_SCHOLAR_API_KEY": {"label": "Semantic Scholar API Key",  "secret": True,  "group": "api",
@@ -80,7 +80,7 @@ EDITABLE_KEYS = {
                                  "hint": "Opsiyonel. Açık erişim PDF bağlantıları için; Unpaywall yalnızca bir e-posta ister (ücretsiz)."},
     "CROSSREF_EMAIL":           {"label": "CrossRef Email (önerilir)", "secret": False, "group": "api",
                                  "hint": "Opsiyonel ama önerilir. CrossRef 'polite pool' ile daha yüksek hız sağlar (ücretsiz)."},
-    # LLM (yeni birleşik alanlar)
+    # LLM (new unified fields)
     "LLM_PROVIDER":             {"label": "LLM Sağlayıcısı",            "secret": False, "group": "llm",
                                  "type": "provider",
                                  "default": "deepseek",
@@ -92,7 +92,7 @@ EDITABLE_KEYS = {
     "LLM_MODEL":                {"label": "Model",                      "secret": False, "group": "llm",
                                  "type": "model",
                                  "default": "deepseek-v4-flash"},
-    # Disambiguation eşikleri
+    # Disambiguation thresholds
     "DISAMBIGUATION_ENABLED":   {"label": "Disambiguation Aktif",      "secret": False, "group": "llm", "type": "bool"},
     "DISAMBIGUATION_BLOCKING_THRESHOLD":    {"label": "Blocking eşiği",       "secret": False, "group": "llm", "type": "float"},
     "DISAMBIGUATION_AUTO_APPROVE_THRESHOLD":{"label": "Auto-approve eşiği",   "secret": False, "group": "llm", "type": "float"},
@@ -107,16 +107,16 @@ GROUP_LABELS = {
 
 
 def _env_path() -> Path:
-    # `BIBEXPY_CONFIG_DIR` set ise (paket modu) oradaki .env'i oku/yaz —
-    # yazılabilir kullanıcı konumu (örn. ~/.bibexpy/.env). Yoksa geliştirme
-    # modunda config.py'nin yanındaki apps/api/.env.
+    # If `BIBEXPY_CONFIG_DIR` is set (package mode), read/write the .env there —
+    # a writable user location (e.g. ~/.bibexpy/.env). Otherwise, in development
+    # mode, use apps/api/.env next to config.py.
     import os
     cfg_dir = os.environ.get("BIBEXPY_CONFIG_DIR")
     if cfg_dir:
         d = Path(cfg_dir).expanduser()
         d.mkdir(parents=True, exist_ok=True)
         return d / ".env"
-    here = Path(__file__).resolve().parent.parent  # apps/api (gelistirme)
+    here = Path(__file__).resolve().parent.parent  # apps/api (development)
     dev_env = here / ".env"
     if not dev_env.exists():
         home_env = Path.home() / ".bibexpy" / ".env"
@@ -138,7 +138,7 @@ def _read_env() -> dict[str, str]:
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
-        # Tırnakları temizle
+        # Strip the quotes
         if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
             val = val[1:-1]
         out[key] = val
@@ -146,7 +146,7 @@ def _read_env() -> dict[str, str]:
 
 
 def _mask_secret(val: str) -> str:
-    """API key vb. için sadece son 4 karakteri göster."""
+    """Show only the last 4 characters, for API keys etc."""
     if not val:
         return ""
     if len(val) <= 6:
@@ -155,10 +155,10 @@ def _mask_secret(val: str) -> str:
 
 
 def _write_env(updates: dict[str, str]) -> None:
-    """`.env`'i atomik güncelle.
+    """Update `.env` atomically.
 
-    Mevcut satırların sırasını/yorumlarını koru; sadece KEY=value satırlarını güncelle.
-    Yeni anahtarlar dosyanın sonuna eklenir.
+    Keep the order/comments of existing lines; only update the KEY=value lines.
+    New keys are appended to the end of the file.
     """
     p = _env_path()
     existing_lines: list[str] = []
@@ -179,7 +179,7 @@ def _write_env(updates: dict[str, str]) -> None:
         key = m.group(1)
         if key in updates:
             new_val = str(updates[key])
-            # Boşluk veya özel karakter varsa tırnak içine al
+            # Wrap in quotes if it contains a space or special character
             if " " in new_val or '"' in new_val or "$" in new_val:
                 new_val_escaped = new_val.replace('"', '\\"')
                 out_lines.append(f'{key}="{new_val_escaped}"')
@@ -189,13 +189,13 @@ def _write_env(updates: dict[str, str]) -> None:
         else:
             out_lines.append(line)
 
-    # Yeni anahtarları sona ekle
+    # Append the new keys at the end
     for key, val in updates.items():
         if key in seen:
             continue
         out_lines.append(f"{key}={val}")
 
-    # Atomik yaz (önce tmp, sonra replace)
+    # Write atomically (tmp first, then replace)
     tmp = p.with_suffix(".env.tmp")
     tmp.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     tmp.replace(p)
@@ -227,8 +227,8 @@ class SettingsResponse(BaseModel):
     env_file: str
     notes: list[str]
     llm_providers: list[LLMProviderPreset] = []
-    # Depolama şeffaflığı: sunucunun ŞU AN kullandığı klasör + .env'deki
-    # yapılandırma henüz uygulanmadıysa (restart bekliyor) uyarı bayrağı.
+    # Storage transparency: the folder the server is using RIGHT NOW + a warning
+    # flag if the configuration in .env has not been applied yet (awaiting restart).
     active_storage: str = ""
     storage_pending_restart: bool = False
 
@@ -239,25 +239,25 @@ def get_settings():
     fields: list[SettingField] = []
     for key, meta in EDITABLE_KEYS.items():
         raw = env.get(key, "")
-        # LLM alanları için eski DEEPSEEK_* alanlarından fallback (geriye dönük)
+        # For the LLM fields, fall back to the old DEEPSEEK_* fields (backward compatibility)
         if key == "LLM_API_KEY" and not raw:
             raw = env.get("DEEPSEEK_API_KEY", "")
         elif key == "LLM_BASE_URL" and not raw:
             raw = env.get("DEEPSEEK_BASE_URL", "") or "https://api.deepseek.com"
         elif key == "LLM_MODEL" and not raw:
             old_model = env.get("DEEPSEEK_MODEL", "")
-            # Eski "deepseek-chat" → "deepseek-v4-flash" otomatik upgrade önerisi
+            # Suggested automatic upgrade of the old "deepseek-chat" → "deepseek-v4-flash"
             if old_model in ("", "deepseek-chat"):
                 raw = "deepseek-v4-flash"
             else:
                 raw = old_model
         elif key == "LLM_PROVIDER" and not raw:
             raw = "deepseek"
-        # STORAGE_DIR için runtime'da resolve edilmiş hali göster
+        # For STORAGE_DIR, show the form resolved at runtime
         elif key == "STORAGE_DIR" and not raw:
             raw = str(settings.storage_path)
         is_set = bool(raw and raw != "")
-        # Secret'leri maskeli döndür
+        # Return secrets masked
         display = _mask_secret(raw) if (meta.get("secret") and is_set) else raw
         fields.append(SettingField(
             key=key,
@@ -273,9 +273,9 @@ def get_settings():
     providers = [
         LLMProviderPreset(id=pid, **pdata) for pid, pdata in LLM_PROVIDERS.items()
     ]
-    # Aktif depolama vs .env'de yapılandırılan: farklıysa restart bekliyor demektir
-    # (launcher STORAGE_DIR'i süreç başında ortam değişkeni olarak set eder;
-    # .env'deki yeni değer ancak yeniden başlatmada okunur).
+    # Active storage vs. the one configured in .env: if they differ, a restart is
+    # pending (the launcher sets STORAGE_DIR as an environment variable at process
+    # start; the new value in .env is only read on restart).
     active_storage = str(settings.storage_path)
     configured = env.get("STORAGE_DIR", "").strip()
     pending_restart = False
@@ -306,9 +306,9 @@ class ValidatePathPayload(BaseModel):
 
 @router.post("/validate-path")
 def validate_path(payload: ValidatePathPayload):
-    """Verilen path'i kontrol et — var mı, klasör mü, yazılabilir mi.
+    """Check the given path — does it exist, is it a folder, is it writable.
 
-    Frontend STORAGE_DIR gibi alanları girerken kullanır.
+    The frontend uses it when entering fields such as STORAGE_DIR.
     """
     raw = payload.path.strip()
     if not raw:
@@ -339,7 +339,7 @@ def validate_path(payload: ValidatePathPayload):
         return {"valid": False, "exists": True, "writable": False, "is_dir": False,
                 **info, "message": "Mevcut ama dizin değil (dosya?)"}
 
-    # Yazılabilirlik testi — küçük bir tmp dosya oluştur/sil
+    # Writability test — create/delete a small tmp file
     test = p / ".bibex_writable_check"
     try:
         test.write_text("ok", encoding="utf-8")
@@ -348,7 +348,7 @@ def validate_path(payload: ValidatePathPayload):
     except Exception:
         writable = False
 
-    # İçindeki mevcut proje sayısı (meta.json olan alt klasörler)
+    # Number of existing projects inside (subfolders containing meta.json)
     project_count = 0
     try:
         for child in p.iterdir():
@@ -374,7 +374,7 @@ class UpdatePayload(BaseModel):
 
 @router.put("", response_model=SettingsResponse)
 def update_settings(payload: UpdatePayload):
-    # Yalnız EDITABLE_KEYS güncellenebilir
+    # Only EDITABLE_KEYS can be updated
     clean: dict[str, str] = {}
     for key, val in payload.updates.items():
         key = key.strip().upper()
@@ -383,13 +383,13 @@ def update_settings(payload: UpdatePayload):
         meta = EDITABLE_KEYS[key]
         if val is None:
             continue
-        # Maskeli değeri "değişmedi" olarak yorumla. _mask_secret son 4 karakteri
-        # açık bırakır ("•••••1234") — yalnız tamamı-bullet kontrolü bunu kaçırıp
-        # gerçek anahtarı maske diziyle EZİYORDU. Gerçek anahtarlarda "•" olamaz;
-        # içinde bullet geçen her değer maske round-trip'idir → atla.
+        # Interpret a masked value as "unchanged". _mask_secret leaves the last 4
+        # characters visible ("•••••1234") — a check for all-bullets only would miss
+        # this and OVERWRITE the real key with the mask string. A real key cannot
+        # contain "•"; any value containing a bullet is a mask round-trip → skip.
         if isinstance(val, str) and meta.get("secret"):
             if val.strip() == "" or "•" in val:
-                continue  # değiştirme
+                continue  # do not change
         # Bool → "true/false"
         if meta.get("type") == "bool":
             clean[key] = "true" if bool(val) else "false"
@@ -401,12 +401,13 @@ def update_settings(payload: UpdatePayload):
         else:
             clean[key] = str(val).strip()
 
-    # Depolama klasörü CANLI geçiş: yeniden başlatma GEREKMEZ. Launcher
-    # STORAGE_DIR'i süreç başında env var olarak sabitler ve pydantic'te env
-    # var .env'i ezer — bu yüzden yalnız .env'e yazmak yetmiyordu ("seçtim ama
-    # değişmiyor"). Env var'ı burada güncelleyince reload yeni değeri okur;
-    # tüm yol erişimleri settings.storage_path üzerinden geçtiği için geçiş
-    # anında etkilidir. Yazılamayan klasör 400 ile reddedilir (yarım geçiş olmaz).
+    # Storage folder LIVE switch: NO restart needed. The launcher pins
+    # STORAGE_DIR as an env var at process start, and in pydantic an env var
+    # overrides .env — so writing only to .env was not enough ("I picked it but
+    # it doesn't change"). Once the env var is updated here, reload reads the new
+    # value; since all path accesses go through settings.storage_path, the switch
+    # takes effect immediately. A non-writable folder is rejected with 400 (no
+    # half-applied switch).
     if "STORAGE_DIR" in clean and clean["STORAGE_DIR"].strip():
         import os
         new_dir = Path(clean["STORAGE_DIR"].strip()).expanduser()
@@ -420,14 +421,14 @@ def update_settings(payload: UpdatePayload):
         os.environ["STORAGE_DIR"] = str(new_dir)
 
     _write_env(clean)
-    # Çalışan sürecin ayarlarını anında tazele — API anahtarları vb. yeniden
-    # başlatma olmadan etkinleşsin. (Önceden yalnız .env'e yazılıyordu; modül
-    # yüklenirken okunan `settings` objesi eski kaldığından anahtarlar
-    # "kaydedildi ama çalışmıyor" görünüyordu.)
+    # Refresh the running process's settings immediately — so API keys etc. take
+    # effect without a restart. (Previously it only wrote to .env; since the
+    # `settings` object read at module load time stayed stale, keys appeared as
+    # "saved but not working".)
     reload_settings()
 
     if "STORAGE_DIR" in clean:
-        # Eski depodaki dataset cache'i yeni depoyla karışmasın
+        # So the dataset cache from the old storage does not get mixed with the new one
         from services import filter_engine
         filter_engine._DF_CACHE.clear()
 

@@ -24,23 +24,23 @@ from services import analyses, audit, filter_engine, storage
 router = APIRouter(prefix="/projects/{project_id}/quality", tags=["quality"])
 
 
-# Kalite panelinde izlenen alanlar — VOSviewer & Biblioshiny analizlerinin
-# kullandığı sütunlara hizalı (kritiklik hint metninde). Bir alan yalnız sütunu
-# merged dataset'te varsa gösterilir (available=True). Label = i18n fallback'i;
-# UI gerçek etiketi recordDetail.fields.{kod}'tan alır.
+# Fields tracked in the quality panel — aligned with the columns used by the
+# VOSviewer & Biblioshiny analyses (criticality is in the hint text). A field is
+# shown only if its column exists in the merged dataset (available=True).
+# Label = i18n fallback; the UI takes the real label from recordDetail.fields.{code}.
 QUALITY_FIELDS = [
-    # ── Tier 1 — kritik (eş-yazarlık / atıf ağları + Biblioshiny çekirdek) ──
+    # ── Tier 1 — critical (co-authorship / citation networks + Biblioshiny core) ──
     ("AU", "Authors", "Critical: author & co-authorship analysis unit"),
     ("PY", "Year", "Critical: temporal analysis / production over time"),
     ("SO", "Source/Journal", "Critical: source coupling, Bradford, journal analysis"),
     ("TC", "Times Cited", "Critical: citation / impact analysis"),
     ("CR", "Cited References", "Critical: co-citation & bibliographic coupling"),
-    # ── Tier 2 — önemli ──
+    # ── Tier 2 — important ──
     ("TI", "Title", "Important: term map, record identity"),
     ("DE", "Author Keywords", "Important: co-word / keyword co-occurrence"),
     ("ID", "Keywords Plus", "Important: co-word (WoS-generated)"),
     ("C1", "Addresses", "Important: country & institution collaboration"),
-    # ── Tier 3 — faydalı ──
+    # ── Tier 3 — useful ──
     ("AB", "Abstract", "Useful: term map, ML & disambiguation input"),
     ("AF", "Author Affiliations", "Useful: author-institution pairs"),
     ("WC", "WoS Categories", "Useful: thematic categorization"),
@@ -49,13 +49,14 @@ QUALITY_FIELDS = [
     ("LA", "Language", "Useful: language filtering"),
 ]
 
-# Bibliometrik AĞIRLIK — health_score, alanları analitik önemine göre ağırlıklandırır
-# (alttaki bar "ne kadarı boş"u; health "veri bibliometrik analiz için ne kadar değerli"yi
-# gösterir). Ağırlıklar VOSviewer/Biblioshiny kritikliğinden (Tier 1/2/3) türetilmiştir:
-#   Tier 1 (kritik) = 3 : olmazsa ana ağ analizleri (co-authorship, co-citation, kaynak,
-#                          atıf, zaman) kurulamaz.
-#   Tier 2 (önemli) = 2 : co-word, ülke/kurum işbirliği, başlık-terim haritaları.
-#   Tier 3 (faydalı)= 1 : tamamlayıcı / filtreleme / kimlik alanları.
+# Bibliometric WEIGHT — health_score weights fields by their analytical importance
+# (the bar below shows "how much is empty"; health shows "how valuable the data is for
+# bibliometric analysis"). The weights are derived from the VOSviewer/Biblioshiny
+# criticality (Tier 1/2/3):
+#   Tier 1 (critical)  = 3 : without them the main network analyses (co-authorship,
+#                            co-citation, source, citation, time) cannot be built.
+#   Tier 2 (important) = 2 : co-word, country/institution collaboration, title-term maps.
+#   Tier 3 (useful)    = 1 : supplementary / filtering / identifier fields.
 FIELD_WEIGHTS = {
     "AU": 3, "PY": 3, "SO": 3, "TC": 3, "CR": 3,        # Tier 1
     "TI": 2, "DE": 2, "ID": 2, "C1": 2,                 # Tier 2
@@ -69,7 +70,7 @@ def _is_filled(series: pd.Series) -> pd.Series:
 
 
 def _compute_stats(df: pd.DataFrame) -> dict:
-    """Alan-bazlı doluluk + ağırlıklı health skoru + DB dağılımı (stats ve overview ortak)."""
+    """Per-field fill rate + weighted health score + DB distribution (shared by stats and overview)."""
     total = int(len(df))
     fields = []
     for code, label, hint in QUALITY_FIELDS:
@@ -108,22 +109,23 @@ def _compute_stats(df: pd.DataFrame) -> dict:
 
 @router.get("/last-fill-report")
 def get_last_fill_report(project_id: str):
-    """En son 'Fill all' (fill_all) işleminin özetini döndür — sayfa yenilense bile
-    rapor ekranda kalsın diye. Hiç çalıştırılmamışsa {"report": None}.
+    """Return the summary of the most recent 'Fill all' (fill_all) operation — so the
+    report stays on screen even after the page is refreshed. {"report": None} if it
+    has never been run.
 
-    Audit'te fill_all kaydı kind='enrich_api' + details.method=='fill_all' ile tutulur.
+    In the audit log, a fill_all entry is stored as kind='enrich_api' + details.method=='fill_all'.
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    # Rapor YALNIZ mevcut aktif analize ait olmalı — yeni bir merge (yeni analiz)
-    # eski enrichment raporunu taşımasın. Aktif analizden farklı (veya analysis_id
-    # taşımayan eski) kayıtlar gösterilmez.
+    # The report must belong ONLY to the current active analysis — a new merge (new
+    # analysis) must not carry over the old enrichment report. Entries that differ
+    # from the active analysis (or old entries without an analysis_id) are not shown.
     active_id = analyses.get_active_analysis_id(project_id)
     for entry in reversed(audit.read(project_id)):
         d = entry.get("details") or {}
         if entry.get("kind") == "enrich_api" and d.get("method") == "fill_all":
             if active_id is not None and d.get("analysis_id") != active_id:
-                continue  # başka (eski) analizin raporu — atla
+                continue  # report of another (older) analysis — skip
             return {
                 "report": {
                     "ts": entry.get("ts"),
@@ -141,10 +143,11 @@ def get_last_fill_report(project_id: str):
 
 @router.get("/stats")
 def get_quality_stats(project_id: str):
-    """Her alan için doluluk %, eksik sayısı, top değerler.
+    """Fill rate %, missing count and top values for each field.
 
-    health_score = bibliometrik AĞIRLIKLI doluluk ortalaması (kritik alanlar düşükse
-    skor sert düşer; tamamlayıcı alanlar eksikse az etkilenir). Bkz. _compute_stats.
+    health_score = bibliometric WEIGHTED average of fill rates (if critical fields are
+    low the score drops sharply; it is barely affected if supplementary fields are
+    missing). See _compute_stats.
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
@@ -165,11 +168,11 @@ def _overview_cleanup(path: Path) -> None:
 
 @router.get("/overview")
 def download_overview(project_id: str, background_tasks: BackgroundTasks, fmt: str = "csv"):
-    """Genel Bakış tablosunu indir (Biblioshiny-tarzı özet) — CSV veya XLSX.
+    """Download the Overview table (Biblioshiny-style summary) — CSV or XLSX.
 
-    Rapora yapıştırılabilir tablo: alan kodu · etiket · toplam · dolu · eksik · doluluk%.
-    XLSX'te ayrıca 'Summary' sayfası (toplam kayıt, health skoru, DB dağılımı) yer alır.
-    PNG çıktısı istemci tarafında (html-to-image) üretilir; backend yalnız tabloyu verir.
+    A table that can be pasted into a report: field code · label · total · filled · missing · fill rate %.
+    The XLSX also contains a 'Summary' sheet (total records, health score, DB distribution).
+    PNG output is generated on the client side (html-to-image); the backend only provides the table.
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
@@ -200,7 +203,7 @@ def download_overview(project_id: str, background_tasks: BackgroundTasks, fmt: s
     out_path = workdir / f"data_health_{stamp}.{fmt}"
 
     if fmt == "csv":
-        # utf-8-sig → Excel Türkçe karakterleri doğru açsın.
+        # utf-8-sig → so that Excel opens Turkish characters correctly.
         fields_table.to_csv(out_path, index=False, encoding="utf-8-sig")
     else:
         summary_rows = [
@@ -220,7 +223,7 @@ def download_overview(project_id: str, background_tasks: BackgroundTasks, fmt: s
 
 @router.get("/charts")
 def get_charts(project_id: str):
-    """Görseller için chart verileri."""
+    """Chart data for the visualizations."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     try:
@@ -230,20 +233,20 @@ def get_charts(project_id: str):
 
     out: dict = {}
 
-    # Yıl histogramı + doc_type ile breakdown
+    # Year histogram + breakdown by doc_type
     if "PY" in df.columns:
         years = pd.to_numeric(df["PY"], errors="coerce").dropna().astype(int)
         if len(years):
             year_counts = years.value_counts().sort_index()
             out["year_histogram"] = [{"year": int(y), "count": int(c)} for y, c in year_counts.items()]
 
-            # Yıl × doc type cross-tab (stacked bar için)
+            # Year × doc type cross-tab (for the stacked bar)
             if "DT" in df.columns:
                 df2 = df.copy()
                 df2["_y"] = pd.to_numeric(df2["PY"], errors="coerce")
                 df2 = df2.dropna(subset=["_y"])
                 df2["_y"] = df2["_y"].astype(int)
-                # En sık 5 tipi al
+                # Take the 5 most frequent types
                 top_types = df2["DT"].astype(str).str.upper().value_counts().head(5).index.tolist()
                 ct = pd.crosstab(df2["_y"], df2["DT"].astype(str).str.upper())
                 ct = ct[[c for c in top_types if c in ct.columns]]
@@ -255,22 +258,22 @@ def get_charts(project_id: str):
                     ],
                 }
 
-    # Top 15 dergi (SO)
+    # Top 15 journals (SO)
     if "SO" in df.columns:
         so_counts = df["SO"].astype(str).str.strip().replace("", pd.NA).dropna().value_counts().head(15)
         out["top_journals"] = [{"name": str(k), "count": int(v)} for k, v in so_counts.items()]
 
-    # Doc type dağılımı (pie)
+    # Doc type distribution (pie)
     if "DT" in df.columns:
         dt_counts = df["DT"].astype(str).str.strip().str.upper().replace("", pd.NA).dropna().value_counts().head(10)
         out["doc_types"] = [{"name": str(k), "count": int(v)} for k, v in dt_counts.items()]
 
-    # Dil dağılımı
+    # Language distribution
     if "LA" in df.columns:
         la_counts = df["LA"].astype(str).str.strip().str.upper().replace("", pd.NA).dropna().value_counts().head(10)
         out["languages"] = [{"name": str(k), "count": int(v)} for k, v in la_counts.items()]
 
-    # Atıf dağılımı (histogram bucketları)
+    # Citation distribution (histogram buckets)
     if "TC" in df.columns:
         tc = pd.to_numeric(df["TC"], errors="coerce").dropna().astype(int)
         if len(tc):

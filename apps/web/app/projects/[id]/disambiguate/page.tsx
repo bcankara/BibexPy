@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { useProjectId } from "@/lib/use-project-id";
 
 /**
- * Static export uyumlu redirect:
- * Eski "disambiguate" sekmesi → AI Asistan içinde alt-tab olarak yaşar.
- * Proje ID'si URL'den okunur (useProjectId — static export'ta güvenilir).
+ * Static-export-compatible redirect:
+ * The old "disambiguate" tab → lives on as a sub-tab inside the AI Assistant.
+ * The project ID is read from the URL (useProjectId — reliable in a static export).
  */
 export default function DisambiguateRedirect() {
   const id = useProjectId();

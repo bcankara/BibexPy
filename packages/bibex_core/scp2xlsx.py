@@ -47,16 +47,16 @@ def labelling(data: pd.DataFrame) -> pd.DataFrame:
         ["EID", "UT"]
     ], columns=['orig', 'tag'])
 
-    # Mevcut sütun isimlerini al
+    # Get the current column names
     label = pd.DataFrame({'orig': data.columns})
 
-    # Eşleştirme yap
+    # Perform the matching
     label = label.merge(df_tag, on='orig', how='left')
 
-    # Eşleşmeyen sütunlar için orijinal ismi kullan
+    # Use the original name for unmatched columns
     label['tag'] = label['tag'].fillna(label['orig'])
 
-    # Sütun isimlerini güncelle
+    # Update the column names
     data.columns = label['tag']
 
     return data

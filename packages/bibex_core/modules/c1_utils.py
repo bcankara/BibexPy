@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import re
 
-# ── Ülke varyant -> kanonik (anahtarlar küçük harf). WoS (USA, PEOPLES R CHINA,
-#    ENGLAND...) + Scopus (United States, China...) varyantlarını kapsar. ──
+# ── Country variant -> canonical (keys are lowercase). Covers WoS variants
+#    (USA, PEOPLES R CHINA, ENGLAND...) + Scopus variants (United States, China...). ──
 COUNTRY_VARIANTS: dict[str, str] = {
     "usa": "United States", "u.s.a.": "United States", "u.s.a": "United States",
     "us": "United States", "u.s.": "United States", "u s a": "United States",
@@ -44,8 +44,8 @@ COUNTRY_VARIANTS: dict[str, str] = {
     "cote d'ivoire": "Ivory Coast", "ivory coast": "Ivory Coast",
 }
 
-# Halihazırda kanonik kabul edilen ülke adları (değişiklik gerekmez) — varyant
-# değerleri + yaygın tek-formlu ülkeler.
+# Country names already considered canonical (no change needed) — variant
+# values + common single-form countries.
 CANONICAL_COUNTRIES: set[str] = set(COUNTRY_VARIANTS.values()) | {
     "France", "Italy", "Japan", "Canada", "Australia", "India", "Mexico",
     "Poland", "Sweden", "Norway", "Denmark", "Finland", "Belgium", "Austria",
@@ -58,8 +58,8 @@ CANONICAL_COUNTRIES: set[str] = set(COUNTRY_VARIANTS.values()) | {
 }
 _CANON_LOWER = {c.lower(): c for c in CANONICAL_COUNTRIES}
 
-# Üst kurum anahtar kelimeleri (varlığı "kurum" işareti)
-# Üst kurum anahtar kelimeleri — WoS kısaltmaları dahil (Inst, Hosp, Ctr, Coll...)
+# Parent-institution keywords (their presence marks an "institution")
+# Parent-institution keywords — including WoS abbreviations (Inst, Hosp, Ctr, Coll...)
 _ORG_KW = (
     "univ", "institut", "inst", "college", "coll", "school", "hospital", "hosp",
     "clinic", "center", "centre", "ctr", "laborator", " lab", "academy", "acad",
@@ -67,7 +67,7 @@ _ORG_KW = (
     "université", "ministry", "council", "foundation", "fdn", "national", "natl",
     "research", "tech", "sch", "klinik", "spital",
 )
-# Alt-birim işaretleri (kurum DEĞİL — tercih edilmez)
+# Sub-unit markers (NOT an institution — not preferred)
 _SUBUNIT_KW = (
     "depart", "dept", "division", " div ", "faculty", " fac ", "school of",
     "section", "chair", "unit", "program", "laboratory of",
@@ -88,7 +88,7 @@ def _norm_country_token(token: str) -> str:
 
 
 def canonical_country(token: str) -> str | None:
-    """Ülke varyantını kanonik İngilizce ada eşle. Bilinmiyorsa None (Tier 2)."""
+    """Map a country variant to its canonical English name. Returns None if unknown (Tier 2)."""
     t = _norm_country_token(token)
     if not t:
         return None
@@ -99,8 +99,8 @@ def canonical_country(token: str) -> str | None:
     return None
 
 
-# ── ISO 3166-1 alpha-2 KODU -> kanonik İngilizce ad. OpenAlex `country_code`
-#    (US, GB, CN, IN...) -> canonical_country ile aynı adlar (tutarlılık için). ──
+# ── ISO 3166-1 alpha-2 CODE -> canonical English name. OpenAlex `country_code`
+#    (US, GB, CN, IN...) -> same names as canonical_country (for consistency). ──
 COUNTRY_CODE_TO_NAME: dict[str, str] = {
     "US": "United States", "GB": "United Kingdom", "CN": "China", "KR": "South Korea",
     "KP": "North Korea", "RU": "Russia", "TR": "Turkey", "IR": "Iran",
@@ -136,7 +136,7 @@ COUNTRY_CODE_TO_NAME: dict[str, str] = {
 
 
 def country_from_code(cc: str) -> str | None:
-    """ISO 3166-1 alpha-2 ülke kodunu (US, GB, CN...) kanonik İngilizce ada eşle."""
+    """Map an ISO 3166-1 alpha-2 country code (US, GB, CN...) to its canonical English name."""
     return COUNTRY_CODE_TO_NAME.get(str(cc or "").strip().upper())
 
 
@@ -152,18 +152,19 @@ def _looks_geographic(part: str) -> bool:
     return False
 
 
-# Net kurum kelimeleri: bir token bunlarla BAŞLIYORSA kurum say (universit*, institut*,
-# hospital*, college*, ...). Uzun ve ayırt edici oldukları için ön-ek eşleşmesi güvenli.
+# Unambiguous institution words: if a token STARTS WITH one of these, count it as an
+# institution (universit*, institut*, hospital*, college*, ...). Prefix matching is
+# safe because they are long and distinctive.
 _ORG_KW_PREFIX = (
     "univ", "institut", "college", "hospital", "clinic", "center", "centre",
     "laborator", "academ", "polytech", "hochschule", "universidad", "universita",
     "ministr", "council", "foundation", "klinik",
 )
-# Kısaltmalar / kısa riskli kelimeler: yalnız TAM token eşleşmeli (yer adlarını
-# yanlışlıkla kurum saymamak için: 'tech'≠'Techny', 'research'≠'Research Triangle').
-# NOT: 'research'/'national'/'tech' tek başına kurum işareti DEĞİL (yer adı olabilir:
-# 'Research Triangle Park', 'National City'); listeye alınmadı. 'Research Inst' yine
-# 'inst' ile, 'Natl Univ' 'univ' ile yakalanır.
+# Abbreviations / short risky words: only a FULL token may match (so that place names
+# are not mistaken for institutions: 'tech'≠'Techny', 'research'≠'Research Triangle').
+# NOTE: 'research'/'national'/'tech' alone are NOT institution markers (they may be
+# place names: 'Research Triangle Park', 'National City'); they were not added to the
+# list. 'Research Inst' is still caught via 'inst', 'Natl Univ' via 'univ'.
 _ORG_KW_EXACT = (
     "inst", "coll", "hosp", "ctr", "lab", "acad", "natl", "fdn", "sch", "dept",
     "polytechnic", "school", "laboratory", "spital",
@@ -171,9 +172,10 @@ _ORG_KW_EXACT = (
 
 
 def _is_org(part: str) -> bool:
-    """Bileşen bir üst kurum mu? Net kelimeler ön-ekle, kısa/riskli kelimeler yalnız
-    TAM token ile eşleşir. Böylece 'Research Triangle Park' (şehir), 'Techny' (yer)
-    gibi adresler yanlışlıkla kurum sayılmaz."""
+    """Is the component a parent institution? Unambiguous words match by prefix, while
+    short/risky words match only as a FULL token. This way addresses such as
+    'Research Triangle Park' (a city) or 'Techny' (a place) are not mistaken for
+    institutions."""
     toks = re.findall(r"[a-zçğıöşü]+", part.lower())
     if not toks:
         return False
@@ -189,10 +191,10 @@ def _is_subunit(part: str) -> bool:
 
 
 def split_c1_addresses(value: str) -> list[str]:
-    """Çok-yazarlı C1'i adres bileşenlerine böl; '[yazarlar]' parantezini soy.
+    """Split a multi-author C1 into address components; strip the '[authors]' bracket.
 
-    ';' ile böler AMA köşeli parantez [ ... ] içindeki ';' korunur (yazar listesi
-    "[Smith, J; Doe, A]" bölünmemeli).
+    Splits on ';' BUT a ';' inside square brackets [ ... ] is preserved (the author list
+    "[Smith, J; Doe, A]" must not be split).
     """
     raw = str(value or "")
     if not raw.strip() or raw.strip().upper() == "NAN":
@@ -216,16 +218,16 @@ def split_c1_addresses(value: str) -> list[str]:
         chunks.append("".join(buf))
     out: list[str] = []
     for chunk in chunks:
-        c = re.sub(r"^\s*\[[^\]]*\]\s*", "", chunk).strip()  # [Author; Author] kaldır
+        c = re.sub(r"^\s*\[[^\]]*\]\s*", "", chunk).strip()  # remove [Author; Author]
         if c:
             out.append(c)
     return out
 
 
 def parse_c1_address(addr: str) -> dict:
-    """Tek adres bileşeninden üst kurum + ülke çıkar.
+    """Extract the parent institution + country from a single address component.
 
-    Dönüş: {raw, institution, country, stripped}. institution/country None olabilir.
+    Returns: {raw, institution, country, stripped}. institution/country may be None.
     """
     raw = str(addr or "").strip()
     parts = [p.strip() for p in raw.split(",") if p.strip()]
@@ -235,30 +237,31 @@ def parse_c1_address(addr: str) -> dict:
         if c:
             country = c
             parts = parts[:-1]
-    # sondaki şehir/eyalet/posta bileşenlerini soy
+    # strip trailing city/state/postal components
     while parts and _looks_geographic(parts[-1]):
         parts.pop()
 
     institution = None
-    # 1) kurum anahtarı olan + alt-birim olmayan en sağdaki parça
+    # 1) the rightmost part that has an institution keyword and is not a sub-unit
     for p in reversed(parts):
         if _is_org(p) and not _is_subunit(p):
             institution = p
             break
-    # 2) kurum anahtarı olan herhangi bir parça
+    # 2) any part that has an institution keyword
     if institution is None:
         for p in reversed(parts):
             if _is_org(p):
                 institution = p
                 break
-    # 3) Kurum anahtarı hiç yoksa TAHMİN ETME (şehir seçme riski) — None bırak;
-    #    bu adres Tier 2 (LLM) / elle düzeltmeye kalır, yanlış üst-kurum yazılmaz.
+    # 3) If there is no institution keyword at all, do NOT GUESS (risk of picking the
+    #    city) — leave None; this address is left to Tier 2 (LLM) / manual correction,
+    #    so no wrong parent institution is written.
 
     return {"raw": raw, "institution": institution, "country": country, "stripped": parts}
 
 
 def extract_country_from_c1(value: str) -> list[str]:
-    """Bir C1 hücresindeki tüm ham ülke tokenlerini döndür (kanonikleştirmeden)."""
+    """Return all raw country tokens in a C1 cell (without canonicalizing)."""
     out: list[str] = []
     for addr in split_c1_addresses(value):
         parts = [p.strip() for p in addr.split(",") if p.strip()]
@@ -268,7 +271,7 @@ def extract_country_from_c1(value: str) -> list[str]:
 
 
 def rollup_c1_to_parent(value: str) -> str:
-    """C1'in her adres bileşenini üst kuruma indir; çok-yazar yapısını koru."""
+    """Roll every address component of C1 up to its parent institution; keep the multi-author structure."""
     rolled: list[str] = []
     for addr in split_c1_addresses(value):
         info = parse_c1_address(addr)
@@ -280,16 +283,16 @@ def rollup_c1_to_parent(value: str) -> str:
             rolled.append(inst)
         else:
             rolled.append(addr)
-    # benzersizleştir (sırayı koru)
+    # deduplicate (preserve order)
     seen: set[str] = set()
     uniq = [x for x in rolled if not (x in seen or seen.add(x))]
     return "; ".join(uniq)
 
 
 def _split_keep(value: str) -> list[str]:
-    """';' ile böl (parantez-farkındalıklı) AMA '[yazar]' parantezini KORU.
+    """Split on ';' (bracket-aware) BUT KEEP the '[author]' bracket.
 
-    replace_* fonksiyonları için: orijinal yapı (yazar parantezi dahil) bozulmamalı.
+    For the replace_* functions: the original structure (including the author bracket) must stay intact.
     """
     chunks: list[str] = []
     buf: list[str] = []
@@ -312,9 +315,9 @@ def _split_keep(value: str) -> list[str]:
 
 
 def replace_country_in_c1(value: str, mapping: dict) -> str:
-    """C1'deki her adresin ÜLKE bileşenini (en sağdaki virgül parçası) kanonikle değiştir.
+    """Replace the COUNTRY component (the rightmost comma part) of every address in C1 with the canonical one.
 
-    mapping: {küçük-harf-varyant: kanonik}. Yazar parantezi ve diğer bileşenler korunur.
+    mapping: {lowercase-variant: canonical}. The author bracket and other components are preserved.
     """
     if not str(value or "").strip():
         return value
@@ -331,27 +334,29 @@ def replace_country_in_c1(value: str, mapping: dict) -> str:
 
 
 def append_country_to_c1(value: str, append_map: dict) -> str:
-    """C1'deki ülke İÇERMEYEN adreslerin sonuna ülkeyi EKLE (replace değil).
+    """APPEND the country to the end of addresses in C1 that do NOT contain a country (not a replace).
 
-    append_map: {son-bileşen-küçük-harf: kanonik-ülke}. Bir adresin son virgül
-    bileşeni append_map'te VE zaten bir ülke DEĞİLSE (canonical_country None ise),
-    adresin sonuna ", <ülke>" eklenir. Kurum/şehir korunur, yalnız ülke eklenir.
+    append_map: {last-component-lowercase: canonical-country}. If the last comma
+    component of an address is in append_map AND is not already a country
+    (i.e. canonical_country is None), ", <country>" is appended to the end of the
+    address. The institution/city is preserved; only the country is added.
 
-    Kullanım: LLM bir tokenin ülke OLMADIĞINI ama ülkesini bildiğini söylediğinde
-    (is_country=0). Böylece kurum adı yok edilmez; eksik ülke doldurulur.
+    Usage: when the LLM says a token is NOT a country but knows its country
+    (is_country=0). This way the institution name is not destroyed; the missing
+    country is filled in.
     """
     if not str(value or "").strip():
         return value
     out: list[str] = []
     for chunk in _split_keep(value):
-        # '[yazar]' parantezini eşleştirme için geçici soy (çıktıda korunur);
-        # extract_country_from_c1 da parantezi soyduğu için anahtarlar böyle eşleşir.
+        # Temporarily strip the '[author]' bracket for matching (it is kept in the output);
+        # extract_country_from_c1 also strips the bracket, so the keys match this way.
         m = re.match(r"^(\s*\[[^\]]*\]\s*)?(.*)$", chunk, re.S)
         addr = (m.group(2) or "").strip()
         parts = addr.split(",")
         last = parts[-1].strip() if parts else ""
         country = append_map.get(last.lower())
-        # Zaten ülkeyse dokunma (replace yolu halleder); değilse sona ekle.
+        # If it is already a country, leave it alone (the replace path handles it); otherwise append.
         if country and last and canonical_country(last) is None:
             chunk = chunk.rstrip() + ", " + country
         out.append(chunk)
@@ -359,16 +364,16 @@ def append_country_to_c1(value: str, append_map: dict) -> str:
 
 
 def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
-    """C1'deki affiliation bileşenlerini kanonik forma indir (affiliation apply).
+    """Reduce the affiliation components in C1 to their canonical form (affiliation apply).
 
-    variant_to_canonical: {varyant_affiliation: kanonik}. Bileşen-TAM eşleşme yapar
-    (substring değil); '[yazar]' paranteziyle ve diğer ';'/',' bileşenleriyle çakışmaz.
-    Eşleşme önce tam ';'-bileşeni, sonra ','-alt-bileşeni üzerinde denenir; ikisi de
-    boşluk/büyük-küçük harf duyarsız karşılaştırılır.
+    variant_to_canonical: {variant_affiliation: canonical}. Performs a component-EXACT
+    match (not substring); it does not clash with the '[author]' bracket or with other
+    ';'/',' components. The match is tried first on the full ';'-component, then on the
+    ','-sub-component; both comparisons are whitespace/case insensitive.
     """
     if not str(value or "").strip():
         return value
-    # Normalize edilmiş varyant -> kanonik (boşluk-collapse + lower)
+    # Normalized variant -> canonical (whitespace-collapse + lower)
     norm_map = {re.sub(r"\s+", " ", str(k).strip()).lower(): v for k, v in variant_to_canonical.items()}
 
     def _canon(token: str):
@@ -379,12 +384,12 @@ def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
         m = re.match(r"^(\s*\[[^\]]*\]\s*)?(.*)$", chunk, re.S)
         prefix = m.group(1) or ""
         addr = (m.group(2) or "").strip()
-        # 1) Tüm adres tam eşleşiyor mu?
+        # 1) Does the whole address match exactly?
         canon = _canon(addr)
         if canon:
             out.append(prefix + canon)
             continue
-        # 2) Adresin virgülle ayrılmış bileşenlerinden biri tam eşleşiyor mu?
+        # 2) Does one of the address's comma-separated components match exactly?
         parts = addr.split(",")
         replaced = False
         for i, part in enumerate(parts):
@@ -397,16 +402,16 @@ def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
 
 
 def replace_org_in_c1(value: str, variant_to_canonical: dict) -> str:
-    """C1'deki adresleri üst kurumla değiştir (org rollup apply).
+    """Replace addresses in C1 with the parent institution (org rollup apply).
 
-    variant_to_canonical: {tam_adres_varyantı: kanonik_üst_kurum} ('[yazar]' soyulmuş hâli).
-    Eşleşen adres bileşeni kanonikle değiştirilir; '[yazar]' parantezi korunur.
+    variant_to_canonical: {full_address_variant: canonical_parent_institution} (with the '[author]' bracket stripped).
+    The matching address component is replaced with the canonical one; the '[author]' bracket is preserved.
     """
     if not str(value or "").strip():
         return value
-    # Boşluk/büyük-küçük harf toleranslı eşleme: LLM, adres metnini hafifçe
-    # değiştirebilir (fazladan boşluk, harf büyüklüğü). replace_affiliation_in_c1
-    # ile aynı normalizasyon deseni.
+    # Whitespace/case-tolerant matching: the LLM may slightly alter the address text
+    # (extra whitespace, letter case). Same normalization pattern as
+    # replace_affiliation_in_c1.
     norm_map = {re.sub(r"\s+", " ", str(k).strip()).lower(): v for k, v in variant_to_canonical.items()}
     out: list[str] = []
     for chunk in _split_keep(value):

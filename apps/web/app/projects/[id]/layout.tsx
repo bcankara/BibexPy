@@ -1,11 +1,11 @@
 /**
- * Static export için placeholder `_` ID — tek bir HTML üretilir, FastAPI
- * catch-all gelen `/projects/<gerçek-id>/...` isteğini bu HTML'e serve eder.
- * Gerçek ID runtime'da `useProjectId()` (window.location) ile okunur.
+ * Placeholder `_` ID for the static export — a single HTML file is produced, and the
+ * FastAPI catch-all serves incoming `/projects/<real-id>/...` requests with it.
+ * The real ID is read at runtime via `useProjectId()` (window.location).
  *
- * ÖNEMLİ: layout server component olduğundan `params.id` static export'ta
- * `"_"` placeholder'ıdır — bu yüzden ID'yi layout'tan ProjectNav'a GEÇMİYORUZ;
- * ProjectNav (client) kendisi `useProjectId()` ile URL'den okur.
+ * IMPORTANT: since the layout is a server component, `params.id` is the `"_"`
+ * placeholder in the static export — so we do NOT pass the ID from the layout to
+ * ProjectNav; ProjectNav (client) reads it from the URL itself via `useProjectId()`.
  */
 export function generateStaticParams(): { id: string }[] {
   return [{ id: "_" }];
@@ -16,6 +16,6 @@ export default function ProjectLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // ProjectNav artık PageHeader'ın altında render edilir (koyu header → pipeline → içerik).
+  // ProjectNav is now rendered below PageHeader (dark header → pipeline → content).
   return <>{children}</>;
 }

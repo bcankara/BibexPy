@@ -26,7 +26,7 @@ def _is_windows() -> bool:
 
 
 def _list_windows_drives() -> list[str]:
-    """Mevcut Windows sürücülerini listele (C:, D:, ...)."""
+    """List the available Windows drives (C:, D:, ...)."""
     drives = []
     for letter in string.ascii_uppercase:
         d = f"{letter}:\\"
@@ -37,11 +37,11 @@ def _list_windows_drives() -> list[str]:
 
 @router.get("/find-by-name")
 def find_by_name(name: str, limit: int = 8):
-    """Verilen klasör adının olası tam yollarını bul.
+    """Find the possible full paths of the given folder name.
 
-    Kullanım: tarayıcının native picker'ı sadece klasör adı veriyor (path güvenlik
-    nedeniyle gizli). Backend, kullanıcının home altında bu adı arar ve olası
-    eşleşmeleri döndürür. Kullanıcı UI'da hangisi olduğunu doğrular.
+    Usage: the browser's native picker only gives the folder name (the path is hidden for
+    security reasons). The backend searches for this name under the user's home and
+    returns the possible matches. The user confirms in the UI which one it is.
     """
     name = name.strip()
     if not name:
@@ -50,7 +50,7 @@ def find_by_name(name: str, limit: int = 8):
     candidates: list[dict[str, Any]] = []
     home = Path.home()
 
-    # Önce shortcut'larda ara (hızlı)
+    # Search the shortcuts first (fast)
     search_roots: list[Path] = [
         home,
         home / "Documents",
@@ -60,7 +60,7 @@ def find_by_name(name: str, limit: int = 8):
     if sys.platform == "darwin":
         search_roots.append(Path("/Volumes"))
     elif _is_windows():
-        # Drive root'larında da bak
+        # Also look in the drive roots
         for d in _list_windows_drives():
             search_roots.append(Path(d))
 
@@ -82,7 +82,7 @@ def find_by_name(name: str, limit: int = 8):
         except (PermissionError, OSError):
             continue
 
-    # 2. seviye (sadece home altında — sığ recursive)
+    # Level 2 (only under home — shallow recursion)
     if len(candidates) < limit:
         try:
             for child in home.iterdir():
@@ -107,15 +107,15 @@ def find_by_name(name: str, limit: int = 8):
 
 @router.get("/browse")
 def browse(path: str = ""):
-    """Verilen dizinin alt-klasörlerini listele.
+    """List the subfolders of the given directory.
 
-    Path boş veya geçersizse:
-    - Windows: drive root'larını döndür (C:\\, D:\\, ...)
-    - Unix: / döndür
+    If path is empty or invalid:
+    - Windows: return the drive roots (C:\\, D:\\, ...)
+    - Unix: return /
     """
     home = Path.home()
 
-    # Boş path → drive listesi (Windows) veya root (Unix)
+    # Empty path → drive list (Windows) or root (Unix)
     if not path:
         if _is_windows():
             drives = _list_windows_drives()
@@ -131,7 +131,7 @@ def browse(path: str = ""):
                 "platform": "windows",
             }
         else:
-            # macOS / Linux için root
+            # root for macOS / Linux
             return browse("/")
 
     try:
@@ -144,7 +144,7 @@ def browse(path: str = ""):
     if not p.is_dir():
         raise HTTPException(400, "not_a_folder")
 
-    # Alt klasörleri listele (gizli olanları atla, dosyaları da atla)
+    # List the subfolders (skip hidden ones, skip files too)
     entries: list[dict[str, Any]] = []
     try:
         for child in sorted(p.iterdir(), key=lambda x: x.name.lower()):
@@ -170,7 +170,7 @@ def browse(path: str = ""):
     parent_path: str | None = None
     p_abs = p.resolve()
     if _is_windows() and len(p_abs.parts) <= 1:
-        # Drive root → parent yok (drive listesine dönülmeli)
+        # Drive root → no parent (should go back to the drive list)
         parent_path = ""
     elif p_abs.parent != p_abs:
         parent_path = str(p_abs.parent)
@@ -192,11 +192,12 @@ class OpenFolderPayload(BaseModel):
 
 @router.post("/open-folder")
 def open_folder(payload: OpenFolderPayload):
-    """Sunucu tarafında BİLİNEN bir klasörü OS dosya yöneticisinde aç.
+    """Open a KNOWN server-side folder in the OS file manager.
 
-    Güvenlik: istemciden yol alınmaz — yalnız hedef adı gelir, yol sunucuda
-    çözülür (depolama kökü veya proje klasörü). Self-hosted araç: sunucu ve
-    tarayıcı aynı makinede olduğundan Explorer/Finder açmak anlamlıdır.
+    Security: no path is taken from the client — only the target name comes in, and the
+    path is resolved on the server (storage root or project folder). Self-hosted tool:
+    since the server and the browser are on the same machine, opening Explorer/Finder
+    makes sense.
     """
     from config import settings as _settings
     from services import storage as _storage
@@ -214,7 +215,7 @@ def open_folder(payload: OpenFolderPayload):
         raise HTTPException(404, "folder_not_found")
     try:
         if _is_windows():
-            os.startfile(str(p))  # noqa: S606 — yerel tek-kullanıcı araç
+            os.startfile(str(p))  # noqa: S606 — local single-user tool
         elif sys.platform == "darwin":
             import subprocess
             subprocess.Popen(["open", str(p)])
@@ -227,7 +228,7 @@ def open_folder(payload: OpenFolderPayload):
 
 
 def _shortcuts(home: Path) -> list[dict[str, str]]:
-    """Soldan hızlı erişim kısayolları — OS'a göre uyarlı."""
+    """Quick-access shortcuts on the left — adapted per OS."""
     items: list[dict[str, str]] = [
         {"label": "Ev", "path": str(home), "icon": "home"},
         {"label": "Belgeler", "path": str(home / "Documents"), "icon": "documents"},
@@ -237,7 +238,7 @@ def _shortcuts(home: Path) -> list[dict[str, str]]:
     if _is_windows():
         items.append({"label": "Bilgisayar", "path": "", "icon": "computer"})
     elif sys.platform == "darwin":
-        # macOS — bağlı sürücüler /Volumes altında
+        # macOS — mounted drives are under /Volumes
         items.append({"label": "Uygulamalar", "path": "/Applications", "icon": "computer"})
         if Path("/Volumes").exists():
             items.append({"label": "Sürücüler", "path": "/Volumes", "icon": "computer"})
@@ -247,5 +248,5 @@ def _shortcuts(home: Path) -> list[dict[str, str]]:
             items.append({"label": "Mount", "path": "/mnt", "icon": "computer"})
         if Path("/media").exists():
             items.append({"label": "Media", "path": "/media", "icon": "computer"})
-    # Sadece gerçekten var olan dizinleri döndür
+    # Return only the directories that actually exist
     return [it for it in items if not it["path"] or Path(it["path"]).exists()]

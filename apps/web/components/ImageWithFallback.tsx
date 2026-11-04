@@ -1,8 +1,8 @@
 "use client";
 /**
- * Görsel yüklenemediğinde fallback render eden component.
+ * Component that renders a fallback when an image fails to load.
  *
- * Kullanım:
+ * Usage:
  *   <ImageWithFallback
  *     src="/images/hero.png"
  *     alt="Hero"
@@ -10,9 +10,9 @@
  *     fallback={<div className="bg-bg-soft" />}
  *   />
  *
- * src 404 olursa veya yüklenemezse fallback render edilir. Görsel dosyaları
- * `public/images/` altında bulunmadığında elegant bir placeholder göstermek
- * için kullanılır.
+ * If src returns 404 or otherwise fails to load, the fallback is rendered. It is
+ * used to show an elegant placeholder when the image files are not present under
+ * `public/images/`.
  */
 import { useState } from "react";
 import { cn } from "@/lib/cn";

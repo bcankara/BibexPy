@@ -18,8 +18,8 @@ router = APIRouter(prefix="/projects/{project_id}/export-folder", tags=["export-
 
 
 class CopyRequest(BaseModel):
-    files: list[str]            # exports/ altındaki dosya adları
-    target_folder: str          # mutlak path (örn. C:\Users\me\Desktop\bibex_out)
+    files: list[str]            # file names under exports/
+    target_folder: str          # absolute path (e.g. C:\Users\me\Desktop\bibex_out)
     create_if_missing: bool = True
 
 
@@ -84,7 +84,7 @@ def copy_to_folder(project_id: str, payload: CopyRequest):
 
 @router.get("/suggest", response_model=dict)
 def suggest_folders():
-    """Önerilen çıktı klasörleri — kullanıcının ev dizini altında."""
+    """Suggested output folders — under the user's home directory."""
     home = Path.home()
     out = {
         "home": str(home),

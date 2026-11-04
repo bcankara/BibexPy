@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 
 type Props = {
   projectId: string;
-  onChanged?: () => void;          // doldurma bitince dışarıyı (tabloyu) tazele
+  onChanged?: () => void;          // refresh the outside (the table) when filling finishes
 };
 
 type CombinedJob = {
@@ -25,11 +25,11 @@ type CombinedJob = {
 };
 
 /**
- * Veri Kalitesi & Doldurma paneli (Harmonization adımı).
+ * Data Quality & Filling panel (Harmonization step).
  *
- * Tek "Eksik alanları doldur" akışı: DOI başına TEK API çağrısı (tüm boş alanlar)
- * + ML geçişi (DE/ID/SC/WC) → tek job, tek ilerleme çubuğu. Alan-bazlı tek-tek
- * doldurma kaldırıldı (gereksiz tekrar API çağrısıydı).
+ * A single "Fill missing fields" flow: ONE API call per DOI (all empty fields)
+ * + the ML pass (DE/ID/SC/WC) → one job, one progress bar. Field-by-field,
+ * one-at-a-time filling was removed (it was a redundant repeat API call).
  */
 export function QualityDashboard({ projectId, onChanged }: Props) {
   const t = useT();
@@ -38,18 +38,19 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [job, setJob] = useState<CombinedJob | null>(null);
-  // Geçmiş 'Fill all' raporu (audit'ten) — sayfa yenilense bile kalır.
+  // Past 'Fill all' report (from the audit) — survives a page refresh.
   const [savedReport, setSavedReport] = useState<FillReport | null>(null);
   const esRef = useRef<EventSource | null>(null);
-  // Job başlatma isteği (job_id dönene kadar) ve iptal isteği için ayrı in-flight
-  // durumları — SSE üzerinden gelen 'running' durumundan önceki kısa ağ gecikmesini kapsar.
+  // Separate in-flight states for the job start request (until job_id returns) and
+  // the cancel request — covers the short network delay before the 'running' state
+  // arrives over SSE.
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   const refreshStats = useCallback(async () => {
     try {
       setStats(await api.qualityStats(projectId));
-    } catch { /* sessiz */ }
+    } catch { /* silent */ }
   }, [projectId]);
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
     api.qualityStats(projectId)
       .then((s) => { if (alive) { setStats(s); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
-    // Geçmiş raporu çek — varsa banner yerine rapor gösterilir.
+    // Fetch the past report — if present, the report is shown instead of the banner.
     api.lastFillReport(projectId)
       .then((r) => { if (alive) setSavedReport(r.report); })
       .catch(() => {});
@@ -96,30 +97,30 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
             refreshStats();
             onChanged?.();
             if (info.status === "completed") {
-              // Kalıcı raporu audit'ten tazele; canlı job kartını kapat (rapor savedReport'tan gösterilir).
+              // Refresh the persistent report from the audit; close the live job card (the report is shown from savedReport).
               api.lastFillReport(projectId).then((r) => setSavedReport(r.report)).catch(() => {});
               setJob(null);
             } else {
               setTimeout(() => setJob(null), 4000);
             }
           }
-        } catch { /* yut */ }
+        } catch { /* swallow */ }
       });
       es.addEventListener("done", () => { es.close(); esRef.current = null; });
       es.onerror = () => {
         es.close(); esRef.current = null;
-        // Bağlantı koptuysa (terminal 'update' gelmeden) işi 'failed' yap ki UI takılı kalmasın.
+        // If the connection dropped (before a terminal 'update' arrived), mark the job 'failed' so the UI does not hang.
         setJob((j) => (j && (j.status === "running" || j.status === "queued")) ? { ...j, status: "failed" } : j);
         refreshStats();
       };
-    } catch { /* sessiz */ }
+    } catch { /* silent */ }
     finally { setStarting(false); }
   }
 
   async function cancelFillAll() {
     if (!job || cancelling) return;
     setCancelling(true);
-    try { await api.cancelJob(job.jobId); } catch { /* yut */ }
+    try { await api.cancelJob(job.jobId); } catch { /* swallow */ }
     finally { setCancelling(false); }
   }
 
@@ -158,9 +159,9 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
       </CardHeader>
       {expanded && (
         <CardBody className="space-y-4">
-          {/* Veri sağlığı taraması — belirgin doldurma CTA. Çalışırken (running) veya
-              henüz hiç rapor yokken (savedReport yok) gösterilir. Geçmiş rapor varsa
-              banner yerine aşağıdaki kalıcı rapor görünür. */}
+          {/* Data health scan — a prominent fill CTA. Shown while running (running) or
+              when there is no report yet (no savedReport). If a past report exists,
+              the persistent report below is shown instead of the banner. */}
           {(running || !savedReport) && (
           <div className={cn(
             "rounded-xl p-4 text-white shadow-lg ring-1 transition",
@@ -216,8 +217,8 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
           </div>
           )}
 
-          {/* Kalıcı enrichment raporu — geçmişte 'Fill all' yapıldıysa (savedReport),
-              çalışmıyorken banner yerine bu gösterilir. "Run again" yeniden çalıştırır. */}
+          {/* Persistent enrichment report — if 'Fill all' was run in the past (savedReport),
+              this is shown instead of the banner when not running. "Run again" re-runs it. */}
           {savedReport && !running && (
             <div className="rounded-xl border border-success/40 bg-success-soft/30 p-4">
               <div className="flex items-start gap-3">
@@ -271,7 +272,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
             </div>
           )}
 
-          {/* Özet kartlar */}
+          {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={<FileText className="h-4 w-4" />} label={t("records.quality.totalRecords")}
               value={stats.total_records.toLocaleString()} accent="brand" />
@@ -283,7 +284,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
               value={`${filledLow.length}`} hint="<50%" accent="danger" />
           </div>
 
-          {/* Alan-bazlı doluluk — tek bar: her alan eşit dilim; dolu=yeşil (solda), eksik=alan rengi (sağda) */}
+          {/* Per-field fill rate — a single bar: each field gets an equal slice; filled=green (left), missing=field color (right) */}
           <div>
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted flex items-center gap-1 mb-2">
               <BarChart3 className="h-3 w-3" /> {t("records.quality.fieldFillRates")}
@@ -291,12 +292,12 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
             {(() => {
               const fields = stats.fields.filter((f) => f.available);
               const n = fields.length || 1;
-              const w = 100 / n;                                            // her alanın bardaki eşit payı
-              const greenPct = fields.reduce((s, f) => s + w * f.fill_rate, 0); // tüm dolu paylar tek havuzda
+              const w = 100 / n;                                            // each field's equal share of the bar
+              const greenPct = fields.reduce((s, f) => s + w * f.fill_rate, 0); // all filled shares in a single pool
               const missing = fields.filter((f) => f.fill_rate < 1);
               return (
                 <div className="flex h-7 rounded-md overflow-hidden border border-border mb-1.5">
-                  {/* Sol: tüm dolu alanların TEK havuzu — yeşil blok, üzerinde toplam doluluk */}
+                  {/* Left: a SINGLE pool of all filled fields — green block, with the total fill on top */}
                   <div
                     className="h-full bg-emerald-500 flex items-center justify-center"
                     style={{ width: `${greenPct}%` }}
@@ -306,7 +307,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                       {Math.round(greenPct)}%
                     </span>
                   </div>
-                  {/* Sağ: her alanın eksik payı — alan rengine göre yığılmış */}
+                  {/* Right: each field's missing share — stacked by field color */}
                   {missing.map((f) => (
                     <div
                       key={f.field}
@@ -330,7 +331,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
             </p>
           </div>
 
-          {/* #6: Biblioshiny-tarzı Genel Bakış tablosu + CSV/XLSX/PNG indirme */}
+          {/* #6: Biblioshiny-style Overview table + CSV/XLSX/PNG download */}
           <QualityOverview projectId={projectId} stats={stats} />
         </CardBody>
       )}
@@ -338,7 +339,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   );
 }
 
-/** Genel Bakış — alan-bazlı özet tablo + indirme (CSV/XLSX backend, PNG istemci-tarafı). */
+/** Overview — per-field summary table + download (CSV/XLSX from the backend, PNG client-side). */
 function QualityOverview({ projectId, stats }: { projectId: string; stats: QualityStats }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -361,7 +362,7 @@ function QualityOverview({ projectId, stats }: { projectId: string; stats: Quali
       a.href = dataUrl;
       a.download = "data_health.png";
       a.click();
-    } catch { /* görsel üretilemezse sessiz */ }
+    } catch { /* silent if the image cannot be generated */ }
   }
 
   const o = (k: string) => t(`records.quality.overview.${k}`);
@@ -435,9 +436,9 @@ function StatCard({ icon, label, value, hint, accent = "brand" }: {
   );
 }
 
-/** Alan → ayırt edici renk: bar'daki "eksik" diliminin ve aşağıdaki kutunun sol kenar rengi. */
-// Kurumsal paletten (lacivert/mor/petrol/amber/kırmızı aileleri) ayırt
-// edilebilir MAT kategorik tonlar — UI ile tutarlı, gökkuşağı değil.
+/** Field → distinguishing color: the "missing" slice in the bar and the left-border color of the box below. */
+// Distinguishable MATTE categorical tones from the corporate palette
+// (navy/purple/petrol/amber/red families) — consistent with the UI, not a rainbow.
 const FIELD_COLORS: Record<string, string> = {
   DI: "#38597f", AB: "#74398c", TI: "#0f766e", AU: "#8e5ba5", PY: "#264667",
   DE: "#a16207", ID: "#c8982f", WC: "#b91c1c", SC: "#d05c5c", C1: "#7593b5",
@@ -448,14 +449,14 @@ function fieldColor(f: string): string {
   return FIELD_COLORS[f] ?? "#94A3B8";
 }
 
-/** Alan kodu -> yerelleştirilmiş etiket (recordDetail.fields.*); anahtar yoksa backend label'a düşer. */
+/** Field code -> localized label (recordDetail.fields.*); if the key is missing it falls back to the backend label. */
 function fieldLabel(t: (k: string) => string, code: string, fallback: string): string {
   const k = `recordDetail.fields.${code}`;
   const v = t(k);
   return !v || v === k ? fallback : v;
 }
 
-/** Kompakt alan kutusu — sol kenar rengi bar'daki alan rengiyle eşleşir; % doluluk sağlığını gösterir. */
+/** Compact field box — the left-border color matches the field color in the bar; shows the % fill health. */
 function FieldChip({ field }: {
   field: { field: string; label: string; hint: string; total: number; filled: number; missing: number; fill_rate: number };
 }) {

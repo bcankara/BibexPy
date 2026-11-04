@@ -23,7 +23,7 @@ router = APIRouter(prefix="/projects/{project_id}/records", tags=["records"])
 
 
 def _snapshot_dataset(project_id: str, df: pd.DataFrame, reason: str) -> str:
-    """Mevcut datasetin bir kopyasını AKTİF analizin snapshots/ klasörüne yaz. Path döndür."""
+    """Write a copy of the current dataset into the ACTIVE analysis's snapshots/ folder. Return the path."""
     snaps = analyses.work_dir(project_id) / "snapshots"
     snaps.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
@@ -34,7 +34,7 @@ def _snapshot_dataset(project_id: str, df: pd.DataFrame, reason: str) -> str:
 
 
 def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
-    """Aktif dataset dosyasını ATOMİK yaz, cache'i temizle."""
+    """Write the active dataset file ATOMICALLY and clear the cache."""
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise HTTPException(409, "no_active_merged_dataset")
@@ -53,7 +53,7 @@ class DeletePayload(BaseModel):
 
 @router.post("/delete")
 def delete_records(project_id: str, payload: DeletePayload):
-    """UID, DOI veya satır indekslerine göre toplu silme. Snapshot alınır."""
+    """Bulk delete by UID, DOI or row indices. A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     try:
@@ -125,13 +125,13 @@ class RestoreSnapshotPayload(BaseModel):
 
 @router.post("/restore-snapshot")
 def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
-    """Snapshot dosyasını aktif dataset olarak geri yükle."""
+    """Restore the snapshot file as the active dataset."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     snap_path = storage.settings.storage_path / payload.snapshot
     if not snap_path.exists():
         raise HTTPException(404, f"snapshot_not_found: {payload.snapshot}")
-    # Format dönüştürücü: xlsx dönemi snapshot'ları parquet dataset'e yüklenebilir.
+    # Format converter: snapshots from the xlsx era can be loaded into the parquet dataset.
     df = dataset_io.read_dataset(snap_path)
     saved_path = _save_dataset(project_id, df)
     audit.write(
@@ -148,7 +148,7 @@ def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
 
 @router.get("/snapshots")
 def list_snapshots(project_id: str):
-    """Mevcut snapshot dosyalarını listele."""
+    """List the existing snapshot files."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     snaps_dir = analyses.work_dir(project_id) / "snapshots"
@@ -156,7 +156,7 @@ def list_snapshots(project_id: str):
         return []
     items = []
     for f in sorted(snaps_dir.iterdir(), reverse=True):
-        # Legacy (xlsx) snapshot'lar listede kalır — geri yükleme format dönüştürür.
+        # Legacy (xlsx) snapshots stay in the list — restoring converts the format.
         if f.is_file() and f.suffix.lower() in {".xlsx", ".parquet"}:
             items.append({
                 "name": f.name,
@@ -175,7 +175,7 @@ class UpdatePayload(BaseModel):
 
 @router.post("/update")
 def update_record(project_id: str, payload: UpdatePayload):
-    """Tek bir kaydın alanlarını elle düzenle (UID veya DOI ile bul). Snapshot alınır."""
+    """Manually edit the fields of a single record (find it by UID or DOI). A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     if not payload.fields:

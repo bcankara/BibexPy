@@ -27,7 +27,7 @@ def test_atomic_write_excel_roundtrip(tmp_path):
     assert p.exists()
     back = pd.read_excel(p)
     assert len(back) == 2
-    # Geçici dosya artığı kalmamalı
+    # No temp-file leftovers should remain
     assert not list(tmp_path.glob("*.tmp~"))
 
 
@@ -53,13 +53,13 @@ def client(monkeypatch, tmp_path):
 
 
 def test_corrupted_dataset_returns_409_not_500(client, tmp_path):
-    """Yarım/bozuk merged.xlsx → 500 yerine temiz 409 (snapshot ipucuyla)."""
+    """Half-written/corrupt merged.xlsx → a clean 409 instead of a 500 (with a snapshot hint)."""
     from services import analyses
     from services.filter_engine import _DF_CACHE
 
     pid = client.post("/api/projects", json={"name": "Corrupt"}).json()["id"]
     aid, adir = analyses.create_analysis(pid, "smart")
-    # Kesinti anını taklit et: yarım yazılmış (geçersiz) xlsx
+    # Simulate the moment of interruption: a half-written (invalid) xlsx
     (adir / "merged.xlsx").write_bytes(b"\x00\x01half-written garbage")
     analyses.finalize_analysis(pid, aid)
     _DF_CACHE.clear()

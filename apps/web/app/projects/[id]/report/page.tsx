@@ -52,8 +52,8 @@ export default function ReportPage() {
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [stats, setStats] = useState<QualityStats | null>(null);
   const [loading, setLoading] = useState(true);
-  // Hangi snapshot şu an geri yükleniyor — o satırın "Restore" butonu spinner'a
-  // döner + kilitlenir (yeniden-giriş engellenir).
+  // Which snapshot is being restored right now — that row's "Restore" button turns
+  // into a spinner + gets locked (re-entry is prevented).
   const [restoringSnapshot, setRestoringSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
@@ -125,7 +125,7 @@ export default function ReportPage() {
       />
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-4">
 
-        {/* Özet kartları */}
+        {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <SummaryCard icon={<History className="h-4 w-4" />} label={t("report.totalOperations")}
             value={summary?.total.toLocaleString() ?? "0"} />
@@ -138,7 +138,7 @@ export default function ReportPage() {
             value={firstDate && lastDate ? `${firstDate.toLocaleDateString()} → ${lastDate.toLocaleDateString()}` : "—"} small />
         </div>
 
-        {/* Kategori dağılımı */}
+        {/* Category distribution */}
         {summary && summary.total > 0 && (
           <Card>
             <CardHeader><h2 className="font-semibold text-sm">{t("report.categoryDist")}</h2></CardHeader>
@@ -161,16 +161,16 @@ export default function ReportPage() {
           </Card>
         )}
 
-        {/* Çıktılar — ham günlük + LLM manuscript raporu */}
+        {/* Outputs — raw log + LLM manuscript report */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           <RawLogsCard id={id} />
           <MethodologyCard projectId={id} hasOps={(summary?.total ?? 0) > 0} />
         </div>
 
-        {/* Veri akış şeması — audit log'dan otomatik; SVG/PNG indirilebilir */}
+        {/* Data flow diagram — automatic from the audit log; SVG/PNG downloadable */}
         <DataFlowDiagram projectId={id} />
 
-        {/* Kronoloji — en altta */}
+        {/* Chronology — at the bottom */}
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-sm flex-1">{t("report.chronological")}</h2>
@@ -204,7 +204,7 @@ export default function ReportPage() {
   );
 }
 
-/** Ham değişiklik günlüğü kartı — belirgin MD / TXT / PDF indirme. */
+/** Raw change log card — prominent MD / TXT / PDF download. */
 function RawLogsCard({ id }: { id: string }) {
   const t = useT();
   const fmts: Array<"md" | "txt" | "pdf"> = ["md", "txt", "pdf"];
@@ -229,7 +229,7 @@ function RawLogsCard({ id }: { id: string }) {
   );
 }
 
-/** Kısa örnek (temsilî) manuscript raporu — henüz rapor üretilmemişken önizleme. */
+/** Short sample (representative) manuscript report — a preview while no report has been generated yet. */
 const METHODOLOGY_SAMPLE = `## Data sources
 A total of 1,204 bibliographic records were retrieved from Web of Science (n = 712) and Scopus (n = 492).
 
@@ -242,7 +242,7 @@ Records published before 2013 were excluded, and missing DOIs and abstracts were
 ## Author disambiguation
 Author name variants were normalized and homonymous names were separated. Data preparation was performed using BibexPy (Kara et al., 2025).`;
 
-/** LLM tabanlı manuscript raporu kartı (İngilizce). */
+/** LLM-based manuscript report card (English). */
 function MethodologyCard({ projectId, hasOps }: { projectId: string; hasOps: boolean }) {
   const t = useT();
   const [report, setReport] = useState<MethodologyReport | null>(null);

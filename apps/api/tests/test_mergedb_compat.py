@@ -38,7 +38,7 @@ from bibex_core.MergeDB import merge_db_sources  # noqa: E402
 from bibex_core.cr_normalize import count_refs  # noqa: E402
 
 
-# Gerçek Scopus "new format" CR — yazarlar ';' ile, referans sonu "(yyyy)".
+# Real Scopus "new format" CR — authors separated by ';', reference ends with "(yyyy)".
 SCOPUS_CR = (
     "FAHLE L.; HOLLEY E.A.; WALTON G., ANALYSIS OF SLAM-BASED LIDAR DATA, "
     "MIN METALL EXPLOR, 39, 5, PP. 1939-1960, (2022); "
@@ -83,18 +83,19 @@ def _scopus(**overrides) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-# ── (a) Başlık anahtarı küçük harfe indirilir ─────────────────────────────
+# ── (a) Title key is lowercased ───────────────────────────────────────────
 
 def test_case_differing_title_year_pair_dedupes():
-    """'Deep Learning In Bibliometrics' ile 'Deep learning in bibliometrics'
-    aynı kayıttır; lower() olmadan iki ayrı anahtar üretiliyor ve duplike
-    çıktıya kalıyordu. DOI kolonu yok — yalnız başlık+yıl yolu sınanır."""
+    """'Deep Learning In Bibliometrics' and 'Deep learning in bibliometrics'
+    are the same record; without lower() two separate keys were produced and the
+    duplicate was left in the output. There is no DOI column — only the
+    title+year path is exercised."""
     merged = merge_db_sources(_wos(), _scopus())
     assert len(merged) == 1, merged[["TI", "PY"]].to_dict("records")
 
 
 def test_different_titles_are_not_over_merged():
-    """Kontrol: lower() gerçek farklı kayıtları birleştirmemeli."""
+    """Control: lower() must not merge genuinely different records."""
     merged = merge_db_sources(
         _wos(TI="Deep Learning In Bibliometrics"),
         _scopus(TI="Machine learning for citation networks"),
@@ -107,12 +108,12 @@ def test_same_title_different_year_kept_separate():
     assert len(merged) == 2
 
 
-# ── (b) DOI ayırıcı/önek/case varyantları tek gruba iner ──────────────────
+# ── (b) DOI separator/prefix/case variants collapse into a single group ───
 
 def test_separator_variant_doi_pair_dedupes():
-    """GERÇEK VAKA: WoS '10.4103/jgid.jgid_12_19', Scopus aynı makaleyi
-    '10.4103/jgid.jgid-12-19' verir. Başlıklar burada bilerek FARKLI — tek
-    birleştirici yol DOI anahtarıdır."""
+    """REAL CASE: WoS gives '10.4103/jgid.jgid_12_19', Scopus gives the same
+    article as '10.4103/jgid.jgid-12-19'. The titles are deliberately DIFFERENT
+    here — the only merging path is the DOI key."""
     merged = merge_db_sources(
         _wos(TI="Global infection trends", DI="10.4103/jgid.jgid_12_19"),
         _scopus(TI="A completely unrelated heading here",
@@ -122,7 +123,7 @@ def test_separator_variant_doi_pair_dedupes():
 
 
 def test_distinct_dois_stay_separate():
-    """Kontrol: gerçekten farklı DOI'ler (ve farklı başlıklar) ayrı kalır."""
+    """Control: genuinely different DOIs (and different titles) stay separate."""
     merged = merge_db_sources(
         _wos(TI="Alpha study", DI="10.4103/jgid.jgid_12_19"),
         _scopus(TI="Beta study", DI="10.4103/jgid.jgid_13_19"),
@@ -131,21 +132,21 @@ def test_distinct_dois_stay_separate():
 
 
 def test_records_without_doi_still_reach_title_path():
-    """DOI'si boş/geçersiz satırlar (anahtar None) eskisi gibi başlık+yıl
-    yoluna düşmeli — DOI grubunda kaybolmamalı."""
+    """Rows whose DOI is empty/invalid (key None) must fall back to the
+    title+year path as before — they must not get lost in the DOI group."""
     merged = merge_db_sources(_wos(DI=""), _scopus(DI="n/a"))
     assert len(merged) == 1
 
 
-# ── (c) CR Scopus dilbilgisinden WoS dilbilgisine çevrilir, NR sayılır ────
+# ── (c) CR is converted from Scopus grammar to WoS grammar, NR is counted ─
 
 def test_scopus_cr_is_rewritten_and_nr_recounted():
-    """Tek kaynaklı (Scopus-only) merge: CR tam olarak WoS dilbilgisine çevrilir
-    ve NR referans sayımından doldurulur.
+    """Single-source (Scopus-only) merge: CR is fully converted to WoS grammar
+    and NR is filled in from the reference count.
 
-    Tek kaynakta ``len(M['DB'].unique()) > 1`` yanlış olduğu için alan-birleştirme
-    bloğu (dolayısıyla ``merge_references``) hiç çalışmaz; böylece bu test
-    yalnızca CR normalizasyon adımını ölçer.
+    With a single source ``len(M['DB'].unique()) > 1`` is false, so the
+    field-merging block (and therefore ``merge_references``) never runs; this
+    test thus measures only the CR normalization step.
     """
     merged = merge_db_sources(_scopus(TI="Beta study", DI="10.1/beta"))
     assert len(merged) == 1
@@ -158,7 +159,7 @@ def test_scopus_cr_is_rewritten_and_nr_recounted():
     )
     assert re.search(r"\(\d{4}\)\s*;", str(row["CR"])) is None
     assert re.search(r"\(\d{4}\)\s*$", str(row["CR"])) is None
-    # NR boştu → CR'den sayılmalı
+    # NR was empty → must be counted from CR
     assert int(row["NR"]) == count_refs(row["CR"]) == 3
 
 
@@ -170,15 +171,15 @@ def test_wos_cr_passes_through_untouched():
 
 
 def test_mixed_source_output_carries_no_scopus_cr_grammar():
-    """WoS+Scopus karışık merge: çıktının hiçbir yerinde Scopus dilbilgisi
-    kalıntısı ('(yyyy);' ya da satır sonu '(yyyy)') olmamalı ve NR, CR'deki
-    referans sayısını vermeli.
+    """Mixed WoS+Scopus merge: no Scopus grammar residue ('(yyyy);' or a trailing
+    '(yyyy)' at the end of the line) may remain anywhere in the output, and NR must
+    equal the number of references in CR.
 
-    NOT: bu dalda MergeDB'nin kendi ``merge_references`` adımı Scopus CR'ını
-    ';' üzerinden bölerek (Scopus'ta ';' YAZAR ayırıcısıdır) referansları
-    parçalayıp yeniden sıralar. Bu ayrı ve ÖNCEDEN VAR OLAN bir kusurdur;
-    burada CR içeriğinin sırası/eşleşmesi değil, yalnız dilbilgisi ve NR
-    tutarlılığı doğrulanır."""
+    NOTE: in this branch MergeDB's own ``merge_references`` step splits the Scopus
+    CR on ';' (in Scopus ';' is the AUTHOR separator), fragmenting the references
+    and reordering them. This is a separate, PRE-EXISTING defect; what is verified
+    here is not the order/matching of the CR contents, only grammar and NR
+    consistency."""
     merged = merge_db_sources(
         _wos(TI="Alpha study", DI="10.1/alpha"),
         _scopus(TI="Beta study", DI="10.1/beta"),
@@ -194,7 +195,7 @@ def test_mixed_source_output_carries_no_scopus_cr_grammar():
 
 
 def test_zero_nr_with_non_empty_cr_is_recounted():
-    """NR=0 + dolu CR eski merge'lerin yanlış değeri; CR'den yeniden sayılır."""
+    """NR=0 + non-empty CR is the wrong value left by old merges; it is recounted from CR."""
     merged = merge_db_sources(
         _wos(TI="Alpha study", DI="10.1/alpha", NR=0),
         _scopus(TI="Beta study", DI="10.1/beta", NR=0),
@@ -205,7 +206,7 @@ def test_zero_nr_with_non_empty_cr_is_recounted():
 
 
 def test_empty_cr_keeps_nr_untouched():
-    """Gerçekten referanssız kayıtta (CR boş) NR'ye dokunulmaz."""
+    """On a genuinely reference-less record (empty CR) NR is left untouched."""
     merged = merge_db_sources(
         _wos(TI="Alpha study", DI="10.1/alpha", CR="", NR=0),
         _scopus(TI="Beta study", DI="10.1/beta", CR="", NR=""),
@@ -215,7 +216,7 @@ def test_empty_cr_keeps_nr_untouched():
 
 
 def test_nr_column_created_when_absent():
-    """Scopus export'unda NR kolonu yoktur; CR varsa NR üretilmeli."""
+    """A Scopus export has no NR column; if CR is present, NR must be generated."""
     w = _wos(TI="Alpha study", DI="10.1/alpha").drop(columns=["NR"])
     s = _scopus(TI="Beta study", DI="10.1/beta").drop(columns=["NR"])
     merged = merge_db_sources(w, s)
@@ -224,7 +225,7 @@ def test_nr_column_created_when_absent():
         assert int(row["NR"]) == count_refs(row["CR"])
 
 
-# ── (d) Yardımcı/geçici kolonlar çıktıda olmamalı ─────────────────────────
+# ── (d) Helper/temporary columns must not appear in the output ────────────
 
 _TEMP_COLS = {"_doi_key", "clean_title", "title_year", "RP_WOS", "RP_SCOPUS"}
 
@@ -238,7 +239,7 @@ def test_helper_columns_absent_from_output():
 
 
 def test_helper_columns_absent_without_merge_fields():
-    """merge_fields=False dalında da yardımcı kolon sızmamalı."""
+    """Helper columns must not leak in the merge_fields=False branch either."""
     merged = merge_db_sources(
         _wos(TI="Alpha study", DI="10.4103/jgid.jgid_12_19"),
         _scopus(TI="Beta study", DI="https://doi.org/10.4103/JGID.JGID-12-19"),
@@ -249,7 +250,7 @@ def test_helper_columns_absent_without_merge_fields():
 
 
 def test_no_dedup_path_still_normalizes_cr():
-    """remove_duplicated=False iken de CR/NR düzeltmesi uygulanır."""
+    """The CR/NR fix is applied even when remove_duplicated=False."""
     merged = merge_db_sources(_wos(), _scopus(), remove_duplicated=False)
     assert len(merged) == 2
     assert re.search(r"\(\d{4}\)\s*;", "; ".join(str(v) for v in merged["CR"])) is None
@@ -257,9 +258,9 @@ def test_no_dedup_path_still_normalizes_cr():
 
 
 def test_merge_references_does_not_shred_raw_scopus_cr():
-    """5. kusur: merge_references ham Scopus CR'ı çıplak ';' ile bölüp yazar
-    kırıntılarına parçalıyordu (yazar↔referans eşlemesi bozuluyordu). Artık
-    girişte normalize eder — çıktıda kırıntı yok, 2 referans 2 kalır."""
+    """Defect #5: merge_references used to split raw Scopus CR on a bare ';' and
+    shred it into author fragments (breaking the author↔reference mapping). It now
+    normalizes on input — no fragments in the output, 2 references stay 2."""
     from bibex_core.MergeDB import merge_references
 
     scopus_cr = ("FAHLE L.; HOLLEY E.A.; WALTON G., ANALYSIS OF SLAM DATA, "
@@ -270,10 +271,10 @@ def test_merge_references_does_not_shred_raw_scopus_cr():
     assert len(refs) == 2, refs
     assert any(r.startswith("FAHLE L, 2022") for r in refs), refs
     assert any(r.startswith("PIVAC D, 2021") for r in refs), refs
-    # Yazar kırıntısı tek başına referans olmamalı
+    # An author fragment must not stand alone as a reference
     assert not any(r in ("HOLLEY E.A.", "WALTON G.", "MARTIN R.") for r in refs)
 
-    # WoS girdisiyle birleşim: WoS referansı aynen korunur
+    # Combination with a WoS input: the WoS reference is preserved verbatim
     wos_cr = "SMITH J, 2020, J DOC, V66, P214"
     both = merge_references(wos_cr, scopus_cr)
     assert "SMITH J, 2020, J DOC, V66, P214" in both

@@ -5,19 +5,21 @@ import { FullScreenLoader } from "./FullScreenLoader";
 import { cn } from "@/lib/cn";
 
 /**
- * Yükleme kapısı — HEM ilk açılışta HEM her route geçişinde loader gösterir.
+ * Loading gate — shows the loader on BOTH the first open AND every route change.
  *
- * pathname her değiştiğinde (ve ilk mount'ta) loader yeniden görünür. Loader,
- * şu İKİSİNDEN GEÇ OLANA kadar kalır:
- *   (a) ilk açılışta `window` "load" olayı (tüm kaynaklar inene kadar; sonraki
- *       client-side geçişlerde bu zaten tamamdır),
- *   (b) MIN_MS minimum süre (sayfa anında hazır olsa bile loader göz kırpmaz).
- * Sonra 300ms fade ile kaybolur. Güvenlik için 12 sn sonra her halükârda kapanır.
+ * Whenever pathname changes (and on the first mount) the loader appears again.
+ * The loader stays until the LATER of these TWO:
+ *   (a) on first open, the `window` "load" event (until all resources have been
+ *       downloaded; on later client-side transitions this is already complete),
+ *   (b) the MIN_MS minimum duration (so the loader does not flicker even if the
+ *       page is ready instantly).
+ * Then it disappears with a 300ms fade. For safety it closes anyway after 12 s.
  *
- * Tek kaynak: app/**loading.tsx kaldırıldı; route geçişi de buradan yönetilir
- * (Suspense fallback min süre garanti edemiyordu, anında kayboluyordu).
+ * Single source: app/**loading.tsx was removed; route transitions are handled
+ * here too (the Suspense fallback could not guarantee a minimum duration, it
+ * vanished instantly).
  */
-const MIN_MS = 1000; // sayfa hemen yüklense bile loader en az bu kadar görünür
+const MIN_MS = 1000; // the loader stays visible at least this long even if the page loads immediately
 
 export function InitialLoadGate() {
   const pathname = usePathname();

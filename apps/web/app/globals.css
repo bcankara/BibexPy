@@ -9,8 +9,8 @@
 }
 
 html, body {
-  /* Sayfa fonu Hero/AppShell ile aynı (#f7fbff). Önceden #F6F8FB idi —
-     ribbon header sayfa background'ı ile birebir aynı hissi versin diye uyumlu. */
+  /* Page background matches Hero/AppShell (#f7fbff). It used to be #F6F8FB —
+     aligned so that the ribbon header feels exactly the same as the page background. */
   background: #f7f9fc;
   color: #172033;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -27,25 +27,25 @@ html, body {
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
-/* Selection — ana lacivert (kurumsal palet) */
+/* Selection — main navy (corporate palette) */
 ::selection { background: rgba(12, 40, 71, 0.18); }
 
 /* Hide details marker */
 details > summary { list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
 
-/* Modern erişilebilirlik: klavye ile gezen kullanıcılar için tüm interaktif
-   öğelerde tutarlı cyan focus halkası. Mouse focus ile karıştırmamak için
-   `:focus-visible` (klavye/AT odağı) kullanılır. */
+/* Modern accessibility: a consistent cyan focus ring on all interactive
+   elements for keyboard users. To avoid confusing it with mouse focus,
+   `:focus-visible` (keyboard/AT focus) is used. */
 *:focus-visible {
-  outline: 2px solid #0f766e;   /* vurgu/CTA petrol */
+  outline: 2px solid #0f766e;   /* accent/CTA petrol */
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 /* Dual range slider — overlapping native inputs with visible thumbs */
 .dual-range {
-  pointer-events: none;       /* track tıklanmasın */
+  pointer-events: none;       /* the track must not be clickable */
   -webkit-appearance: none;
   appearance: none;
   height: 100%;
@@ -55,7 +55,7 @@ details > summary::-webkit-details-marker { display: none; }
 .dual-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  pointer-events: all;       /* sadece thumb tıklanabilir */
+  pointer-events: all;       /* only the thumb is clickable */
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -67,7 +67,7 @@ details > summary::-webkit-details-marker { display: none; }
 }
 .dual-range::-webkit-slider-thumb:hover {
   transform: scale(1.15);
-  border-color: #0d635d;       /* petrol koyu */
+  border-color: #0d635d;       /* dark petrol */
 }
 .dual-range::-webkit-slider-thumb:active {
   cursor: grabbing;

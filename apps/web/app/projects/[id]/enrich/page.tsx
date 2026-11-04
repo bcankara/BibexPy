@@ -15,21 +15,21 @@ import { cn } from "@/lib/cn";
 import { useProjectId } from "@/lib/use-project-id";
 
 /**
- * AI Asistan sayfası — bibliometrik veri hazırlık için LLM tabanlı işler.
+ * AI Assistant page — LLM-based tasks for bibliometric data preparation.
  *
- * Akış:
- * - Hazırlık & Filtre (Adım 3) eksik alanları API'lerden tamamlar (deterministik)
- * - AI Asistan (Adım 4) ise SEMANTİK karar gereken yerlerde devreye girer:
- *     • Disambiguation (yazar / affiliation varyantlarını birleştirme)
- *     • Anahtar kelime / dergi adı / kategori normalizasyonu
- *     • Akıllı semantik duplicate tespiti
+ * Flow:
+ * - Preparation & Filter (Step 3) fills in missing fields from the APIs (deterministic)
+ * - AI Assistant (Step 4) kicks in where a SEMANTIC decision is needed:
+ *     • Disambiguation (merging author / affiliation variants)
+ *     • Keyword / journal name / category normalization
+ *     • Smart semantic duplicate detection
  */
 
 type ToolStatus = "live" | "coming_soon";
 
 type AITool = {
   id: string;
-  fields: string;       // hangi alanlara dokunur (kod, çevirilmiyor)
+  fields: string;       // which fields it touches (code, not translated)
   icon: React.ReactNode;
   status: ToolStatus;
   category: "disambiguation" | "normalization" | "extraction";
@@ -71,7 +71,7 @@ export default function EnrichPage() {
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-4">
 
-        {/* Bilgilendirme — bu sayfa Hazırlık'tan ne farklı? */}
+        {/* Info — how is this page different from Preparation? */}
         <Card>
           <CardBody className="py-3">
             <div className="flex items-start gap-3 text-xs">
@@ -86,20 +86,20 @@ export default function EnrichPage() {
           </CardBody>
         </Card>
 
-        {/* Veri Kalitesi & Doldurma — filtreden sonra, yalnız kalan kayıtlar üzerinde.
-            Kayıt tablosu bu sayfada yok; onFieldClick geçilmez. */}
+        {/* Data Quality & Filling — after the filter, only on the remaining records.
+            There is no records table on this page; onFieldClick is not passed. */}
         <QualityDashboard projectId={id} onChanged={() => {}} />
 
-        {/* Araç seçici (sol grid + sağ panel) */}
+        {/* Tool selector (left grid + right panel) */}
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
-          {/* Sol: araç listesi */}
+          {/* Left: tool list */}
           <aside className="space-y-4">
             <ToolCategorySection category="disambiguation" tools={byCat("disambiguation")} activeTool={activeTool} onSelect={setActiveTool} />
             <ToolCategorySection category="normalization" tools={byCat("normalization")} activeTool={activeTool} onSelect={setActiveTool} />
             <ToolCategorySection category="extraction" tools={byCat("extraction")} activeTool={activeTool} onSelect={setActiveTool} />
           </aside>
 
-          {/* Sağ: aktif aracın paneli */}
+          {/* Right: the active tool's panel */}
           <section className="min-w-0">
             {["authors", "affiliations", "countries", "organizations"].includes(activeTool) ? (
               <DisambiguatePanel projectId={id} kind={activeTool as "authors" | "affiliations" | "countries" | "organizations"} />

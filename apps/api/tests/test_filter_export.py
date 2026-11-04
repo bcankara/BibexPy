@@ -13,8 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-# Örnek veri: BIBEXPY_SAMPLE_DATA env var ile override edilebilir (örn. repo
-# içindeki python_pkg/src/bibexpy/_samples/simple_project). Yoksa eski varsayılan.
+# Sample data: can be overridden with the BIBEXPY_SAMPLE_DATA env var (e.g. the
+# python_pkg/src/bibexpy/_samples/simple_project inside the repo). Otherwise the old default.
 SAMPLE_DATA = Path(
     os.environ.get("BIBEXPY_SAMPLE_DATA")
     or (Path(__file__).resolve().parents[3] / "BibexPy" / "Workspace" / "Sample Project" / "Data")
@@ -35,13 +35,13 @@ def client(monkeypatch, tmp_path):
 
 @pytest.fixture
 def project_with_merged(client, tmp_path):
-    """Sample data'dan bir proje oluştur; küçük bir XLSX'i aktif bir Smart
-    analiz klasörüne (analyses/<id>/merged.xlsx) koy."""
+    """Create a project from the sample data; place a small XLSX into an active Smart
+    analysis folder (analyses/<id>/merged.xlsx)."""
     if not SAMPLE_DATA.exists():
         pytest.skip("Sample data yok")
     pid = client.post("/api/projects", json={"name": "FT"}).json()["id"]
 
-    # WoS TXT'yi yükleyip XLSX'e çevir
+    # Upload the WoS TXT and convert it to XLSX
     src = SAMPLE_DATA / "savedrecs.txt"
     with src.open("rb") as f:
         r = client.post(
@@ -53,7 +53,7 @@ def project_with_merged(client, tmp_path):
                     json={"files": [src.name], "output": "data.xlsx"})
     assert r.status_code == 200
 
-    # processed/data.xlsx → analyses/<id>/merged.xlsx (aktif Smart analizi)
+    # processed/data.xlsx → analyses/<id>/merged.xlsx (active Smart analysis)
     import shutil
     from services import analyses
     project_dir = tmp_path / pid
@@ -84,31 +84,31 @@ def test_filter_fulltext_boolean(client, project_with_merged):
 
 def test_filter_presets(client, project_with_merged):
     pid = project_with_merged
-    # boş
+    # empty
     assert client.get(f"/api/projects/{pid}/filter/presets").json() == []
-    # kaydet
+    # save
     r = client.post(f"/api/projects/{pid}/filter/presets",
                     json={"name": "p1", "spec": {"year": {"min": 2020}}})
     assert r.status_code == 200
-    # listele
+    # list
     presets = client.get(f"/api/projects/{pid}/filter/presets").json()
     assert len(presets) == 1 and presets[0]["name"] == "p1"
-    # sil
+    # delete
     assert client.delete(f"/api/projects/{pid}/filter/presets/p1").status_code == 204
     assert client.get(f"/api/projects/{pid}/filter/presets").json() == []
 
 
 def test_filter_apply_permanent_and_restore(client, project_with_merged):
-    """Filtreyi veri setine KALICI uygulama: eşleşmeyenler çıkarılır, snapshot
-    alınır ve Geçmiş'ten geri yüklenebilir. (Harmonizasyon/Export'un filtreli
-    veriyle çalışması bu endpoint'e dayanır.)"""
+    """PERMANENTLY applying the filter to the dataset: non-matching records are removed,
+    a snapshot is taken and it can be restored from History. (Harmonization/Export
+    working on filtered data relies on this endpoint.)"""
     pid = project_with_merged
     base = client.post(f"/api/projects/{pid}/filter",
                        json={"spec": {}, "limit": 1, "include_facets": True}).json()
     total = base["total"]
     assert total > 0
 
-    # Hem tutan hem çıkaran bir yıl eşiği bul (veriye bağımlı olmasın)
+    # Find a year threshold that both keeps and removes records (so the test does not depend on the data)
     years = sorted(h["year"] for h in base["facets_all"]["year"]["histogram"])
     chosen = None
     for y in years:
@@ -122,10 +122,10 @@ def test_filter_apply_permanent_and_restore(client, project_with_merged):
         pytest.skip("Örnek veride kısmi eşleşen yıl eşiği yok")
     y, kept_expect = chosen
 
-    # Boş spec → 400 (yanlışlıkla no-op çağrı koruması)
+    # Empty spec → 400 (guard against an accidental no-op call)
     assert client.post(f"/api/projects/{pid}/filter/apply", json={"spec": {}}).status_code == 400
 
-    # Uygula → dataset kalıcı daralır
+    # Apply → the dataset is permanently narrowed
     r = client.post(f"/api/projects/{pid}/filter/apply",
                     json={"spec": {"year": {"min": y}}})
     assert r.status_code == 200, r.text
@@ -138,7 +138,7 @@ def test_filter_apply_permanent_and_restore(client, project_with_merged):
                         json={"spec": {}, "limit": 1, "include_facets": False}).json()
     assert after["total"] == kept_expect
 
-    # Snapshot'tan geri yükleme tam sayıya döndürür
+    # Restoring from the snapshot returns to the full count
     r = client.post(f"/api/projects/{pid}/records/restore-snapshot",
                     json={"snapshot": d["snapshot"]})
     assert r.status_code == 200, r.text
@@ -153,17 +153,17 @@ def test_export_formats(client, project_with_merged, fmt):
     r = client.post(f"/api/projects/{pid}/export", json={"fmt": fmt})
     assert r.status_code == 200, r.text
     out = r.json()
-    EXT = {"wos": "txt", "vos": "txt"}  # WoS/VOS çıktıları .txt uzantılı
+    EXT = {"wos": "txt", "vos": "txt"}  # WoS/VOS outputs have a .txt extension
     assert out["name"].endswith(f".{EXT.get(fmt, fmt)}")
     assert out["size"] > 10
-    # İndirilebilir mi?
+    # Is it downloadable?
     r = client.get(f"/api/projects/{pid}/download/exports/{out['name']}")
     assert r.status_code == 200
 
 
 def test_export_filtered(client, project_with_merged):
     pid = project_with_merged
-    # önce filtre uygula ve aynı filterda export et
+    # first apply a filter and export with the same filter
     r = client.post(f"/api/projects/{pid}/export",
                     json={"fmt": "csv", "filter": {"year": {"min": 2020}}, "output_name": "filtered.csv"})
     assert r.status_code == 200
@@ -172,7 +172,7 @@ def test_export_filtered(client, project_with_merged):
 
 @pytest.mark.parametrize("fmt,ext", [("csv", ".csv"), ("xlsx", ".xlsx")])
 def test_quality_overview_download(client, project_with_merged, fmt, ext):
-    """#6: Data Health Genel Bakış tablosu CSV/XLSX olarak indirilebilmeli."""
+    """#6: The Data Health Overview table must be downloadable as CSV/XLSX."""
     pid = project_with_merged
     r = client.get(f"/api/projects/{pid}/quality/overview?fmt={fmt}")
     assert r.status_code == 200, r.text
@@ -188,23 +188,23 @@ def test_quality_overview_bad_format(client, project_with_merged):
 
 
 def test_merge_summary_smart(client, project_with_merged):
-    """Regresyon: merge/summary, merge'li (smart) projede 500 vermemeli.
-    (Yerel `method` değişkeni kaldırılınca NameError -> 500 olmuştu.)"""
+    """Regression: merge/summary must not return 500 on a merged (smart) project.
+    (When the local `method` variable was removed it caused a NameError -> 500.)"""
     pid = project_with_merged
     r = client.get(f"/api/projects/{pid}/merge/summary")
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["has_merge"] is True
     assert d["method"] == "smart"
-    # borderline + analiz listesi de smart yolunda 500 vermemeli
+    # borderline + the analysis list must not return 500 on the smart path either
     assert client.get(f"/api/projects/{pid}/merge/borderline").status_code == 200
     assert client.get(f"/api/projects/{pid}/merge/analyses").status_code == 200
 
 
 def test_merge_auto_prepares_from_raw(client, tmp_path):
-    """Birleşik akış: ham WoS TXT yüklenip Prepare YAPILMADAN merge çalışınca
-    auto_prepare örtük olarak processed/wos.xlsx üretir ve analiz oluşur.
-    (Job runner asenkron olduğundan servis katmanı doğrudan test edilir.)"""
+    """Unified flow: when a raw WoS TXT is uploaded and merge runs WITHOUT Prepare,
+    auto_prepare implicitly produces processed/wos.xlsx and an analysis is created.
+    (Since the job runner is asynchronous, the service layer is tested directly.)"""
     if not SAMPLE_DATA.exists():
         pytest.skip("Sample data yok")
     import asyncio
@@ -217,14 +217,14 @@ def test_merge_auto_prepares_from_raw(client, tmp_path):
                         files=[("files", (src.name, f.read(), "text/plain"))])
     assert r.status_code == 200
 
-    # Prepare çağrılmadı → processed/wos.xlsx henüz yok
+    # Prepare was not called → processed/wos.xlsx does not exist yet
     processed = tmp_path / pid / "processed"
     assert not (processed / "wos.xlsx").exists()
 
-    # check_ready_to_merge artık raw-only projede 409 vermemeli
+    # check_ready_to_merge must no longer raise 409 on a raw-only project
     merger.check_ready_to_merge(pid)
 
-    # Merge'i doğrudan çalıştır — auto_prepare ilk fazda XLSX üretmeli
+    # Run the merge directly — auto_prepare must produce the XLSX in the first phase
     class _Ctx:
         def log(self, *a, **k):
             pass
@@ -236,31 +236,31 @@ def test_merge_auto_prepares_from_raw(client, tmp_path):
     assert result.get("analysis_id")
     assert (processed / "wos.xlsx").exists()
 
-    # Özet: merge var, taze (stale değil)
+    # Summary: a merge exists and it is fresh (not stale)
     d = client.get(f"/api/projects/{pid}/merge/summary").json()
     assert d["has_merge"] is True
     assert d.get("stale") is False
 
 
 def test_audit_per_analysis_scoping(client, project_with_merged):
-    """Her analizin AYRI geçmişi: analiz-içi işlemler aktif analize etiketlenir,
-    proje-seviye işlemler (upload) None kalır; analiz silinince o analizin kayıtları
-    gider, proje-seviye kayıtlar korunur."""
+    """Each analysis has its OWN history: in-analysis operations are tagged with the
+    active analysis, project-level operations (upload) stay None; when an analysis is
+    deleted its records go away, while project-level records are preserved."""
     pid = project_with_merged
     aid = client.get(f"/api/projects/{pid}/merge/analyses").json()["active_id"]
     assert aid
 
-    # Analiz-içi işlem (export) → aktif analize etiketlenmeli
+    # In-analysis operation (export) → must be tagged with the active analysis
     r = client.post(f"/api/projects/{pid}/export", json={"fmt": "csv"})
     assert r.status_code == 200
     entries = client.get(f"/api/projects/{pid}/audit").json()
     exp = [e for e in entries if e["kind"] == "export"]
     assert exp and exp[-1].get("analysis_id") == aid
-    # upload proje-seviye (None) olmalı
+    # upload must be project-level (None)
     ups = [e for e in entries if e["kind"] == "upload"]
     assert ups and ups[-1].get("analysis_id") is None
 
-    # Analizi sil → export (analiz-etiketli) gider, upload (None) korunur
+    # Delete the analysis → export (analysis-tagged) goes away, upload (None) is preserved
     assert client.delete(f"/api/projects/{pid}/merge/analyses/{aid}").status_code == 200
     after = client.get(f"/api/projects/{pid}/audit").json()
     assert not any(e["kind"] == "export" for e in after)

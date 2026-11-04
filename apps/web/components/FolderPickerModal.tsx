@@ -71,13 +71,13 @@ export function FolderPickerModal({ open, initialPath, onClose, onSelect }: Prop
     setNativeMatches(null);
     try {
       const handle = await window.showDirectoryPicker({ mode: "read" });
-      // Tarayıcı tam path vermiyor — sadece klasör adı
-      // Backend ile bu adın olası path'lerini bul
+      // The browser does not give the full path — only the folder name
+      // Ask the backend to find the possible paths for this name
       setNativeChecking(true);
       try {
         const r = await api.findFolderByName(handle.name);
         if (r.matches.length === 1) {
-          // Tek eşleşme → direkt seç
+          // Single match → select it directly
           onSelect(r.matches[0].path);
           onClose();
         } else if (r.matches.length === 0) {
@@ -150,7 +150,7 @@ export function FolderPickerModal({ open, initialPath, onClose, onSelect }: Prop
             </button>
           </div>
 
-          {/* Native picker — birden fazla eşleşme bulundu */}
+          {/* Native picker — more than one match was found */}
           {nativeMatches && nativeMatches.matches.length > 1 && (
             <div className="px-5 py-3 border-b border-border bg-info-soft/50">
               <p className="text-xs font-medium text-info mb-2">

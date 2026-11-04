@@ -16,34 +16,34 @@ import pandas as pd
 from services import dataset_io, merger
 
 
-# ---------- Dataset yükleme (cache) ----------
+# ---------- Dataset loading (cache) ----------
 
 _DF_CACHE: dict[tuple[str, float, int], pd.DataFrame] = {}
 
 
 def atomic_write_excel(df: pd.DataFrame, path: Any) -> None:
-    """Geriye uyumlu ad — `dataset_io.atomic_write_dataset`e ince delege.
+    """Backwards-compatible name — a thin delegate to `dataset_io.atomic_write_dataset`.
 
-    Yazım uzantıya göre dispatch edilir (parquet/xlsx); atomiklik ve retry
-    mantığı dataset_io'da tek yerde durur.
+    Writing is dispatched by extension (parquet/xlsx); the atomicity and retry
+    logic live in a single place in dataset_io.
     """
     dataset_io.atomic_write_dataset(df, path)
 
 
 def _ensure_uid_column(df: pd.DataFrame) -> bool:
-    """Her satıra benzersiz, stabil bir UID atar. UID kolonu yoksa ekler.
+    """Assign a unique, stable UID to every row. Adds the UID column if missing.
 
-    Return: True = ekledi (kaydetmek gerek), False = zaten vardı.
+    Return: True = added (needs saving), False = already existed.
     """
     import uuid
     if "UID" in df.columns:
-        # Eksik / duplicate UID'leri doldur
+        # Fill missing / duplicate UIDs
         s = df["UID"].astype(str).str.strip()
         empty = (s == "") | (s.str.upper() == "NAN") | s.isna()
         dups = s.duplicated(keep="first") & ~empty
         if not empty.any() and not dups.any():
             return False
-        # Eksik veya çakışan UID'lere yeni değer ata
+        # Assign new values to missing or colliding UIDs
         existing = set(s[~empty & ~dups].tolist())
         for i in df.index[empty | dups]:
             while True:
@@ -53,7 +53,7 @@ def _ensure_uid_column(df: pd.DataFrame) -> bool:
                     df.at[i, "UID"] = nid
                     break
         return True
-    # UID kolonu tamamen yok
+    # The UID column is missing entirely
     df["UID"] = [f"r_{uuid.uuid4().hex[:10]}" for _ in range(len(df))]
     return True
 
@@ -63,33 +63,33 @@ def load_merged(project_id: str) -> pd.DataFrame:
     if p is None:
         raise FileNotFoundError("Birleştirilmiş veri yok — önce Merge çalıştırın")
     st = p.stat()
-    # Boyut da anahtara girer: parquet yazımı milisaniyeler sürdüğünden iki
-    # ardışık mutasyon aynı mtime tick'ine düşebilir.
+    # The size is part of the key as well: since a parquet write takes milliseconds,
+    # two consecutive mutations can fall into the same mtime tick.
     key = (str(p), st.st_mtime, st.st_size)
     if key not in _DF_CACHE:
-        _DF_CACHE.clear()  # tek-kullanıcı, tek-dataset
+        _DF_CACHE.clear()  # single-user, single-dataset
         try:
-            # read_dataset uzantıya göre okur + object kolonlarındaki boşlukları
-            # "" olarak normalize eder (parquet NA'yı None döndürür).
+            # read_dataset reads according to the extension + normalizes blanks in
+            # object columns to "" (parquet returns NA as None).
             df = dataset_io.read_dataset(p)
         except Exception:
-            # Yarım/bozuk dosya (eski sürümlerin atomik olmayan yazımı ya da
-            # sert kesinti kalıntısı) → 500 yerine temiz 409; kullanıcı
-            # Geçmiş'ten snapshot geri yükleyebilir.
+            # Half-written/corrupt file (non-atomic write by older versions, or a
+            # leftover of a hard interruption) → a clean 409 instead of a 500; the
+            # user can restore a snapshot from History.
             raise FileNotFoundError(
                 "merged_dataset_unreadable: dosya bozuk görünüyor — Geçmiş'ten bir snapshot geri yükleyin"
             )
-        # Her satıra UID ata (yoksa) ve kalıcı olarak diske yaz
+        # Assign a UID to every row (if missing) and persist it to disk
         if _ensure_uid_column(df):
             try:
                 dataset_io.atomic_write_dataset(df, p)
             except Exception:
-                pass  # write hatası ana akışı durdurmasın — UID memory'de yine var
+                pass  # a write error must not stop the main flow — the UID is still in memory
         _DF_CACHE[key] = df
     return _DF_CACHE[key]
 
 
-# ---------- Filter spec uygulama ----------
+# ---------- Applying the filter spec ----------
 
 def _has_col(df: pd.DataFrame, col: str) -> bool:
     return col in df.columns
@@ -100,7 +100,7 @@ def _coerce_int_series(s: pd.Series) -> pd.Series:
 
 
 def _apply_range(df: pd.DataFrame, col: str, rng: dict[str, Any]) -> pd.Series:
-    """Hem yıl hem citation gibi numerik aralık filtresi."""
+    """Numeric range filter, used for both year and citation count."""
     if not _has_col(df, col):
         return pd.Series(True, index=df.index)
     nums = _coerce_int_series(df[col])
@@ -191,7 +191,7 @@ def _apply_doc_type(df: pd.DataFrame, values: list[str]) -> pd.Series:
 
 
 def _apply_contains_any(df: pd.DataFrame, col: str, values: list[str]) -> pd.Series:
-    """Çoklu kategori alanları (WC, SC, AU) — değerler ';' veya ',' ile ayrılmış."""
+    """Multi-category fields (WC, SC, AU) — values are separated by ';' or ','."""
     if not values or not _has_col(df, col):
         return pd.Series(True, index=df.index)
     needles = [str(v).strip().upper() for v in values if v]
@@ -203,9 +203,9 @@ def _apply_contains_any(df: pd.DataFrame, col: str, values: list[str]) -> pd.Ser
 
 
 def _fulltext_query(df: pd.DataFrame, query: str, fields: list[str]) -> pd.Series:
-    """Basit AND/OR/NOT desteği. Tırnak içi ifadeler için literal eşleşme.
+    """Simple AND/OR/NOT support. Quoted phrases are matched literally.
 
-    Örnek: '(machine OR deep) AND learning NOT survey'
+    Example: '(machine OR deep) AND learning NOT survey'
     """
     fields = [f for f in fields if _has_col(df, f)] or ["AB", "TI", "DE", "ID"]
     fields = [f for f in fields if _has_col(df, f)]
@@ -220,23 +220,23 @@ def _fulltext_query(df: pd.DataFrame, query: str, fields: list[str]) -> pd.Serie
     if not q:
         return pd.Series(True, index=df.index)
 
-    # NOT terimleri çıkar
+    # Extract the NOT terms
     not_terms: list[str] = []
     def _grab_not(m: re.Match) -> str:
         not_terms.append(m.group(1).strip().strip('"'))
         return " "
     q = re.sub(r"\bNOT\s+(\"[^\"]+\"|\S+)", _grab_not, q)
 
-    # OR ayır (üst seviye)
+    # Split on OR (top level)
     or_clauses = [c.strip() for c in re.split(r"\bOR\b", q) if c.strip()]
     if not or_clauses:
         or_clauses = [q]
 
     or_mask = pd.Series(False, index=df.index)
     for clause in or_clauses:
-        # AND terimleri
+        # AND terms
         and_terms = [t.strip().strip('"') for t in re.split(r"\bAND\b", clause) if t.strip()]
-        # Tek-terimli & parantez temizliği
+        # Single-term & parenthesis cleanup
         and_terms = [t.strip("() ").strip() for t in and_terms if t.strip("() ").strip()]
         if not and_terms:
             continue
@@ -356,38 +356,38 @@ def compute_facets(df: pd.DataFrame) -> dict[str, Any]:
     for field, name in [("LA", "language"), ("DB", "db_source")]:
         if _has_col(df, field):
             facets[name] = _value_counts(df[field], top=20)
-    # Çoklu-değerli alanlar için top dergi/kategori (split-by-semicolon yapmadan)
+    # Top journals/categories for multi-valued fields (without splitting by semicolon)
     if _has_col(df, "SO"):
         facets["journal_top"] = _value_counts(df["SO"], top=20)
     return facets
 
 
-# ---------- Sayfalama + projeksiyon ----------
+# ---------- Pagination + projection ----------
 
-# Bunlar UI'da varsayılan olarak görünür kolonlar (öncelik sırası); diğerleri açılır menüden açılır.
+# These are the columns visible by default in the UI (in priority order); the others are enabled from the dropdown menu.
 DISPLAY_COLS = ["TI", "AU", "SO", "PY", "TC", "DT", "LA", "DI", "DE", "DB"]
 
-# UI tarafından bilinmeyen / faydasız kolonlar (Excel index, vb.)
+# Columns unknown to / useless for the UI (Excel index, etc.)
 SKIP_COLS = {"Unnamed: 0", "ER"}
 
 
 def paginate(df: pd.DataFrame, offset: int = 0, limit: int = 50, columns: Optional[list[str]] = None) -> dict:
-    """Tüm kolonları döndür (kullanıcı UI'dan filtreleyebilsin). columns verilirse onları kullan.
+    """Return all columns (so the user can filter from the UI). If columns is given, use those.
 
-    UID kolonu varsa her zaman dahil edilir (frontend row identification için).
+    The UID column is always included if present (for frontend row identification).
     """
     if columns:
         cols = [c for c in columns if c in df.columns]
-        # UID her zaman dahil — UI'da görünmese bile seçim için lazım
+        # UID is always included — needed for selection even if not visible in the UI
         if "UID" in df.columns and "UID" not in cols:
             cols = ["UID"] + cols
     else:
-        # Tüm kolonlar; ama UI'da en sık görünenler önce gelsin
+        # All columns; but the ones most often shown in the UI come first
         all_cols = [c for c in df.columns if c not in SKIP_COLS]
         priority = [c for c in DISPLAY_COLS if c in all_cols]
         rest = [c for c in all_cols if c not in priority]
         cols = priority + sorted(rest)
-        # UID en başa
+        # UID goes first
         if "UID" in df.columns and "UID" in cols:
             cols = ["UID"] + [c for c in cols if c != "UID"]
 
@@ -401,7 +401,7 @@ def paginate(df: pd.DataFrame, offset: int = 0, limit: int = 50, columns: Option
             if pd.isna(v):
                 rec[c] = None
             elif isinstance(v, (int, float)) and not isinstance(v, bool):
-                # Sayısal alanları string yap (NaN korunsun)
+                # Convert numeric fields to strings (keep NaN)
                 rec[c] = str(int(v)) if float(v).is_integer() else str(v)
             else:
                 rec[c] = str(v) if v is not None else None

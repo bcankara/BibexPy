@@ -19,7 +19,7 @@ from services import analyses, converter, dataset_io, storage
 
 
 def _project_paths(project_id: str) -> tuple[Path, Path, Path]:
-    """(root, raw, processed) — proje veri klasörleri."""
+    """(root, raw, processed) — the project's data folders."""
     meta = storage.get_project(project_id)
     if meta is None:
         raise HTTPException(404, "Proje bulunamadı")
@@ -28,7 +28,7 @@ def _project_paths(project_id: str) -> tuple[Path, Path, Path]:
 
 
 def _find_xlsx(processed: Path, raw: Path, hint: str) -> Path | None:
-    """Önce processed, sonra raw'da ara."""
+    """Search processed first, then raw."""
     for d in (processed, raw):
         if not d.exists():
             continue
@@ -41,9 +41,10 @@ def _find_xlsx(processed: Path, raw: Path, hint: str) -> Path | None:
 
 
 def check_ready_to_merge(project_id: str) -> None:
-    """Merge başlamadan ÖNCE çağrılır (job submit etmeden). Hazırlık artık merge
-    job'unun ilk fazında ÖRTÜK yapıldığından ham veri yeterlidir; yalnızca hiç
-    kaynak veri yoksa 409 'no_source_data' fırlatır (UI kullanıcıyı yüklemeye yönlendirir).
+    """Called BEFORE the merge starts (without submitting a job). Since preparation
+    is now done IMPLICITLY in the first phase of the merge job, raw data is
+    sufficient; it raises 409 'no_source_data' only if there is no source data at
+    all (the UI directs the user to upload).
     """
     _, raw, processed = _project_paths(project_id)
     has_xlsx = bool(
@@ -60,7 +61,7 @@ def check_ready_to_merge(project_id: str) -> None:
 
 
 def _input_paths(project_id: str) -> tuple[Path | None, Path | None]:
-    """Konsolide Scopus/WoS XLSX yollarını çöz (YÜKLEMEDEN — varlık tespiti için)."""
+    """Resolve the consolidated Scopus/WoS XLSX paths (WITHOUT loading — for existence detection)."""
     _, raw, processed = _project_paths(project_id)
     scp_xlsx = _find_xlsx(processed, raw, "scopus") or _find_xlsx(processed, raw, "scp")
     wos_xlsx = _find_xlsx(processed, raw, "wos")
@@ -70,25 +71,26 @@ def _input_paths(project_id: str) -> tuple[Path | None, Path | None]:
 def _load_inputs(
     project_id: str, ctx: JobContext | None = None
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Scopus + WoS XLSX'leri yükle (hazırlık auto_prepare'de çoktan yapılmış olmalı).
+    """Load the Scopus + WoS XLSX files (preparation should already have been done in auto_prepare).
 
-    Tek kaynak varsa onu döndürür, diğeri None olur (birleştirme adımı bunu
-    passthrough yapar). YALNIZCA ikisi de yoksa hata verir — kullanıcı sadece
-    Scopus ya da sadece WoS verisini hazırlamak isteyebilir.
+    If there is only one source, it is returned and the other is None (the merge
+    step handles this as a passthrough). Raises an error ONLY if neither exists —
+    the user may want to prepare only Scopus data or only WoS data.
     """
     _, raw, processed = _project_paths(project_id)
 
     scp_xlsx, wos_xlsx = _input_paths(project_id)
 
-    # Hazırlanmış (processed) XLSX yoksa merge ham CSV/TXT'den OTOMATİK üretmez —
-    # bu 1. adımı (Preparing) baypas ederdi. Bunun yerine, ham veri var ama hazırlık
-    # yapılmamışsa kullanıcıyı 1. adıma yönlendiren net bir hata döndürürüz.
+    # If there is no prepared (processed) XLSX, merge does NOT automatically produce
+    # one from raw CSV/TXT — that would bypass step 1 (Preparing). Instead, if raw
+    # data exists but preparation has not been done, we return a clear error that
+    # directs the user to step 1.
     if scp_xlsx is None and wos_xlsx is None:
         has_raw = raw.exists() and any(
             f.suffix.lower() in (".csv", ".txt", ".isi", ".xlsx")
             for f in raw.iterdir() if f.is_file()
         )
-        # Ham veri VAR ama hazırlanmamış → "önce hazırla"; hiç veri yoksa → "önce yükle".
+        # Raw data EXISTS but is not prepared → "prepare first"; no data at all → "upload first".
         raise HTTPException(409, "not_prepared" if has_raw else "no_source_data")
 
     scp_df = pd.read_excel(scp_xlsx) if scp_xlsx is not None else None
@@ -105,8 +107,8 @@ async def _run_single_source(
     ctx: JobContext, project_id: str,
     scp_df: pd.DataFrame | None, wos_df: pd.DataFrame | None,
 ) -> dict[str, Any]:
-    """Tek kaynak (yalnız Scopus veya yalnız WoS) — birleştirilecek ikinci veri yok.
-    Tek kaynağı doğrudan analiz veri seti yapar (dedup yok), filtreye hazır.
+    """Single source (Scopus only or WoS only) — there is no second dataset to merge.
+    Makes the single source the analysis dataset directly (no dedup), ready for filtering.
     """
     import asyncio
     df = scp_df if scp_df is not None else wos_df
@@ -154,11 +156,11 @@ async def _run_single_source(
 
 
 class _ScaledJobContext:
-    """Alt-fazın 0-1 ilerlemesini üst işin [lo, hi] aralığına haritalar.
+    """Maps a sub-phase's 0-1 progress onto the [lo, hi] range of the parent job.
 
-    Hazırlık (auto_prepare) çubuğu %18'e kadar getiriyor; Smart Merge kendi
-    ölçeğinde 0.02'den başlıyordu — sarmalanmadan ilerleme 12-18%'den 2%'ye
-    GERİ sarıyor ve iş donmuş gibi görünüyordu. log/cancelled aynen delege.
+    Preparation (auto_prepare) brings the bar up to 18%; Smart Merge started at
+    0.02 on its own scale — without wrapping, progress rewound from 12-18% back
+    to 2% and the job looked frozen. log/cancelled are delegated as-is.
     """
 
     def __init__(self, ctx: JobContext, lo: float, hi: float):
@@ -177,42 +179,42 @@ class _ScaledJobContext:
 
 
 async def run_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
-    """Birleştirme jobu — tek algoritma: Smart Merge.
+    """Merge job — a single algorithm: Smart Merge.
 
-    Tek kaynak (yalnız Scopus veya yalnız WoS) varsa passthrough (dedup yok);
-    iki kaynak varsa bağımsız smart_merger pipeline'ı çalışır — kendi analiz
-    klasörünü açar, finalize eder ve özetini döndürür.
+    If there is a single source (Scopus only or WoS only), it is a passthrough
+    (no dedup); if there are two sources, the independent smart_merger pipeline
+    runs — it opens its own analysis folder, finalizes it and returns its summary.
     """
     import asyncio
 
     ctx.log("Starting merge (Smart Merge)")
     ctx.progress(0.05)
 
-    # Örtük hazırlık — ham CSV/TXT'leri konsolide XLSX'e çevir (ayrı Prepare adımı yok).
-    # Skip-if-fresh: yalnız ham dosya processed'tan yeniyse yeniden çevirir.
+    # Implicit preparation — convert raw CSV/TXT files into the consolidated XLSX (there is no separate Prepare step).
+    # Skip-if-fresh: re-converts only if the raw file is newer than the processed one.
     ctx.log("Preparing sources (CSV/TXT → XLSX)")
     await asyncio.to_thread(converter.auto_prepare, project_id, ctx)
 
-    # Tek-kaynak tespiti DOSYA VARLIĞIYLA yapılır (yüklemeden): iki kaynak
-    # varken frame'leri burada da yüklemek, run_smart_merge kendi _load_inputs
-    # çağrısını yaparken korpusun bellekte İKİNCİ bir kopyasını canlı tutuyordu
-    # (büyük korpuslarda yüzlerce MB gereksiz tepe bellek).
+    # Single-source detection is done BY FILE EXISTENCE (without loading): when
+    # two sources are present, loading the frames here as well kept a SECOND copy
+    # of the corpus alive in memory while run_smart_merge made its own _load_inputs
+    # call (hundreds of MB of unnecessary peak memory on large corpora).
     scp_xlsx, wos_xlsx = _input_paths(project_id)
 
-    # Tek kaynak (ya da hiçbiri): _load_inputs yükler; ikisi de yoksa 409'u o verir.
+    # Single source (or none): _load_inputs loads it; if neither exists, it raises the 409.
     if scp_xlsx is None or wos_xlsx is None:
         scp_df, wos_df = await asyncio.to_thread(_load_inputs, project_id, ctx)
         return await _run_single_source(ctx, project_id, scp_df, wos_df)
 
-    # İki kaynak da var → Smart Merge (bağımsız pipeline, kendi klasörünü açar
-    # ve kaynakları KENDİSİ yükler — tek kopya). İlerlemesi hazırlığın bittiği
-    # %18'den itibaren ölçeklenir ki çubuk geri sarmasın.
+    # Both sources exist → Smart Merge (an independent pipeline; it opens its own
+    # folder and loads the sources ITSELF — a single copy). Its progress is scaled
+    # starting from 18%, where preparation ends, so that the bar does not rewind.
     from services import smart_merger
     return await smart_merger.run_smart_merge(_ScaledJobContext(ctx, 0.18, 1.0), project_id)
 
 
 def list_merged(project_id: str) -> list[dict]:
-    """Aktif analiz klasöründeki dosyaları listele."""
+    """List the files in the active analysis folder."""
     adir = analyses.get_active_analysis_dir(project_id)
     if adir is None:
         return []
@@ -231,9 +233,9 @@ def list_merged(project_id: str) -> list[dict]:
 
 
 def merged_dataset_path(project_id: str) -> Path | None:
-    """Filter/export için ana birleştirilmiş dataset'i bul (merged.parquet).
+    """Find the main merged dataset (merged.parquet) for filter/export.
 
-    Aktif analiz klasöründen okur. Records / Filter / Quality / Disambiguation
-    otomatik olarak aktif analizin dataset'ini görür.
+    Reads from the active analysis folder. Records / Filter / Quality /
+    Disambiguation automatically see the active analysis's dataset.
     """
     return analyses.active_dataset_path(project_id)

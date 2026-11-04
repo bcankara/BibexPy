@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { useProjectId } from "@/lib/use-project-id";
 
 /**
- * Static export uyumlu redirect:
- * Eski "convert" sekmesi → "Veri & Birleştirme" (/merge) sayfasına yönlendirir.
- * Proje ID'si URL'den okunur (useProjectId — static export'ta güvenilir).
+ * Static-export-compatible redirect:
+ * Redirects the old "convert" tab → the "Data & Merge" (/merge) page.
+ * The project ID is read from the URL (useProjectId — reliable in a static export).
  */
 export default function ConvertRedirect() {
   const id = useProjectId();

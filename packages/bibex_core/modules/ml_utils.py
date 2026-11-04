@@ -7,16 +7,16 @@ from sklearn.preprocessing import MultiLabelBinarizer
 import re
 from colorama import Fore, Style
 
-# NLTK OPSIYONELDIR. Import veya veri (punkt/stopwords) yoksa builtin fallback'lere
-# dusulur; bu, cevrimdisi makinede ve ilk-calistirmada cokmemeyi garanti eder.
-# Veri indirme import-zamaninda DEGIL, yalniz ilk gercek kullanimda ve sessizce
-# denenir (paket import edilince ag erisimi/indirme tetiklenmez).
+# NLTK is OPTIONAL. If the import or the data (punkt/stopwords) is missing, we fall
+# back to the builtin fallbacks; this guarantees no crash on an offline machine and
+# on first run. The data download is NOT attempted at import time, only on the first
+# real use and silently (importing the package does not trigger network access/download).
 try:
     import nltk  # type: ignore
 except Exception:  # pragma: no cover
     nltk = None
 
-# NLTK yoksa kullanilan builtin Ingilizce stopword listesi.
+# Builtin English stopword list used when NLTK is unavailable.
 _FALLBACK_STOPWORDS = frozenset((
     "a about above after again against all am an and any are aren't as at be because been "
     "before being below between both but by can cannot could couldn't did didn't do does "
@@ -29,12 +29,12 @@ _FALLBACK_STOPWORDS = frozenset((
     "would wouldn't you your yours yourself yourselves"
 ).split())
 
-_nltk_ready = None  # None=denenmedi; True/False=sonuc (bir kez denenir)
+_nltk_ready = None  # None=not tried; True/False=result (tried only once)
 
 
 def _ensure_nltk() -> bool:
-    """punkt+stopwords mevcut mu? Ilk cagride sessizce indirmeyi dener.
-    Basarisizsa (cevrimdisi/izinsiz) False doner ve builtin fallback kullanilir."""
+    """Are punkt+stopwords available? On the first call it silently tries to download them.
+    If that fails (offline/no permission) it returns False and the builtin fallback is used."""
     global _nltk_ready
     if _nltk_ready is not None:
         return _nltk_ready
@@ -60,7 +60,7 @@ def _ensure_nltk() -> bool:
 
 
 def _tokenize(text: str) -> list:
-    """NLTK varsa word_tokenize; yoksa basit regex tokenizer."""
+    """word_tokenize if NLTK is available; otherwise a simple regex tokenizer."""
     if _ensure_nltk():
         try:
             from nltk.tokenize import word_tokenize
@@ -71,7 +71,7 @@ def _tokenize(text: str) -> list:
 
 
 def _stopword_set() -> set:
-    """NLTK varsa Ingilizce stopword'leri; yoksa builtin fallback."""
+    """English stopwords from NLTK if available; otherwise the builtin fallback."""
     if _ensure_nltk():
         try:
             from nltk.corpus import stopwords

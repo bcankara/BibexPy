@@ -4,12 +4,13 @@ import { ArrowRight } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
 /**
- * Pipeline'da bir sonraki adıma geçiş butonu — koyu PageHeader üzerinde
- * BELİRGİN primary cyan stil. Üstte küçük "NEXT STEP / SONRAKİ ADIM" etiketi,
- * altta hedef adımın adı, sağda chip içinde animasyonlu ok. Kullanıcının
- * nereye tıklayacağı bir bakışta net.
+ * Button for moving to the next step in the pipeline — a PROMINENT primary
+ * cyan style on top of the dark PageHeader. A small "NEXT STEP" label on top
+ * (localized via the i18n key common.nextStep), the name of the target step
+ * below, and an animated arrow inside a chip on the right. Where the user
+ * should click is clear at a glance.
  *
- * Kullanım: <NextStepButton href={`/projects/${id}/records`} label={t("nav.records")} />
+ * Usage: <NextStepButton href={`/projects/${id}/records`} label={t("nav.records")} />
  */
 export function NextStepButton({ href, label }: { href: string; label: string }) {
   const t = useT();

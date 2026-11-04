@@ -7,22 +7,22 @@ import { useI18n, useT } from "@/lib/i18n";
 import { formatNumber } from "@/lib/i18n/format";
 
 /**
- * Veri akış şeması — audit log'dan otomatik (api.reportFlow).
- * SVG tamamen self-contained çizilir (inline renk/font, CSS sınıfı yok) ki
- * indirilen SVG/PNG makalede olduğu gibi kullanılabilsin.
+ * Data flow diagram — generated automatically from the audit log (api.reportFlow).
+ * The SVG is drawn fully self-contained (inline color/font, no CSS classes) so
+ * that the downloaded SVG/PNG can be used as-is in the article.
  *
- * İndirme seçenekleri: SVG (vektör), PNG (300 DPI — pHYs chunk'ı enjekte
- * edilmiş gerçek DPI metadata'sı ile) ve sunucuda üretilen vektörel PDF.
+ * Download options: SVG (vector), PNG (300 DPI — with real DPI metadata via an
+ * injected pHYs chunk) and a vector PDF generated on the server.
  */
 
-const W = 760;                 // SVG genişliği
-const MAIN_W = 380;            // ana kutu genişliği
-const MAIN_X = 40;             // ana kutu sol x
-const SIDE_W = 260;            // yan (çıkarma) kutusu genişliği
+const W = 760;                 // SVG width
+const MAIN_W = 380;            // main box width
+const MAIN_X = 40;             // main box left x
+const SIDE_W = 260;            // side (removal) box width
 const SIDE_X = MAIN_X + MAIN_W + 40;
 const LINE_H = 17;
 const PAD = 10;
-const GAP = 34;                // kutular arası dikey boşluk (ok payı)
+const GAP = 34;                // vertical gap between boxes (room for the arrow)
 
 const NAVY = "#0c2847";
 const INK = "#172033";
@@ -39,13 +39,13 @@ function boxH(lines: string[]): number {
   return lines.length * LINE_H + PAD * 2;
 }
 
-// ── PNG 300 DPI: pHYs chunk enjeksiyonu ────────────────────────────────
-// Canvas'ın ürettiği PNG'de DPI metadata'sı yoktur; dergiler dosyanın
-// kendisinden 300 DPI okumak ister. pHYs chunk'ı (piksel/metre) IHDR'den
-// hemen sonra yazılır: 300 DPI = 300 / 0.0254 ≈ 11811 piksel/metre.
+// ── PNG 300 DPI: pHYs chunk injection ──────────────────────────────────
+// A PNG produced by a canvas has no DPI metadata; journals want to read
+// 300 DPI from the file itself. The pHYs chunk (pixels/meter) is written
+// right after IHDR: 300 DPI = 300 / 0.0254 ≈ 11811 pixels/meter.
 
 const PNG_DPI = 300;
-const PNG_PPM = 11811;               // 300 DPI'ın piksel/metre karşılığı
+const PNG_PPM = 11811;               // pixels/meter equivalent of 300 DPI
 const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
 
 const CRC_TABLE = (() => {
@@ -70,18 +70,18 @@ function chunkType(view: DataView, pos: number): string {
   );
 }
 
-/** PNG byte'larına 300 DPI pHYs chunk'ı ekler (varsa eskisini değiştirir). */
+/** Adds a 300 DPI pHYs chunk to the PNG bytes (replaces the existing one if present). */
 function injectPhys(buffer: ArrayBuffer, ppm = PNG_PPM): Uint8Array {
   const src = new Uint8Array(buffer);
   for (let i = 0; i < PNG_SIG.length; i++) {
-    if (src[i] !== PNG_SIG[i]) return src;      // PNG değil → dokunma
+    if (src[i] !== PNG_SIG[i]) return src;      // not a PNG → leave it alone
   }
   const view = new DataView(buffer);
-  const ihdrLen = view.getUint32(8);            // IHDR data uzunluğu (big-endian)
-  const insertAt = 8 + 12 + ihdrLen;            // imza + (len+type+data+crc)
+  const ihdrLen = view.getUint32(8);            // IHDR data length (big-endian)
+  const insertAt = 8 + 12 + ihdrLen;            // signature + (len+type+data+crc)
   if (insertAt > src.length) return src;
 
-  // IDAT'a kadar tara; mevcut bir pHYs varsa çıkarılacak aralığı belirle
+  // Scan up to IDAT; if an existing pHYs is found, determine the range to remove
   let dropAt = -1;
   let dropLen = 0;
   let pos = insertAt;
@@ -97,9 +97,9 @@ function injectPhys(buffer: ArrayBuffer, ppm = PNG_PPM): Uint8Array {
   const cv = new DataView(chunk.buffer);
   cv.setUint32(0, 9);
   chunk[4] = 0x70; chunk[5] = 0x48; chunk[6] = 0x59; chunk[7] = 0x73; // "pHYs"
-  cv.setUint32(8, ppm);                         // x ekseni: piksel/metre
-  cv.setUint32(12, ppm);                        // y ekseni: piksel/metre
-  chunk[16] = 1;                                // birim = metre
+  cv.setUint32(8, ppm);                         // x axis: pixels/meter
+  cv.setUint32(12, ppm);                        // y axis: pixels/meter
+  chunk[16] = 1;                                // unit = meter
   cv.setUint32(17, crc32(chunk.subarray(4, 17)));  // CRC: type + data
 
   let rest: Uint8Array;
@@ -144,7 +144,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
 
   const n = (x: number | null | undefined) => formatNumber(x ?? 0, locale);
 
-  // ── Kutu modeli ──
+  // ── Box model ──
   const boxes: Box[] = [];
   boxes.push({
     lines: [
@@ -190,7 +190,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
     tone: "final",
   });
 
-  // ── Geometri ──
+  // ── Geometry ──
   let y = 16;
   const placed = boxes.map((b) => {
     const h = boxH(b.lines);
@@ -210,13 +210,13 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
       return;
     }
 
-    // 300 DPI: CSS px 96/inch kabul edilir → ölçek = 300/96
+    // 300 DPI: CSS px is assumed to be 96/inch → scale = 300/96
     const scale = PNG_DPI / 96;
     const pxW = Math.round(W * scale);
     const pxH = Math.round(totalH * scale);
 
-    // Rasterizasyon hedef çözünürlükte olsun diye SVG'nin width/height
-    // öznitelikleri hedef piksel boyutuna çekilir (viewBox aynı kalır).
+    // So that rasterization happens at the target resolution, the SVG's
+    // width/height attributes are set to the target pixel size (the viewBox stays the same).
     const clone = node.cloneNode(true) as SVGSVGElement;
     clone.setAttribute("width", String(pxW));
     clone.setAttribute("height", String(pxH));
@@ -238,7 +238,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
       URL.revokeObjectURL(url);
       canvas.toBlob((png) => {
         if (!png) return;
-        // pHYs chunk'ı ekle → dosya gerçekten 300 DPI olarak okunur
+        // Add the pHYs chunk → the file is genuinely read as 300 DPI
         png.arrayBuffer().then((buf) => {
           const bytes = injectPhys(buf);
           saveBlob(new Blob([bytes], { type: "image/png" }), "bibexpy_data_flow_300dpi.png");
@@ -287,7 +287,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
               const cx = MAIN_X + MAIN_W / 2;
               return (
                 <g key={i}>
-                  {/* dikey ok — önceki kutudan */}
+                  {/* vertical arrow — from the previous box */}
                   {i > 0 && (
                     <g stroke={NAVY} strokeWidth={1.4}>
                       <line x1={cx} y1={placed[i - 1].top + placed[i - 1].h} x2={cx} y2={b.top - 6} />
@@ -295,7 +295,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
                         fill="none" strokeLinecap="round" strokeLinejoin="round" />
                     </g>
                   )}
-                  {/* ana kutu */}
+                  {/* main box */}
                   <rect x={MAIN_X} y={b.top} width={MAIN_W} height={b.h} rx={8}
                     fill={isFinal ? OK_BG : "#ffffff"} stroke={isFinal ? OK_BR : NAVY} strokeWidth={1.5} />
                   {b.lines.map((ln, li) => (
@@ -306,7 +306,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
                       {ln}
                     </text>
                   ))}
-                  {/* yan kutu (çıkarılanlar) */}
+                  {/* side box (removed items) */}
                   {b.side && b.side.length > 0 && (
                     <g>
                       <line x1={MAIN_X + MAIN_W} y1={b.top + b.h / 2} x2={SIDE_X - 6} y2={b.top + b.h / 2}

@@ -18,7 +18,7 @@ type Props = {
 
 export function FilterPanel({ spec, facetsAll, onChange, onReset }: Props) {
   const t = useT();
-  // Aktif filtre sayısı
+  // Number of active filters
   const activeCount = useMemo(() => countActive(spec), [spec]);
 
   return (
@@ -225,7 +225,7 @@ function Section({
 }: {
   title: string; icon?: React.ReactNode; children: React.ReactNode;
   active?: boolean; count?: number; highlight?: boolean;
-  /** #1: bu filtreyi tek başına temizle (global reset'ten bağımsız). */
+  /** #1: clear just this filter on its own (independent of the global reset). */
   onClear?: () => void;
 }) {
   const t = useT();
@@ -252,7 +252,7 @@ function Section({
         {active && count == null && (
           <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-brand-500" />
         )}
-        {/* #1: per-filtre temizle — yalnız bu filtre aktifken */}
+        {/* #1: per-filter clear — only while this filter is active */}
         {active && onClear && (
           <button
             onClick={(e) => { e.stopPropagation(); onClear(); }}
@@ -294,7 +294,7 @@ function RangeWithHistogram({
   }
 
   const t = useT();
-  // Slider için yüzde
+  // Percentage for the slider
   const loPct = ((lo - actualMin) / span) * 100;
   const hiPct = ((hi - actualMin) / span) * 100;
 
@@ -356,7 +356,7 @@ function RangeWithHistogram({
         />
       </div>
 
-      {/* Sayısal değerler + manual input */}
+      {/* Numeric values + manual input */}
       <div className="flex items-center gap-2">
         <input
           type="number"

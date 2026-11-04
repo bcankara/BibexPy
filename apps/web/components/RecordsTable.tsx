@@ -47,9 +47,9 @@ const COLUMN_WIDTHS: Record<string, number> = {
   DI: 200, AB: 480, DE: 220, ID: 220, C1: 320, WC: 220, SC: 220, DB: 80,
 };
 
-// Varsayılan görünür kolonlar (geri kalanlar gizli ama menüden açılabilir)
+// Default visible columns (the rest are hidden but can be enabled from the menu)
 const DEFAULT_VISIBLE = new Set(["TI", "AU", "SO", "PY", "TC", "DT", "LA"]);
-// UID kolonu — selection için her zaman var ama tabloda gizli
+// UID column — always present for selection but hidden in the table
 const ALWAYS_HIDDEN = new Set(["UID"]);
 
 export function RecordsTable({
@@ -67,7 +67,7 @@ export function RecordsTable({
   const stickyCol = selectionEnabled || actionsEnabled;
   const selectedSet = selected ?? new Set<string>();
 
-  // Mevcut sayfadaki tüm satırlar seçili mi?
+  // Are all rows on the current page selected?
   const pageKeys = records.map(getKey);
   const allChecked = pageKeys.length > 0 && pageKeys.every((k) => selectedSet.has(k));
   const someChecked = !allChecked && pageKeys.some((k) => selectedSet.has(k));
@@ -97,7 +97,7 @@ export function RecordsTable({
         const saved = localStorage.getItem(`${storageKey}.visibility`);
         if (saved) {
           const parsed = JSON.parse(saved) as VisibilityState;
-          // UID gibi internal alanları her zaman gizli tut
+          // Always keep internal fields such as UID hidden
           for (const k of ALWAYS_HIDDEN) parsed[k] = false;
           return parsed;
         }
@@ -118,7 +118,7 @@ export function RecordsTable({
   });
 
   useEffect(() => {
-    // İlk render'da yeni gelen kolonları default'a göre ayarla
+    // On first render, set newly arrived columns according to the defaults
     setColumnVisibility((prev) => {
       const next = { ...prev };
       let changed = false;
@@ -146,7 +146,7 @@ export function RecordsTable({
     cell: (info) => {
       const v = info.getValue() as string | null;
       if (v == null || v === "") return <span className="text-slate-300">—</span>;
-      // Numerik kolonlar
+      // Numeric columns
       if (c === "PY" || c === "TC" || c === "NR") {
         return <span className="font-mono tabular-nums">{v}</span>;
       }
@@ -197,7 +197,7 @@ export function RecordsTable({
 
   return (
     <div className="space-y-3">
-      {/* Üst bar: sayım + sayfalama + kolon ayarları */}
+      {/* Top bar: count + pagination + column settings */}
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm text-muted">
           <span className="text-ink font-semibold">{start.toLocaleString()}–{end.toLocaleString()}</span>{" "}
@@ -234,7 +234,7 @@ export function RecordsTable({
         </div>
       </div>
 
-      {/* Tablo */}
+      {/* Table */}
       <div className="rounded-xl border border-border bg-bg-card shadow-card overflow-hidden">
         <div
           ref={scrollerRef}
@@ -415,7 +415,7 @@ export function RecordsTable({
         </div>
       </div>
 
-      {/* Alt: sayfa boyutu bilgisi + ipucu */}
+      {/* Bottom: page size info + hint */}
       <p className="text-[11px] text-muted">
         {t("records.tableHint")}
       </p>
@@ -445,7 +445,7 @@ function ColumnPicker({ table, cols, open, setOpen, visibleCount, totalCount }: 
   }, [open, setOpen]);
 
   const filtered = cols.filter((c) => {
-    if (ALWAYS_HIDDEN.has(c)) return false; // internal kolonları (UID) gizle
+    if (ALWAYS_HIDDEN.has(c)) return false; // hide internal columns (UID)
     if (!search) return true;
     const s = search.toLowerCase();
     return c.toLowerCase().includes(s) || getColumnLabel(t, c).toLowerCase().includes(s);
@@ -480,7 +480,7 @@ function ColumnPicker({ table, cols, open, setOpen, visibleCount, totalCount }: 
             <span className="text-border">·</span>
             <button
               onClick={() => {
-                // Sadece varsayılanları aç
+                // Enable only the defaults
                 table.getAllLeafColumns().forEach((c) => {
                   c.toggleVisibility(DEFAULT_VISIBLE.has(c.id));
                 });
@@ -523,7 +523,7 @@ function ColumnPicker({ table, cols, open, setOpen, visibleCount, totalCount }: 
   );
 }
 
-// Yardımcı: ChevronsLeft/Right ikonları lucide'de var ama import et
+// Helper: the ChevronsLeft/Right icons exist in lucide, but import them
 function ChevronsLeft({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

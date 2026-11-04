@@ -32,9 +32,9 @@ TargetFormat = Literal["wos", "vos", "bib", "ris", "csv", "tsv", "xlsx"]
 VALID_SOURCE: set[str] = {"wos", "scopus_csv", "csv", "tsv", "xlsx"}
 VALID_TARGET: set[str] = {"wos", "vos", "bib", "ris", "csv", "tsv", "xlsx"}
 
-# Hedef format anahtarı ≠ dosya uzantısı olan durumlar: WoS plain text ve VOSviewer
-# TSV çıktıları aslında .txt'tir (test bulgusu #9 — eskiden .wos/.vos olarak iniyordu).
-# services/exporter.py:_EXT ile AYNI standart. Listelenmeyen formatlarda anahtar=uzantı.
+# Cases where the target format key ≠ file extension: the WoS plain text and VOSviewer
+# TSV outputs are actually .txt (test finding #9 — they used to download as .wos/.vos).
+# Same standard as services/exporter.py:_EXT. For formats not listed, key = extension.
 _EXT: dict[str, str] = {"wos": "txt", "vos": "txt"}
 
 
@@ -45,7 +45,7 @@ def _tools_tmp_dir() -> Path:
 
 
 def _read_source(src_path: Path, source_format: str) -> pd.DataFrame:
-    """Yüklenmiş dosyayı DataFrame'e oku."""
+    """Read the uploaded file into a DataFrame."""
     try:
         if source_format == "xlsx":
             return pd.read_excel(src_path)
@@ -68,7 +68,7 @@ def _read_source(src_path: Path, source_format: str) -> pd.DataFrame:
             raise HTTPException(400, "tsv_encoding_failed")
 
         if source_format == "scopus_csv":
-            # bibex_core ile Scopus CSV → XLSX → read
+            # Scopus CSV → XLSX via bibex_core → read
             from bibex_core.scp2xlsx import save_to_excel
             tmp_xlsx = src_path.parent / "_scopus_tmp.xlsx"
             with _suppress_stdio():
@@ -98,11 +98,11 @@ def _read_source(src_path: Path, source_format: str) -> pd.DataFrame:
 
 
 def _write_target(df: pd.DataFrame, target_format: str, out_path: Path) -> None:
-    """DataFrame'i hedef formatta yaz — proje Export'uyla AYNI yazıcı.
+    """Write the DataFrame in the target format — the SAME writer as the project Export.
 
-    Yazma mantığı exporter.write_dataset'te tek yerde durur; burada kopyası
-    tutulduğunda iki yol birbirinden ayrışmıştı (SR üretimi yalnız Export'a
-    girmiş, Tools çıktısı biblioshiny'de çökmeye devam etmişti).
+    The write logic lives in one place, exporter.write_dataset; when a copy was kept
+    here, the two paths had drifted apart (SR generation had been added only to
+    Export, and the Tools output kept crashing in biblioshiny).
     """
     if df.empty:
         raise HTTPException(400, "file_empty")
@@ -125,25 +125,25 @@ async def convert_file(
     target_format: str = Form(...),
     output_name: str | None = Form(None),
 ):
-    """Tek dosyayı yükle, hedef formata dönüştür ve indir.
+    """Upload a single file, convert it to the target format and download it.
 
     Multipart form data:
-    - `file`: yüklenecek dosya
+    - `file`: the file to upload
     - `source_format`: 'wos' | 'scopus_csv' | 'csv' | 'tsv' | 'xlsx'
     - `target_format`: 'wos' | 'vos' | 'bib' | 'ris' | 'csv' | 'tsv' | 'xlsx'
-    - `output_name`: (opsiyonel) çıktı dosya adı — uzantısız
+    - `output_name`: (optional) output file name — without extension
     """
     if source_format not in VALID_SOURCE:
         raise HTTPException(400, f"invalid_source_format: {source_format}")
     if target_format not in VALID_TARGET:
         raise HTTPException(400, f"invalid_target_format: {target_format}")
 
-    # Geçici klasör
+    # Temporary folder
     job_id = uuid.uuid4().hex[:12]
     workdir = _tools_tmp_dir() / job_id
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # Yüklenen dosyayı yaz
+    # Write the uploaded file
     original_name = Path(file.filename or "input").name
     src_path = workdir / original_name
     try:
@@ -158,20 +158,20 @@ async def convert_file(
         except Exception:
             pass
 
-    # Oku
+    # Read
     try:
         df = _read_source(src_path, source_format)
     except Exception:
         _safe_cleanup(workdir)
         raise
 
-    # Yaz
+    # Write
     stamp = time.strftime("%Y%m%d_%H%M%S")
     base = (output_name or f"converted_{stamp}").strip() or f"converted_{stamp}"
-    # Path-traversal'a karşı sadece dosya adı kısmı
+    # Keep only the file-name part, as a guard against path traversal
     base = Path(base).name
-    # Uzantıyı garanti et — wos/vos gibi anahtar≠uzantı durumunda GERÇEK uzantıyı
-    # kullan (.wos/.vos değil .txt). FileResponse filename=out_path.name → otomatik düzelir.
+    # Guarantee the extension — when key ≠ extension (e.g. wos/vos), use the REAL
+    # extension (.txt, not .wos/.vos). FileResponse filename=out_path.name → fixed automatically.
     ext = _EXT.get(target_format, target_format)
     if not base.lower().endswith(f".{ext}"):
         base = f"{base}.{ext}"
@@ -187,10 +187,10 @@ async def convert_file(
         _safe_cleanup(workdir)
         raise HTTPException(500, "output_file_missing")
 
-    # Response stream sonrası temizlik
+    # Cleanup after the response has streamed
     background_tasks.add_task(_safe_cleanup, workdir)
 
-    # Records sayısı header olarak da gönder — UI istatistik göstersin
+    # Also send the record count as a header — so the UI can show statistics
     return FileResponse(
         path=str(out_path),
         filename=out_path.name,
@@ -206,7 +206,7 @@ async def convert_file(
 
 @router.get("/formats")
 def list_formats():
-    """UI için desteklenen formatlar listesi (kaynak ↔ hedef matrisi)."""
+    """List of formats supported for the UI (source ↔ target matrix)."""
     return {
         "source_formats": [
             {"id": "wos",        "label": "WoS plain text",  "extensions": ["txt", "isi"]},

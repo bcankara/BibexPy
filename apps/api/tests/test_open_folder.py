@@ -37,14 +37,14 @@ def test_open_folder_unknown_project_404(monkeypatch, tmp_path):
 
 
 def test_storage_dir_change_applies_live(monkeypatch, tmp_path):
-    """Depolama klasörü kaydedilince ANINDA aktif olmalı — restart yok."""
+    """When the storage folder is saved it must become active IMMEDIATELY — no restart."""
     client = _client(monkeypatch, tmp_path)
     d = client.get("/api/settings").json()
-    # Aktif depolama = süreçteki STORAGE_DIR (env var) → tmp/storage
+    # Active storage = STORAGE_DIR in the process (env var) → tmp/storage
     assert str(tmp_path / "storage") in d["active_storage"]
     assert d["storage_pending_restart"] is False
 
-    # Yeni klasöre geç → canlı uygulanmalı (env var + reload)
+    # Switch to the new folder → must apply live (env var + reload)
     new_dir = tmp_path / "elsewhere"
     r = client.put("/api/settings", json={"updates": {"STORAGE_DIR": str(new_dir)}})
     assert r.status_code == 200
@@ -52,20 +52,20 @@ def test_storage_dir_change_applies_live(monkeypatch, tmp_path):
     assert d2["storage_pending_restart"] is False
     assert str(new_dir) in d2["active_storage"]
 
-    # Bundan sonra oluşturulan proje YENİ klasöre düşmeli
+    # A project created from now on must land in the NEW folder
     pid = client.post("/api/projects", json={"name": "LiveSwitch"}).json()["id"]
     assert (new_dir / pid / "meta.json").exists()
-    # Eski klasörde bu proje yok
+    # This project is not in the old folder
     assert not (tmp_path / "storage" / pid).exists()
 
 
 def test_storage_dir_unwritable_rejected(monkeypatch, tmp_path):
-    """Oluşturulamayan klasör 400 ile reddedilir; aktif depolama değişmez."""
+    """A folder that cannot be created is rejected with 400; the active storage does not change."""
     client = _client(monkeypatch, tmp_path)
-    # Bir DOSYA oluştur ve onu klasör olarak kullanmaya çalış → mkdir başarısız
+    # Create a FILE and try to use it as a folder → mkdir fails
     blocker = tmp_path / "not_a_dir"
     blocker.write_text("x", encoding="utf-8")
     r = client.put("/api/settings", json={"updates": {"STORAGE_DIR": str(blocker)}})
     assert r.status_code == 400
     d = client.get("/api/settings").json()
-    assert str(tmp_path / "storage") in d["active_storage"]  # değişmedi
+    assert str(tmp_path / "storage") in d["active_storage"]  # unchanged

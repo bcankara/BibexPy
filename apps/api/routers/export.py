@@ -13,9 +13,9 @@ class ExportRequest(BaseModel):
     fmt: str
     filter: Optional[dict[str, Any]] = None
     output_name: Optional[str] = None
-    # "rename" (default) → yeni timestamp'li dosya, eskiler kalır
-    # "replace"          → aynı format'taki tüm eski dosyalar silinir, yenisi yazılır
-    # "abort"            → aynı format zaten varsa hata fırlat (409)
+    # "rename" (default) → new timestamped file, old ones are kept
+    # "replace"          → all old files of the same format are deleted, the new one is written
+    # "abort"            → raise an error (409) if the same format already exists
     if_exists: str = "rename"
 
 
@@ -26,7 +26,7 @@ class ExportResult(BaseModel):
 
 
 def _list_format_files(project_id: str, fmt: str) -> list[Path]:
-    """Aynı format'taki mevcut export dosyalarını döner."""
+    """Return the existing export files of the same format."""
     root = storage.project_dir(project_id)
     exports_dir = root / "exports"
     if not exports_dir.exists():
@@ -47,7 +47,7 @@ def create_export(project_id: str, payload: ExportRequest):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
 
-    # Aynı format için mevcut dosyaları if_exists'e göre ele al
+    # Handle existing files of the same format according to if_exists
     if_exists = (payload.if_exists or "rename").lower()
     if if_exists not in ("rename", "replace", "abort"):
         raise HTTPException(400, "invalid_if_exists")
@@ -90,10 +90,10 @@ def create_export(project_id: str, payload: ExportRequest):
 
 @router.delete("/{name}")
 def delete_export(project_id: str, name: str):
-    """Belirli bir export dosyasını sil."""
+    """Delete a specific export file."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    # Path-traversal koruması
+    # Path-traversal protection
     safe_name = Path(name).name
     if not safe_name or safe_name != name:
         raise HTTPException(400, "invalid_filename")

@@ -29,9 +29,9 @@ class PrepareReport(BaseModel):
     raw_txt_count: int = 0
     skipped: list[str] = []
     messages: list[str] = []
-    # Tüm processed/ dosyaları detayıyla (UI'da liste için)
+    # All processed/ files with details (for the list in the UI)
     processed_files: list[ProcessedFile] = []
-    # Hazırlığın güncelliği — bir raw dosya processed'tan yeni ise stale
+    # Freshness of the preparation — stale if a raw file is newer than processed
     stale: bool = False
 
 
@@ -46,7 +46,7 @@ def _classify_processed(name: str) -> str:
 
 @router.get("/status", response_model=PrepareReport)
 def status(project_id: str):
-    """Hazırlık durumunu döndürür — hangi XLSX'ler hazır, hangi ham dosyalar var."""
+    """Return the preparation status — which XLSX files are ready, which raw files exist."""
     meta = storage.get_project(project_id)
     if meta is None:
         raise HTTPException(404, "project_not_found")
@@ -85,7 +85,7 @@ def status(project_id: str):
                 report.wos_xlsx = f.name
             processed_min_mtime = min(processed_min_mtime, st.st_mtime)
 
-    # Stale: en yeni raw dosya, en eski processed dosyadan daha sonra ise hazırlık güncel değil
+    # Stale: if the newest raw file is later than the oldest processed file, the preparation is not up to date
     if report.processed_files and raw_max_mtime > 0:
         report.stale = raw_max_mtime > processed_min_mtime
     return report
@@ -93,10 +93,10 @@ def status(project_id: str):
 
 @router.post("", response_model=PrepareReport)
 def prepare(project_id: str):
-    """Tüm ham dosyaları otomatik XLSX'e çevirir.
+    """Automatically convert all raw files to XLSX.
 
-    - Tüm Scopus CSV'leri → `scopus_merged.xlsx`
-    - Tüm WoS TXT'leri → `wos_merged.xlsx`
+    - All Scopus CSVs → `scopus_merged.xlsx`
+    - All WoS TXTs → `wos_merged.xlsx`
     """
     meta = storage.get_project(project_id)
     if meta is None:
@@ -116,7 +116,7 @@ def prepare(project_id: str):
 
     if csv_files:
         try:
-            # Önce eski adlandırma (scopus_merged.xlsx) varsa temizle — yenisini scopus.xlsx olarak yazacağız
+            # First remove the old naming (scopus_merged.xlsx) if present — we will write the new one as scopus.xlsx
             old_scp = storage.project_dir(project_id) / "processed" / "scopus_merged.xlsx"
             if old_scp.exists():
                 try:
@@ -169,13 +169,13 @@ class ResetResult(BaseModel):
 
 @router.post("/reset", response_model=ResetResult)
 def reset(project_id: str):
-    """Veri hazırlığını sıfırla.
+    """Reset the data preparation.
 
-    Kullanıcının "Yeni veri ekle" akışı: sadece hazırlanmış birleşik Excel
-    dosyaları (`processed/scopus_merged.xlsx`, `processed/wos_merged.xlsx`)
-    silinir. Ham yüklenen dosyalar (`raw/`) **dokunulmaz** — kullanıcı bunlara
-    yeni dosyalar ekleyip tekrar hazırlayacak. Analiz klasörleri (`analyses/`)
-    da silinmez; geçmiş birleştirmeler korunur.
+    The user's "Add new data" flow: only the prepared merged Excel files
+    (`processed/scopus_merged.xlsx`, `processed/wos_merged.xlsx`) are
+    deleted. The raw uploaded files (`raw/`) are **left untouched** — the user
+    will add new files to them and prepare again. The analysis folders
+    (`analyses/`) are not deleted either; past merges are preserved.
     """
     meta = storage.get_project(project_id)
     if meta is None:
@@ -220,7 +220,7 @@ def _safe_name(name: str) -> str:
 
 @router.delete("/processed/{filename}", status_code=204)
 def delete_processed_file(project_id: str, filename: str):
-    """Tek bir hazırlanmış dosyayı sil. Ham dosyalar ve analiz klasörleri korunur."""
+    """Delete a single prepared file. Raw files and analysis folders are preserved."""
     meta = storage.get_project(project_id)
     if meta is None:
         raise HTTPException(404, "project_not_found")

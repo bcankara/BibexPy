@@ -10,24 +10,24 @@ import { PIPELINE_STEPS, usePipelineGating, type PipelineStep } from "@/lib/use-
 type NextOpt = { href: string; label: string; onClick?: () => void; tone?: "cyan" | "brand" | "emerald" };
 
 const TONE: Record<NonNullable<NextOpt["tone"]>, string> = {
-  // "cyan" tonu = ana CTA → kurumsal vurgu rengi petrol (#0f766e).
+  // "cyan" tone = main CTA → corporate accent color, petrol (#0f766e).
   cyan: "bg-teal-600 hover:bg-teal-500 ring-teal-300/40",
   brand: "bg-brand-600 hover:bg-brand-500 ring-brand-300/40",
   emerald: "bg-emerald-600 hover:bg-emerald-500 ring-emerald-300/40",
 };
 
 /**
- * Header sağ köşesi — History + Önceki/Sonraki butonları (Burak).
+ * Header right corner — History + Previous/Next buttons (Burak).
  *
- * Önceki: KİLİTLİ adımları ATLAR (en yakın açık önceki adım).
- * Sonraki: sayfa `nextOptions` verdiyse onları gösterir (örn. merge sayfasında
- *   "Download Data" + "Gelişmiş Düzenleme" — kullanıcı hangisine isterse gider);
- *   yoksa gating-aware tek "en yakın açık sonraki adım" (kilitliyi atlar).
+ * Previous: SKIPS LOCKED steps (the nearest unlocked previous step).
+ * Next: if the page provides `nextOptions`, shows those (e.g. on the merge page
+ *   "Download Data" + "Advanced Editing" — the user goes to whichever they want);
+ *   otherwise a single gating-aware "nearest unlocked next step" (skips locked ones).
  */
 export function StepNav({ onHistory, nextOptions }: {
   onHistory?: () => void;
   nextOptions?: NextOpt[] | null;
-  // geriye uyumluluk — yok sayılır
+  // backward compatibility — ignored
   nextHref?: string;
   nextLabel?: string;
 }) {
@@ -43,7 +43,7 @@ export function StepNav({ onHistory, nextOptions }: {
     if (isEnabled(PIPELINE_STEPS[i].slug)) { prev = PIPELINE_STEPS[i]; break; }
   }
 
-  // Sonraki seçenekler: sayfa verdiyse onları kullan; yoksa gating-aware tek sonraki.
+  // Next options: use the ones the page provides; otherwise a single gating-aware next step.
   let options: NextOpt[] = nextOptions ?? [];
   if (options.length === 0 && idx >= 0) {
     for (let i = idx + 1; i < PIPELINE_STEPS.length; i++) {

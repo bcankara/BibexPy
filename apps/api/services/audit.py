@@ -21,9 +21,9 @@ from services import storage
 
 _LOCK = threading.Lock()
 
-# analysis_id sentinel'leri — her analizin AYRI geçmişi için.
-_AUTO = "__auto__"  # write: kaydı aktif analize otomatik etiketle
-_ALL = "__all__"    # read: filtre yok (tüm proje)
+# analysis_id sentinels — for a SEPARATE history per analysis.
+_AUTO = "__auto__"  # write: automatically tag the entry with the active analysis
+_ALL = "__all__"    # read: no filter (whole project)
 
 
 def _log_path(project_id: str) -> Path:
@@ -44,13 +44,14 @@ def write(
     user_action: Optional[str] = None,
     analysis_id: Optional[str] = _AUTO,
 ) -> dict[str, Any]:
-    """Yeni bir kayıt ekle. Hatalar sessizce yutulur — log bozulması ana akışı durdurmasın.
+    """Append a new entry. Errors are swallowed silently — a corrupted log must not stop the main flow.
 
-    `title`  — geriye dönük / markdown rapor için okunabilir metin (fallback).
-    `title_key` + `title_params` — UI display-time i18n için (frontend t(key, params)).
-    `analysis_id` — kaydın ait olduğu analiz (her analizin AYRI geçmişi). Varsayılan
-        ("__auto__") aktif analizi otomatik bulur; proje-seviye işlemler (upload/file
-        delete vb.) `analysis_id=None` geçer → tüm analizlerde "kurulum" olarak görünür.
+    `title`  — human-readable text for backward compatibility / the markdown report (fallback).
+    `title_key` + `title_params` — for UI display-time i18n (frontend t(key, params)).
+    `analysis_id` — the analysis the entry belongs to (each analysis has its SEPARATE
+        history). The default ("__auto__") finds the active analysis automatically;
+        project-level operations (upload/file delete etc.) pass `analysis_id=None` →
+        they appear as "setup" in all analyses.
     """
     if analysis_id == _AUTO:
         try:
@@ -87,12 +88,12 @@ def read(
     limit: Optional[int] = None,
     analysis_id: Optional[str] = _ALL,
 ) -> list[dict[str, Any]]:
-    """Audit kayıtlarını oku.
+    """Read the audit entries.
 
     `analysis_id`:
-        "__all__"   → filtre yok (tüm proje geçmişi).
-        <id> / None → o analizin kayıtları + proje-seviye (analysis_id is None) kurulum
-                      kayıtları (upload vb.) — "o analizde nelerin yapıldığı".
+        "__all__"   → no filter (the whole project history).
+        <id> / None → that analysis's entries + project-level (analysis_id is None) setup
+                      entries (upload etc.) — "what was done in that analysis".
     """
     p = _log_path(project_id)
     if not p.exists():
@@ -118,12 +119,12 @@ def read(
 
 
 def delete_for_analysis(project_id: str, analysis_id: str) -> int:
-    """Bir analizin kayıtlarını sil (o analiz silinince çağrılır). Proje-seviye
-    (analysis_id is None) kurulum kayıtları ve diğer analizlerin kayıtları KORUNUR."""
+    """Delete an analysis's entries (called when that analysis is deleted). Project-level
+    (analysis_id is None) setup entries and the entries of other analyses are PRESERVED."""
     p = _log_path(project_id)
     if not p.exists():
         return 0
-    entries = read(project_id)  # tümü
+    entries = read(project_id)  # all
     kept = [e for e in entries if e.get("analysis_id") != analysis_id]
     removed = len(entries) - len(kept)
     if removed <= 0:
@@ -139,7 +140,7 @@ def delete_for_analysis(project_id: str, analysis_id: str) -> int:
 
 
 def clear(project_id: str) -> int:
-    """Tüm log'u sil. Geri dönüşü olmayan operasyon (kullanıcı onayıyla)."""
+    """Delete the whole log. An irreversible operation (with user confirmation)."""
     p = _log_path(project_id)
     if not p.exists():
         return 0
@@ -149,7 +150,7 @@ def clear(project_id: str) -> int:
 
 
 def summary(project_id: str) -> dict[str, Any]:
-    """Kaba özet — kategori bazlı sayım, ilk/son zaman."""
+    """Rough summary — per-category counts, first/last timestamp."""
     entries = read(project_id)
     if not entries:
         return {"total": 0, "by_kind": {}, "first_ts": None, "last_ts": None}
@@ -164,7 +165,7 @@ def summary(project_id: str) -> dict[str, Any]:
     }
 
 
-# ----- Markdown raporu -----
+# ----- Markdown report -----
 
 KIND_LABELS = {
     "project_create": "📋 Proje oluşturma",
@@ -192,7 +193,7 @@ KIND_LABELS = {
 
 
 def _render_smart_merge_md(details: dict) -> list[str]:
-    """Smart Merge audit entry için zengin Markdown bloğu."""
+    """Rich Markdown block for a Smart Merge audit entry."""
     lines: list[str] = []
     wos = details.get("wos_input", 0)
     scp = details.get("scopus_input", 0)
@@ -204,7 +205,7 @@ def _render_smart_merge_md(details: dict) -> list[str]:
     lost_scp = details.get("lost_scopus_count", 0)
     duration = details.get("duration_seconds")
 
-    # Akış özeti
+    # Flow summary
     lines.append("**Birleştirme Özeti:**")
     lines.append("")
     lines.append("| Metrik | Değer |")
@@ -221,7 +222,7 @@ def _render_smart_merge_md(details: dict) -> list[str]:
         lines.append(f"| Süre | {duration:.1f} sn |")
     lines.append("")
 
-    # Eşleşme aşamaları
+    # Match stages
     stages = details.get("match_stages") or {}
     if stages:
         lines.append("**Eşleşme Aşamaları** _(Hammerton 2013 + Caputo 2024)_:")
@@ -232,7 +233,7 @@ def _render_smart_merge_md(details: dict) -> list[str]:
             lines.append(f"| {stage} | {count} |")
         lines.append("")
 
-    # Çakışma kaynak dağılımı (Caputo 2024)
+    # Conflict source distribution (Caputo 2024)
     field_dist = details.get("field_source_distribution") or {}
     if field_dist:
         total = sum(field_dist.values())
@@ -245,7 +246,7 @@ def _render_smart_merge_md(details: dict) -> list[str]:
             lines.append(f"| {src} | {count} | %{pct:.1f} |")
         lines.append("")
 
-    # Üretilen dosyalar
+    # Generated files
     files = details.get("output_files") or []
     if files:
         lines.append("**Üretilen Dosyalar:**")
@@ -274,7 +275,7 @@ def format_markdown_report(project_id: str, analysis_id: Optional[str] = _ALL) -
         lines.append("_Henüz operasyon kaydı yok._")
         return "\n".join(lines)
 
-    # Özet — filtrelenmiş kayıtlardan (aktif analiz geçmişi)
+    # Summary — from the filtered entries (active analysis history)
     by_kind: dict[str, int] = {}
     for e in entries:
         by_kind[e.get("kind", "?")] = by_kind.get(e.get("kind", "?"), 0) + 1
@@ -297,7 +298,7 @@ def format_markdown_report(project_id: str, analysis_id: Optional[str] = _ALL) -
         lines.append(f"_{ts_str}_")
         details = e.get("details") or {}
 
-        # Smart Merge için zengin format — JSON dump değil
+        # Rich format for Smart Merge — not a JSON dump
         if e.get("kind") == "merge" and details.get("method") == "smart":
             lines.append("")
             lines.extend(_render_smart_merge_md(details))

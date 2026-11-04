@@ -30,33 +30,33 @@ def client(monkeypatch, tmp_path):
     return TestClient(app)
 
 
-# ── Birim: SR formatı ve fallback zinciri ────────────────────────────────
+# ── Unit: SR format and fallback chain ───────────────────────────────────
 
 def test_sr_format_and_source_fallback():
     from services import exporter
 
     df = pd.DataFrame({
         "AU": ["SMITH, J; DOE, A", "KARA, BC", "YILMAZ, E"],
-        "PY": [2020.0, "2021", None],          # float / str / eksik yıl
-        "J9": ["J AM CHEM SOC", "", ""],        # 2. ve 3. satır J9'suz
+        "PY": [2020.0, "2021", None],          # float / str / missing year
+        "J9": ["J AM CHEM SOC", "", ""],        # rows 2 and 3 have no J9
         "JI": ["J. Am. Chem. Soc.", "J. Doc.", ""],
         "SO": ["JOURNAL OF THE ACS", "JOURNAL OF DOCUMENTATION", "SCIENTOMETRICS"],
     })
     out = exporter.ensure_sr(df)
 
     assert list(out["SR"]) == [
-        "SMITH J, 2020, J AM CHEM SOC",   # J9 doğrudan; 2020.0 → 2020
-        "KARA BC, 2021, J Doc",            # J9 boş, JI'dan (noktalar → boşluk)
-        "YILMAZ E, NA, SCIENTOMETRICS",    # J9+JI boş → SO; eksik yıl → NA
+        "SMITH J, 2020, J AM CHEM SOC",   # J9 used directly; 2020.0 → 2020
+        "KARA BC, 2021, J Doc",            # J9 empty, taken from JI (dots → space)
+        "YILMAZ E, NA, SCIENTOMETRICS",    # J9+JI empty → SO; missing year → NA
     ]
     assert "SR_FULL" in out.columns
-    # Girdi frame'ine SR eklenmemiş olmalı (copy üzerinde çalışır)
+    # SR must not have been added to the input frame (works on a copy)
     assert "SR" not in df.columns
 
 
 def test_sr_duplicate_suffixes_compound_like_bibliometrix():
-    """3 özdeş SR → X, X-a, X-a-b (bibliometrix'in iteratif duplicated()
-    döngüsü birleşik süffiks üretir; -a, -b, -c DEĞİL)."""
+    """3 identical SRs → X, X-a, X-a-b (bibliometrix's iterative duplicated()
+    loop produces compound suffixes; NOT -a, -b, -c)."""
     from services import exporter
 
     df = pd.DataFrame({
@@ -68,7 +68,7 @@ def test_sr_duplicate_suffixes_compound_like_bibliometrix():
     assert list(out["SR"]) == ["SMITH J, 2020, J DOC",
                                "SMITH J, 2020, J DOC-a",
                                "SMITH J, 2020, J DOC-a-b"]
-    # SR_FULL süffikssiz kalır
+    # SR_FULL stays suffix-free
     assert list(out["SR_FULL"]) == ["SMITH J, 2020, J DOC"] * 3
 
 
@@ -88,7 +88,7 @@ def test_sr_missing_author_yields_na():
     assert list(out["SR"]) == ["NA, 2020, X", "NA, 2021, Y"]
 
 
-# ── Entegrasyon: xlsx export SR taşır, dataset değişmez ──────────────────
+# ── Integration: xlsx export carries SR, dataset is unchanged ────────────
 
 def test_xlsx_export_carries_sr_but_dataset_does_not(client):
     from services import analyses, dataset_io
@@ -116,8 +116,8 @@ def test_xlsx_export_carries_sr_but_dataset_does_not(client):
     assert "SR" in exported.columns and "SR_FULL" in exported.columns
     srs = list(exported["SR"])
     assert srs[0] == "SMITH J, 2020, J DOC" and srs[1] == "SMITH J, 2020, J DOC-a"
-    assert len(set(srs)) == len(srs)  # biblioshiny satır adları için benzersiz
+    assert len(set(srs)) == len(srs)  # unique, for biblioshiny row names
 
-    # Aktif dataset'e SR sızmamalı — SR yalnız export sınırında üretilir
+    # SR must not leak into the active dataset — SR is generated only at the export boundary
     on_disk = dataset_io.read_dataset(adir / "merged.parquet")
     assert "SR" not in on_disk.columns

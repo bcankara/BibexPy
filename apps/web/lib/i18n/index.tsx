@@ -47,7 +47,7 @@ function interpolate(template: string, vars?: Record<string, string | number>): 
 export function I18nProvider({ children, initialLocale }: { children: React.ReactNode; initialLocale?: Locale }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale ?? DEFAULT_LOCALE);
 
-  // İlk yüklemede localStorage'den oku (client-side only)
+  // On first load, read from localStorage (client-side only)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -60,7 +60,7 @@ export function I18nProvider({ children, initialLocale }: { children: React.Reac
     setLocaleState(l);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(STORAGE_KEY, l);
-      // <html lang="..."> da güncellensin
+      // Update <html lang="..."> as well
       document.documentElement.lang = l;
     }
   }, []);
@@ -74,7 +74,7 @@ export function I18nProvider({ children, initialLocale }: { children: React.Reac
         value = resolvePath(dictionaries[DEFAULT_LOCALE], key);
       }
       if (typeof value !== "string") {
-        // Geliştirici görsün diye key'i göster (üretimde silent fallback olur)
+        // Show the key so developers notice (in production this falls back silently)
         return key;
       }
       return interpolate(value, vars);
@@ -113,7 +113,7 @@ export function I18nProvider({ children, initialLocale }: { children: React.Reac
 export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext);
   if (!ctx) {
-    // Provider yoksa default'larla çalışan stub döner — uygulama bozulmaz
+    // With no Provider, return a stub that works with the defaults — the app does not break
     return {
       locale: DEFAULT_LOCALE,
       setLocale: () => {},

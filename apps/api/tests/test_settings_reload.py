@@ -34,21 +34,21 @@ def test_settings_put_applies_without_restart(monkeypatch, tmp_path):
     r = client.put("/api/settings", json={"updates": {"CROSSREF_EMAIL": "reload-test@example.com"}})
     assert r.status_code == 200, r.text
 
-    # 1) .env dosyasına yazıldı
+    # 1) Written to the .env file
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "CROSSREF_EMAIL=reload-test@example.com" in env_text
 
-    # 2) Çalışan sürece ANINDA uygulandı — restart yok
+    # 2) Applied to the running process IMMEDIATELY — no restart
     assert config.settings.crossref_email == "reload-test@example.com"
 
-    # 3) GET yanıtı da yeni değeri gösteriyor
+    # 3) The GET response shows the new value as well
     fields = {f["key"]: f for f in r.json()["fields"]}
     assert fields["CROSSREF_EMAIL"]["value"] == "reload-test@example.com"
     assert fields["CROSSREF_EMAIL"]["is_set"] is True
 
 
 def test_settings_masked_secret_is_not_overwritten(monkeypatch, tmp_path):
-    """Maske karakterleri (••••xxxx) geri gönderilirse mevcut anahtar korunur."""
+    """If the mask characters (••••xxxx) are sent back, the existing key is preserved."""
     app = _fresh_app(monkeypatch, tmp_path)
     import config
 
@@ -57,7 +57,7 @@ def test_settings_masked_secret_is_not_overwritten(monkeypatch, tmp_path):
     assert r.status_code == 200
     assert config.settings.scopus_api_key == "real-key-1234"
 
-    # UI maskeli değeri aynen geri gönderirse değer DEĞİŞMEMELİ
+    # If the UI sends the masked value back as is, the value must NOT CHANGE
     masked = "•" * 9 + "1234"
     r = client.put("/api/settings", json={"updates": {"SCOPUS_API_KEY": masked}})
     assert r.status_code == 200

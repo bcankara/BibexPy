@@ -13,12 +13,12 @@ import { cn } from "@/lib/cn";
 
 type Props = {
   projectId: string;
-  items: AnalysisItem[];           // sadece aktif olmayanlar
+  items: AnalysisItem[];           // only the non-active ones
   busy?: boolean;
-  onChanged: () => void;            // activate / delete sonrası refresh
+  onChanged: () => void;            // refresh after activate / delete
 };
 
-// Analiz tonu hiyerarşisi (ActiveAnalysisHero ile aynı):
+// Analysis tone hierarchy (same as ActiveAnalysisHero):
 //   simple=slate / enhanced=brand-cyan / smart=emerald / unknown=slate-soft
 const METHOD_META: Record<string, { label: string; icon: typeof Combine; tone: string; bg: string }> = {
   simple: { label: "Simple", icon: Combine, tone: "text-slate-700", bg: "bg-slate-50" },

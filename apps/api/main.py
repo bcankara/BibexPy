@@ -28,19 +28,19 @@ from routers import (
 
 
 def _frontend_root() -> Optional[Path]:
-    """Next.js static export klasörünü bul. Yoksa None — API-only mode.
+    """Locate the Next.js static export folder. Returns None if absent — API-only mode.
 
-    Geliştirmede genelde frontend ayrı (npm run dev, port 3000) çalışır;
-    bu fonksiyon None döner, backend sadece API serve eder.
+    In development the frontend usually runs separately (npm run dev, port 3000);
+    this function then returns None and the backend serves only the API.
     """
-    # 1. Açık override (env var)
+    # 1. Explicit override (env var)
     env = os.environ.get("BIBEXPY_FRONTEND_DIST")
     if env:
         p = Path(env)
         if (p / "index.html").is_file():
             return p
 
-    # 2. apps/web/out/ — eğer biri `npm run build:static` yaptıysa
+    # 2. apps/web/out/ — if someone ran `npm run build:static`
     here = Path(__file__).resolve().parent
     p = here.parent / "web" / "out"
     if (p / "index.html").is_file():
@@ -49,22 +49,22 @@ def _frontend_root() -> Optional[Path]:
     return None
 
 
-# SPA HTML her istekte revalidate edilmeli. Hash'li /_next/static asset'leri
-# (StaticFiles ile servis edilir) değişmezdir ve uzun süre önbeklenebilir; ama
-# index.html sabit isimlidir ve yeni hash'li chunk'lara işaret eder. Önbeklenirse,
-# bir wheel yükseltmesinden sonra tarayıcı ESKİ HTML'i (eski chunk referansları)
-# servis eder → eski UI. `no-cache` ile tarayıcı her seferinde ETag ile doğrular
-# (değişmemişse 304 — ucuz), yükseltmede yeni HTML'i garanti alır.
+# The SPA HTML must be revalidated on every request. Hashed /_next/static assets
+# (served via StaticFiles) are immutable and can be cached for a long time; but
+# index.html has a fixed name and points to the new hashed chunks. If it is cached,
+# after a wheel upgrade the browser serves the OLD HTML (with old chunk references)
+# → old UI. With `no-cache` the browser validates with the ETag every time
+# (304 if unchanged — cheap), and is guaranteed to get the new HTML on an upgrade.
 _HTML_NO_CACHE = {"Cache-Control": "no-cache"}
 
 
 def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
-    """Verilen URL path'i için doğru statik HTML dosyasını bul.
+    """Find the right static HTML file for the given URL path.
 
-    Dinamik project ID (`projects/<id>/...`) varsa placeholder `_` ile
-    eşleştirmeyi dener. Sonra root index.html'e düşer.
+    If there is a dynamic project ID (`projects/<id>/...`), it tries matching
+    against the placeholder `_`. Then it falls back to the root index.html.
     """
-    # 1. Tam dosya
+    # 1. Exact file
     full = (root / path).resolve()
     # Path traversal guard
     try:
@@ -75,34 +75,34 @@ def _spa_fallback_response(path: str, root: Path) -> Optional[FileResponse]:
     if full.is_file():
         return FileResponse(full, headers=_HTML_NO_CACHE)
 
-    # 2. Dizin + index.html
+    # 2. Directory + index.html
     idx = full / "index.html"
     if idx.is_file():
         return FileResponse(idx, headers=_HTML_NO_CACHE)
 
-    # 3. Dinamik [id] segment: `projects/abc123/upload` → `projects/_/upload/index.html`
+    # 3. Dynamic [id] segment: `projects/abc123/upload` → `projects/_/upload/index.html`
     parts = path.strip("/").split("/")
     if len(parts) >= 2 and parts[0] == "projects":
-        # parts[1] proje ID — `_` ile değiştir
+        # parts[1] is the project ID — replace it with `_`
         ph_path = root.joinpath("projects", "_", *parts[2:]) / "index.html"
         if ph_path.is_file():
             return FileResponse(ph_path, headers=_HTML_NO_CACHE)
 
-    # 4. SPA son fallback — root index.html (404.html da denenebilir ama gerek yok)
+    # 4. SPA final fallback — root index.html (404.html could also be tried but there is no need)
     fallback = root / "index.html"
     if fallback.is_file():
         return FileResponse(fallback, headers=_HTML_NO_CACHE)
     return None
 
 
-# Codename cli.py ile elle senkron tutulur (paketlenmiş sürümde tek string).
+# The codename is kept in manual sync with cli.py (a single string in the packaged version).
 _APP_CODENAME = "Helium"
 
 
 def _app_version() -> str:
-    """Çalışan paketin sürümü — packaged wheel'de installed metadata'dan,
-    kaynaktan (dev) çalışırken 'dev'. Footer'da hangi sürümün aktif olduğunu
-    göstermek için /api/health ile sunulur."""
+    """Version of the running package — from installed metadata in the packaged
+    wheel, 'dev' when running from source. Served via /api/health so the footer
+    can show which version is active."""
     try:
         from importlib.metadata import PackageNotFoundError, version
         try:
@@ -120,32 +120,32 @@ def create_app() -> FastAPI:
         description="Self-hosted bibliometric data preparation tool",
     )
 
-    # CORS — dev modunda 3000'den 8001'e istek atan frontend için.
-    # Packaged binary'de tek port olduğu için CORS gereksiz ama zarar vermez.
+    # CORS — for the frontend making requests from 3000 to 8001 in dev mode.
+    # In the packaged binary there is a single port, so CORS is unnecessary but harmless.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
-        # Yerel araç: localhost / 127.0.0.1 hangi portta olursa olsun kabul et.
-        # (Açık liste + regex birlikte değerlendirilir.) Port değişse bile çalışır.
+        # Local tool: accept localhost / 127.0.0.1 on whatever port.
+        # (The explicit list and the regex are evaluated together.) Works even if the port changes.
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # API router'ları — `/api/` prefix altında. Bu, frontend route'larıyla
-    # (örn. `/projects` UI sayfası vs `/api/projects` API endpoint'i) URL
-    # çakışmasını önler. Hem dev hem packaged binary için aynı prefix.
+    # API routers — under the `/api/` prefix. This avoids URL collisions with
+    # frontend routes (e.g. the `/projects` UI page vs the `/api/projects` API
+    # endpoint). The same prefix for both dev and the packaged binary.
     for r in (projects, upload, convert, merge, jobs, downloads, filter_router,
               export_router, enrich, disambiguate, prepare, export_folder,
               audit_router, quality_router, records_router, settings_router,
               system_router, tools_router, report_router):
         app.include_router(r.router, prefix="/api")
 
-    # Startup: ilk kurulumda paketle gelen örnek veriden "Simple Project" oluştur.
-    # Yalnız packaged çalıştırmada (cli.py BIBEXPY_SAMPLES_DIR'i set eder) ve
-    # depo TAMAMEN boşken bir kez çalışır; `.sample_seeded` işaret dosyası
-    # sayesinde kullanıcı projeyi silerse yeniden OLUŞTURULMAZ.
+    # Startup: on first install, create a "Simple Project" from the sample data
+    # shipped with the package. Runs once, only in a packaged run (cli.py sets
+    # BIBEXPY_SAMPLES_DIR) and only when the store is COMPLETELY empty; thanks to
+    # the `.sample_seeded` marker file it is NOT created again if the user deletes the project.
     @app.on_event("startup")
     def _seed_sample_project_on_startup() -> None:
         try:
@@ -164,7 +164,7 @@ def create_app() -> FastAPI:
             from services import storage as _storage
 
             if _storage.list_projects():
-                # Mevcut kullanıcı deposu — örnek ekleme, ama bir daha da deneme.
+                # Existing user store — do not add the sample, but do not try again either.
                 marker.touch()
                 return
             meta = _storage.create_project(
@@ -185,7 +185,7 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
-    # Startup: soft-deleted analiz klasörlerini fiziksel temizle.
+    # Startup: physically purge soft-deleted analysis folders.
     @app.on_event("startup")
     def _purge_soft_deleted_on_startup() -> None:
         try:
@@ -209,7 +209,7 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
-    # Meta endpoint'leri — frontend mount'tan önce, `/api/` altında
+    # Meta endpoints — before the frontend mount, under `/api/`
     @app.get("/api/health", tags=["meta"])
     def health() -> dict:
         return {
@@ -221,21 +221,21 @@ def create_app() -> FastAPI:
             "frontend_bundled": _frontend_root() is not None,
         }
 
-    # Frontend mount — paketlenmiş veya dev'de export edilmiş ise
+    # Frontend mount — if bundled or exported in dev
     frontend_root = _frontend_root()
     if frontend_root is not None:
-        # _next/static/* statik asset'leri — direkt mount, en hızlı yol
+        # _next/static/* static assets — mounted directly, the fastest path
         next_static = frontend_root / "_next"
         if next_static.is_dir():
             app.mount("/_next", StaticFiles(directory=next_static), name="_next")
-        # public/* asset'leri (görseller, vs.)
+        # public/* assets (images, etc.)
         for sub in ("images", "tools", "favicon.ico"):
             sub_path = frontend_root / sub
             if sub_path.is_dir():
                 app.mount(f"/{sub}", StaticFiles(directory=sub_path), name=sub)
 
-        # Catch-all GET — SPA fallback (API ve mount'lardan SONRA register edilir,
-        # sadece yukarıdaki hiçbir route ile eşleşmeyen GET isteklerini yakalar)
+        # Catch-all GET — SPA fallback (registered AFTER the API and the mounts,
+        # it only catches GET requests that match none of the routes above)
         @app.get("/{path:path}", include_in_schema=False)
         async def spa_catchall(path: str, request: Request) -> FileResponse:
             resp = _spa_fallback_response(path, frontend_root)
@@ -243,12 +243,12 @@ def create_app() -> FastAPI:
                 return resp
             return JSONResponse({"detail": "Not Found"}, status_code=404)
 
-        # Root da SPA için
+        # Root for the SPA too
         @app.get("/", include_in_schema=False)
         async def spa_root() -> FileResponse:
             return FileResponse(frontend_root / "index.html", headers=_HTML_NO_CACHE)
     else:
-        # API-only mode (dev veya frontend build edilmemiş)
+        # API-only mode (dev, or the frontend has not been built)
         @app.get("/", tags=["meta"])
         def root() -> dict:
             return {

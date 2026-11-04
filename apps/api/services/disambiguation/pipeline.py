@@ -37,11 +37,12 @@ from .deepseek_client import (
 
 
 def _project_dir(project_id: str) -> Path:
-    """Disambiguation çalışma klasörü = AKTİF ANALİZ klasörü (proje kökü değil).
+    """Disambiguation working directory = the ACTIVE ANALYSIS directory (not the project root).
 
-    Böylece öneriler (disambiguation_*.json), snapshot'lar ve audit'ler ait oldukları
-    analizin içinde tutulur; yeni bir merge (yeni analiz) eski önerileri TAŞIMAZ —
-    otomatik temiz başlangıç. Hiç analiz yoksa proje köküne düşer (geriye uyumlu).
+    This way the proposals (disambiguation_*.json), snapshots and audits are kept inside
+    the analysis they belong to; a new merge (new analysis) does NOT carry over the old
+    proposals — an automatic clean start. If there is no analysis at all, it falls back
+    to the project root (backward compatible).
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
@@ -56,11 +57,12 @@ def _load_merged(project_id: str) -> pd.DataFrame:
 
 
 def _distinct_variants(cluster: dict) -> set[str]:
-    """Bir kümenin birleştirdiği farklı yazım/varyant kümesi.
+    """The set of distinct spellings/variants that a cluster merges.
 
-    Üye objesi `name_variants` (yazar) veya `variants` (affiliation/org/ülke)
-    taşır; hiçbiri yoksa üyenin kendi `id`'si tek varyant sayılır. <2 varyant =
-    birleştirilecek bir şey yok (tek-üyeli LLM kümesi) → öneri olarak gösterilmez.
+    A member object carries `name_variants` (author) or `variants`
+    (affiliation/org/country); if it has neither, the member's own `id` counts as its
+    single variant. <2 variants = nothing to merge (single-member LLM cluster) → not
+    shown as a proposal.
     """
     out: set[str] = set()
     for m in cluster.get("members", []):
@@ -71,16 +73,16 @@ def _distinct_variants(cluster: dict) -> set[str]:
 
 def _label_for_llm(members: list[dict], variant_key: str,
                    context_keys: tuple = ()) -> tuple[list[dict], dict]:
-    """Her VARYANTI tek tek v1..vN ile etiketleyip LLM'e gonder.
+    """Label EVERY VARIANT individually as v1..vN and send them to the LLM.
 
-    Neden varyant duzeyi (aday duzeyi degil): aday duzeyinde etiketlemede,
-    cok-varyantli tek bir aday ('v1') icindeki varyantlari LLM 'v1_10' gibi
-    ALT-INDEKSLIYOR; bu etiketler aday id'siyle eslesmiyor ve kart 'v1_10'
-    gibi gorunuyordu. Her varyanta kendi 'vN' etiketini verince LLM'in
-    alt-indekslemesine gerek kalmaz; donen yanit dogrudan haritalanir.
+    Why variant level (not candidate level): with candidate-level labelling, the LLM
+    SUB-INDEXED the variants inside a single multi-variant candidate ('v1') as 'v1_10'
+    and the like; those labels did not match the candidate id and the card showed up
+    as 'v1_10'. Once every variant gets its own 'vN' label, the LLM no longer needs to
+    sub-index; the returned response maps back directly.
 
-    Her oge: {id:'vN', <name|text>: varyant, **baglam}. Donen:
-    (LLM ogeleri, {etiket: ham varyant dizesi}).
+    Each item: {id:'vN', <name|text>: variant, **context}. Returns:
+    (LLM items, {label: raw variant string}).
     """
     text_field = "name" if variant_key == "name_variants" else "text"
     items: list[dict] = []
@@ -100,8 +102,9 @@ def _label_for_llm(members: list[dict], variant_key: str,
 
 
 def _members_from_labels(cluster: dict, by_label: dict, variant_key: str) -> list[dict]:
-    """LLM yanitindaki member_ids (v-etiketleri) GERCEK varyant dizelerine cevir;
-    her varyant icin tek bir uye olustur. Bilinmeyen etiket -> ham dize (son care)."""
+    """Convert the member_ids (v-labels) in the LLM response into the REAL variant
+    strings; create a single member for each variant. Unknown label -> raw string
+    (last resort)."""
     out: list[dict] = []
     seen: set[str] = set()
     for mid in (cluster.get("member_ids") or []):
@@ -114,18 +117,18 @@ def _members_from_labels(cluster: dict, by_label: dict, variant_key: str) -> lis
 
 
 def _member_variants(m: dict, key: str) -> list:
-    """Bir üyenin varyant listesi; boşsa üyenin kendi 'id'sine düş (LLM üyeleri
-    varyantı çoğu zaman 'id' alanında taşır)."""
+    """A member's variant list; if empty, fall back to the member's own 'id' (LLM
+    members most often carry the variant in the 'id' field)."""
     vs = m.get(key) or ([m["id"]] if m.get("id") else [])
     return [v for v in vs if v]
 
 
 def _apply_c1_map(df: pd.DataFrame, cols: list[str], fn) -> int:
-    """C1/C1raw kolonlarına fn uygula ve GERÇEKTEN değişen satır sayısını döndür.
+    """Apply fn to the C1/C1raw columns and return the number of rows that ACTUALLY changed.
 
-    Eskiden affected=len(mapping) idi: eşleşme hiç tutmasa bile sıfır-olmayan bir
-    sayı raporluyordu (kullanıcıya '109 değişti' der ama veri değişmezdi). Artık
-    yalnız fiilen değişen satırlar sayılır (herhangi bir kolonda)."""
+    It used to be affected=len(mapping): even when no match hit at all, it reported a
+    non-zero number (it would tell the user '109 changed' while the data stayed the
+    same). Now only the rows that actually changed are counted (in any column)."""
     changed = pd.Series(False, index=df.index)
     for col in cols:
         before = df[col].astype(str)
@@ -155,13 +158,13 @@ def _snapshot(project_dir: Path, df: pd.DataFrame, kind: str) -> Path:
     return p
 
 
-# ── ORCID çözümü SENKRON ağ I/O yapar (orcids_for_candidate → fetch_orcids_for_doi →
-# requests). Bu yüzden ASLA event loop üzerinde await'siz çağrılmamalı: aksi halde scan
-# sırasında loop bloklanır ve cancel/navigasyon/export DONAR (test bulgusu #7'nin ayrı
-# kök nedeni). Aşağıdaki yardımcılar asyncio.to_thread ile thread'e alınır; should_cancel
-# ile iptalde erken çıkarlar. ──
+# ── ORCID resolution does SYNCHRONOUS network I/O (orcids_for_candidate → fetch_orcids_for_doi →
+# requests). It must therefore NEVER be called on the event loop without await: otherwise
+# the loop is blocked during a scan and cancel/navigation/export FREEZE (the separate root
+# cause of test finding #7). The helpers below are moved onto a thread with
+# asyncio.to_thread; they exit early on cancellation via should_cancel. ──
 def _resolve_member_orcid_sets(df, members, email, allow_api, should_cancel=None) -> list[set]:
-    """Üye başına ORCID seti (df-first + opsiyonel anlık API). Thread'de çalıştırılmalı."""
+    """Per-member ORCID sets (df-first + optional on-demand API). Must be run in a thread."""
     out: list[set] = []
     for m in members:
         if should_cancel and should_cancel():
@@ -171,7 +174,7 @@ def _resolve_member_orcid_sets(df, members, email, allow_api, should_cancel=None
 
 
 def _resolve_split_group_sets(df, groups, name, email, allow_api, should_cancel=None) -> list[set]:
-    """Bir split önerisinin grup-başına ORCID setleri. Thread'de çalıştırılmalı."""
+    """Per-group ORCID sets of a split proposal. Must be run in a thread."""
     out: list[set] = []
     for g in groups:
         if should_cancel and should_cancel():
@@ -182,17 +185,18 @@ def _resolve_split_group_sets(df, groups, name, email, allow_api, should_cancel=
 
 
 async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list[dict]:
-    """Yazar AYRIŞTIRMA önerileri. Tier 1 (net, alan-ayrık) deterministik;
-    Tier 2 (sınırda, alan-yok kayıt var) LLM hakemliğine — LLM 'keep' derse öneri düşer."""
+    """Author SPLIT proposals. Tier 1 (clear, field-disjoint) is deterministic;
+    Tier 2 (borderline, some records have no field) goes to LLM arbitration — if the LLM
+    says 'keep', the proposal is dropped."""
     splits = await run_cpu(build_author_splits, df, should_cancel=lambda: ctx.cancelled)
     if not splits:
         ctx.log("Splitting: no names to split.")
         return []
 
-    # ── ORCID override: aynı isim, alan-ayrık gruplar gerçekten farklı kişiler mi? ──
-    # Grup başına ORCID çöz (df-first, eksikse anlık API). ORCID altın standarttır:
-    #   • Tek ortak ORCID ≥2 gruba yayılıyorsa → TEK interdisipliner kişi → ASLA bölme.
-    #   • Gruplar farklı ORCID'lerdeyse → kesin farklı kişiler → güçlü split (LLM'siz).
+    # ── ORCID override: are the same-name, field-disjoint groups really different people? ──
+    # Resolve ORCID per group (df-first, on-demand API if missing). ORCID is the gold standard:
+    #   • A single shared ORCID spanning ≥2 groups → ONE interdisciplinary person → NEVER split.
+    #   • Groups with different ORCIDs → definitely different people → strong split (no LLM).
     email = settings.crossref_email or None
     allow_api = settings.disambiguation_orcid_lookup
     orcid_keep = 0
@@ -200,21 +204,22 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
     for s in splits:
         if ctx.cancelled:
             break
-        # SENKRON ağ I/O → thread'e al (event loop'u bloklama; cancel/nav/export donmasın).
+        # SYNCHRONOUS network I/O → run it on a thread (don't block the event loop;
+        # keep cancel/nav/export from freezing).
         group_sets = await asyncio.to_thread(
             _resolve_split_group_sets, df, s.get("groups", []), s["name"], email, allow_api,
             lambda: ctx.cancelled,
         )
         known = [gs for gs in group_sets if gs]
         if len(known) >= 2:
-            # Tüm bilinen gruplar ortak bir ORCID paylaşıyor mu?
+            # Do all the known groups share a common ORCID?
             if set.intersection(*known):
-                s["decision"] = "keep"        # aynı kişi → bölme
+                s["decision"] = "keep"        # same person → do not split
                 s["source"] = "orcid"
                 s["reason"] = "Same ORCID across groups — one interdisciplinary person"
                 orcid_keep += 1
             else:
-                s["decision"] = "split"       # farklı ORCID'ler → kesin böl
+                s["decision"] = "split"       # different ORCIDs → definitely split
                 s["source"] = "orcid"
                 s["tier"] = 1
                 s["confidence"] = 1.0
@@ -223,7 +228,7 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
     if orcid_keep or orcid_split:
         ctx.log(f"ORCID split: {orcid_split} confirmed, {orcid_keep} kept (same person)")
 
-    # ORCID kararı verilmemiş (source != 'orcid') öneriler eski akışa düşer
+    # Proposals with no ORCID decision (source != 'orcid') fall back to the old flow
     undecided = [s for s in splits if s.get("source") != "orcid"]
     tier1 = [s for s in undecided if s.get("tier") == 1]
     tier2 = [s for s in undecided if s.get("tier") == 2]
@@ -237,7 +242,7 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
         try:
             client = _client()
         except HTTPException:
-            client = None  # API anahtarı yoksa manuel incelemeye bırak
+            client = None  # No API key → leave it for manual review
         if client is not None:
             cache = DisambiguationCache(project_dir)
             try:
@@ -267,8 +272,8 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
                 s["source"] = "manual"
                 s["decision"] = "review"
 
-    # 'keep' (LLM ya da ORCID: tek disiplinlerarası kişi) önerileri listeden çıkar.
-    # ORCID ile karar verilenler (split) de dahil — tüm splits üzerinden filtrele.
+    # Drop the 'keep' proposals (LLM or ORCID: a single interdisciplinary person) from the list.
+    # This includes the ones decided via ORCID (split) — filter over all of splits.
     return [s for s in splits if s.get("decision") != "keep"]
 
 
@@ -299,7 +304,7 @@ async def run_author_disambiguation(
     all_clusters: list[dict] = []
     all_uncertain: list[dict] = []
 
-    # 1.5) Tier 1 — deterministik auto-merge önerileri (LLM'siz, confidence=1.0)
+    # 1.5) Tier 1 — deterministic auto-merge proposals (no LLM, confidence=1.0)
     auto_count = 0
     for block in blocks:
         for ac in block.get("auto", []):
@@ -318,13 +323,13 @@ async def run_author_disambiguation(
     if auto_count:
         ctx.log(f"Tier 1 (automatic, no LLM): {auto_count} proposals")
 
-    # ORCID write-back istatistiği (Part 2d)
+    # ORCID write-back statistics (Part 2d)
     orcid_stats = {"rows_filled": 0, "dois_fetched": 0}
     email = settings.crossref_email or None
     allow_api = settings.disambiguation_orcid_lookup
 
-    # 2) Tier 2 — belirsiz bloklar. ÖNCE ORCID kararı (df-first, eksikse anlık API),
-    #    sonra gerekiyorsa LLM. ORCID altın standart: aynı=merge, farklı=ayrı.
+    # 2) Tier 2 — uncertain blocks. ORCID decision FIRST (df-first, on-demand API if missing),
+    #    then the LLM if needed. ORCID gold standard: same=merge, different=separate.
     llm_blocks = [b for b in blocks if b.get("members")]
     ctx.log(f"Tier 2 (review): {len(llm_blocks)} blocks")
     orcid_merges = 0
@@ -339,9 +344,10 @@ async def run_author_disambiguation(
                     break
 
                 members = block["members"]
-                # 2.1) ORCID ön-pass — üye başına ORCID setini çöz (df-first + on-demand).
-                # SENKRON ağ I/O → thread'e al (event loop'u bloklama; aksi halde scan
-                # sırasında cancel/navigasyon/export DONAR — #7 ek kök neden).
+                # 2.1) ORCID pre-pass — resolve the ORCID set per member (df-first + on-demand).
+                # SYNCHRONOUS network I/O → run it on a thread (don't block the event loop;
+                # otherwise cancel/navigation/export FREEZE during the scan — an additional
+                # root cause of #7).
                 orcid_sets = await asyncio.to_thread(
                     _resolve_member_orcid_sets, df, members, email, allow_api,
                     lambda: ctx.cancelled,
@@ -349,7 +355,7 @@ async def run_author_disambiguation(
                 verdict = orcid_mod.classify_by_orcid(orcid_sets)
 
                 if verdict == "merge":
-                    # Tüm ORCID-bilinen üyeler aynı kişi → Tier 1 auto-merge (LLM'siz)
+                    # All members with a known ORCID are the same person → Tier 1 auto-merge (no LLM)
                     shared = sorted(set.intersection(*[s for s in orcid_sets if s]))
                     variants = sorted({v for m in members for v in (m.get("name_variants") or [])})
                     if len(set(variants)) >= 2:
@@ -365,10 +371,10 @@ async def run_author_disambiguation(
                         })
                         orcid_merges += 1
                     ctx.progress(0.15 + 0.8 * ((i + 1) / len(llm_blocks)))
-                    continue  # LLM'e gitme
+                    continue  # don't go to the LLM
 
                 if verdict == "conflict":
-                    # Ayrık ORCID'ler → farklı kişiler → birleştirme YOK (LLM'e gitme)
+                    # Disjoint ORCIDs → different people → NO merge (don't go to the LLM)
                     orcid_conflicts += 1
                     block_names = sorted({v for m in members for v in (m.get("name_variants") or [])})
                     all_uncertain.append({
@@ -379,13 +385,13 @@ async def run_author_disambiguation(
                     ctx.progress(0.15 + 0.8 * ((i + 1) / len(llm_blocks)))
                     continue
 
-                # 2.2) ORCID belirsiz → LLM hakemliği (mevcut akış). LLM yapılandırılmamışsa
-                #      bloğu manuel incelemeye bırak (job çökmesin).
+                # 2.2) ORCID inconclusive → LLM arbitration (existing flow). If the LLM is not
+                #      configured, leave the block for manual review (so the job doesn't crash).
                 if client is None:
                     try:
                         client = _client()
                     except HTTPException:
-                        client = False  # anahtar yok — bu çalıştırmada LLM kullanılmaz
+                        client = False  # no key — the LLM is not used in this run
                 if not client:
                     block_names = sorted({v for m in members for v in (m.get("name_variants") or [])})
                     all_uncertain.append({
@@ -412,13 +418,13 @@ async def run_author_disambiguation(
 
                 for c in resp.get("clusters", []):
                     c["block_key"] = block["key"]
-                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # global benzersiz (bloklar arası c1/c2 çakışmasın)
+                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # globally unique (so c1/c2 don't collide across blocks)
                     c["source"] = "llm"
                     c["tier"] = 2
-                    # member_ids (v-etiketleri) -> gercek isim varyantlari
+                    # member_ids (v-labels) -> real name variants
                     c["members"] = _members_from_labels(c, by_label, "name_variants")
                     if len(_distinct_variants(c)) < 2:
-                        continue  # tek varyant — birleştirilecek bir şey yok, boş kart olmasın
+                        continue  # single variant — nothing to merge, so don't create an empty card
                     all_clusters.append(c)
                 for u in resp.get("uncertain", []):
                     u["block_key"] = block["key"]
@@ -432,12 +438,12 @@ async def run_author_disambiguation(
 
     ctx.progress(0.7)
 
-    # 3) Ayrıştırma (split) önerileri — aynı isim, alan bakımından ayrık gruplar
+    # 3) Split proposals — same name, groups that are disjoint in terms of field
     ctx.log("Author splitting analysis (same spelling, different field)...")
     splits = await _compute_author_splits(ctx, project_dir, df)
     ctx.progress(0.9)
 
-    # 4) Önerileri kaydet (henüz uygulanmadı — onay bekliyor)
+    # 4) Save the proposals (not applied yet — awaiting approval)
     proposals_path = project_dir / "disambiguation_authors.json"
     proposals = {
         "kind": "authors",
@@ -453,8 +459,9 @@ async def run_author_disambiguation(
         f"Splitting: {len(splits)} proposals"
     )
 
-    # 5) Write-back — ambigu satırlarda DOI'den çekilen OI/RI/ROR/CC'yi veriye kalıcı
-    #    yaz (fetch boşa gitmesin; sonra Fill-all gerekmesin). Yalnız boş hücrelere.
+    # 5) Write-back — persist the OI/RI/ROR/CC fetched from the DOI for ambiguous rows
+    #    into the data (so the fetch isn't wasted and Fill-all isn't needed afterwards).
+    #    Empty cells only.
     snap_rel = None
     if settings.disambiguation_orcid_persist and not ctx.cancelled:
         ambiguous_rows: list[int] = []
@@ -529,7 +536,7 @@ async def run_affiliation_disambiguation(
     all_clusters: list[dict] = []
     all_uncertain: list[dict] = []
 
-    # Tier 1 — deterministik (yüksek string benzerliği, LLM'siz)
+    # Tier 1 — deterministic (high string similarity, no LLM)
     auto_count = 0
     for block in blocks:
         for ac in block.get("auto", []):
@@ -548,7 +555,7 @@ async def run_affiliation_disambiguation(
     if auto_count:
         ctx.log(f"Tier 1 (automatic, no LLM): {auto_count} proposals")
 
-    # Tier 2 — yalnız belirsiz blokları LLM'e
+    # Tier 2 — send only the uncertain blocks to the LLM
     llm_blocks = [b for b in blocks if b.get("members")]
     ctx.log(f"Tier 2 (LLM review): {len(llm_blocks)} blocks")
     if llm_blocks:
@@ -573,12 +580,12 @@ async def run_affiliation_disambiguation(
                         continue
                 for c in resp.get("clusters", []):
                     c["block_key"] = block["key"]
-                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # global benzersiz (bloklar arası c1/c2 çakışmasın)
+                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # globally unique (so c1/c2 don't collide across blocks)
                     c["source"] = "llm"
                     c["tier"] = 2
                     c["members"] = _members_from_labels(c, by_label, "variants")
                     if len(_distinct_variants(c)) < 2:
-                        continue  # tek varyant — birleştirilecek bir şey yok, boş kart olmasın
+                        continue  # single variant — nothing to merge, so don't create an empty card
                     all_clusters.append(c)
                 for u in resp.get("uncertain", []):
                     u["block_key"] = block["key"]
@@ -610,7 +617,7 @@ async def _run_cluster_tool(
     kind: str, blocks_builder, system_prompt: str, task: str,
     tier1_reason: str, mode: str = "auto", max_records: int | None = None,
 ) -> dict[str, Any]:
-    """Affiliation-deseni standartlaştırma çalıştırıcısı (ülke / org rollup için ortak)."""
+    """Affiliation-pattern standardization runner (shared by country / org rollup)."""
     project_dir = _project_dir(project_id)
     df = await asyncio.to_thread(_load_merged, project_id)
     ctx.log(f"Loaded: {len(df)} records")
@@ -670,14 +677,14 @@ async def _run_cluster_tool(
                         continue
                 for c in resp.get("clusters", []):
                     c["block_key"] = block["key"]
-                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # global benzersiz (bloklar arası c1/c2 çakışmasın)
+                    c["cluster_id"] = f"{block['key']}__{c.get('cluster_id', 'c')}"  # globally unique (so c1/c2 don't collide across blocks)
                     c["source"] = "llm"
                     c["tier"] = 2
                     c["members"] = _members_from_labels(c, by_label, "variants")
-                    # Country'de tek token geçerlidir (bir ülke yazımını normalize et veya
-                    # bir kuruma ülke ekle); diğerlerinde (org) birleştirme için >=2 gerekir.
+                    # For Country a single token is valid (normalize a country spelling or
+                    # add a country to an institution); for the others (org) >=2 are needed to merge.
                     if kind != "countries" and len(_distinct_variants(c)) < 2:
-                        continue  # tek varyant — birleştirilecek bir şey yok, boş kart olmasın
+                        continue  # single variant — nothing to merge, so don't create an empty card
                     all_clusters.append(c)
                 for u in resp.get("uncertain", []):
                     u["block_key"] = block["key"]
@@ -720,7 +727,7 @@ def list_proposals(project_id: str, kind: str) -> dict[str, Any]:
 
 
 def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str, Any]:
-    """Onaylanmış cluster'ları orijinal datasete uygula.
+    """Apply the approved clusters to the original dataset.
 
     approved: list of {member_ids, canonical?: str}
     """
@@ -730,16 +737,17 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         raise HTTPException(409, "no_merged_data")
     df = dataset_io.read_dataset(src)
 
-    # NOT: snapshot işin SONUNDA, yalnız gerçekten değişiklik yapılacaksa (affected>0)
-    # alınır — 'sıfır değişiklik' apply'ları boş snapshot çöplüğü üretmesin.
+    # NOTE: the snapshot is taken at the END of the job, and only if a change is actually
+    # going to be made (affected>0) — so that 'zero change' applies don't produce a
+    # pile of empty snapshots.
 
-    # Proposal listesinden member metadata'sını oku
+    # Read the member metadata from the proposal list
     proposals = list_proposals(project_id, kind)
     cluster_lookup = {c.get("cluster_id"): c for c in proposals.get("clusters", [])}
 
     affected = 0
     if kind == "authors":
-        # Onay: her cluster için canonical bir isim seç (varsayılan: ilk variant) ve diğerlerini değiştir
+        # Approval: pick a canonical name for each cluster (default: the first variant) and replace the others
         if "AU" not in df.columns:
             raise HTTPException(400, "no_au_column")
         for entry in approved:
@@ -747,7 +755,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
             cluster = cluster_lookup.get(cid)
             if not cluster:
                 continue
-            # Tüm name_variants'i topla (boşsa üyenin id'sine düş — LLM stub'ları)
+            # Collect all name_variants (if empty, fall back to the member's id — LLM stubs)
             all_variants: list[str] = []
             for m in cluster.get("members", []):
                 all_variants.extend(_member_variants(m, "name_variants"))
@@ -759,7 +767,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
             def _nkey(s: str) -> str:
                 return _re.sub(r"\s+", " ", str(s or "")).strip().lower()
 
-            # Boşluk-toleranslı: WoS AU yazımı tutarsız olabilir ('GAO S' vs 'GAO  S').
+            # Whitespace-tolerant: the WoS AU spelling can be inconsistent ('GAO S' vs 'GAO  S').
             variant_keys = {_nkey(v) for v in all_variants if _nkey(v) != _nkey(canonical)}
             if not variant_keys:
                 continue
@@ -776,7 +784,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         if not cols:
             raise HTTPException(400, "no_c1_column")
         from bibex_core.modules.c1_utils import replace_affiliation_in_c1
-        mapping: dict[str, str] = {}  # varyant affiliation -> kanonik (bileşen-tam)
+        mapping: dict[str, str] = {}  # variant affiliation -> canonical (component-complete)
         for entry in approved:
             cluster = cluster_lookup.get(entry.get("cluster_id"))
             if not cluster:
@@ -798,7 +806,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         if not cols:
             raise HTTPException(400, "no_c1_column")
         from bibex_core.modules.c1_utils import replace_country_in_c1, _is_org
-        mapping: dict[str, str] = {}  # küçük-harf ülke-varyantı -> kanonik ülke
+        mapping: dict[str, str] = {}  # lowercase country variant -> canonical country
         for entry in approved:
             cluster = cluster_lookup.get(entry.get("cluster_id"))
             if not cluster:
@@ -809,9 +817,10 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
             for m in cluster.get("members", []):
                 for v in _member_variants(m, "variants"):
                     tok = str(v).strip()
-                    # GÜVENLİK: kurum tokeni ülke replace'ine girmesin (kurum=ülke karmasını
-                    # ve C1 bozulmasını önler). Country standardizasyonu YALNIZ ülke yazımını
-                    # normalize eder; eksik ülke tamamlama ayrı API eylemiyle yapılır.
+                    # SAFETY: keep institution tokens out of the country replace (prevents
+                    # an institution=country mix-up and C1 corruption). Country
+                    # standardization ONLY normalizes the country spelling; completing a
+                    # missing country is done by a separate API action.
                     if tok and not _is_org(tok):
                         mapping[tok.lower()] = canon
         if mapping:
@@ -822,7 +831,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         if not cols:
             raise HTTPException(400, "no_c1_column")
         from bibex_core.modules.c1_utils import replace_org_in_c1
-        mapping: dict[str, str] = {}  # tam adres varyantı -> kanonik üst kurum
+        mapping: dict[str, str] = {}  # full-address variant -> canonical parent institution
         for entry in approved:
             cluster = cluster_lookup.get(entry.get("cluster_id"))
             if not cluster:
@@ -839,15 +848,15 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     else:
         raise HTTPException(400, f"Bilinmeyen kind: {kind}")
 
-    # Kaydet (orijinal merged dosyanın üstüne yaz, ama snapshot var)
-    # Hiçbir değişiklik yapılmadıysa: snapshot/yazım/audit YOK (boş apply no-op).
+    # Save (overwrite the original merged file, but a snapshot exists)
+    # If no change was made: NO snapshot/write/audit (an empty apply is a no-op).
     if affected == 0:
         return {"kind": kind, "approved_count": len(approved), "replacements": 0, "snapshot": None}
 
-    # Değişiklik var → ÖNCE snapshot (df'in güncel hâli yazımdan önce yedeklenir), sonra yaz.
+    # There is a change → snapshot FIRST (df's current state is backed up before the write), then write.
     snap = _snapshot(project_dir, dataset_io.read_dataset(src), kind)
     dataset_io.atomic_write_dataset(df, src)
-    # Filter cache temizle
+    # Clear the filter cache
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
 
@@ -865,7 +874,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     })
     audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Onaylanan cluster'ları proposals'tan düş — uygulananlar listede tekrar görünmesin.
+    # Remove the approved clusters from the proposals — so applied ones don't show up in the list again.
     applied_ids = {e.get("cluster_id") for e in approved if e.get("cluster_id")}
     if applied_ids:
         props = list_proposals(project_id, kind)
@@ -883,10 +892,11 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
 
 
 def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
-    """Onaylanan AYRIŞTIRMA önerilerini uygula — ilgili kayıtlarda yazar adına
-    '(b)' '(c)' eki ekleyerek düğümleri ayır. En büyük grup (suffix boş) dokunulmaz.
+    """Apply the approved SPLIT proposals — separate the nodes by appending a '(b)' '(c)'
+    suffix to the author name in the relevant records. The largest group (empty suffix)
+    is left untouched.
 
-    approved: split önerileri (split_id ile) veya tam obje (name + groups[]).
+    approved: split proposals (by split_id) or a full object (name + groups[]).
     """
     project_dir = _project_dir(project_id)
     src = merger.merged_dataset_path(project_id)
@@ -896,19 +906,19 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     if "AU" not in df.columns:
         raise HTTPException(400, "no_au_column")
 
-    # snapshot işin SONUNDA, yalnız affected>0 ise alınır (boş apply no-op).
+    # The snapshot is taken at the END of the job, only if affected>0 (an empty apply is a no-op).
     proposals = list_proposals(project_id, "authors")
     lookup = {s.get("split_id"): s for s in proposals.get("splits", [])}
 
     import re as _re
 
     def _nkey(s: str) -> str:
-        # Boşluk-normalize anahtar: WoS AU yazımı tutarsız olabilir ('GAO S' vs 'GAO  S').
+        # Whitespace-normalized key: the WoS AU spelling can be inconsistent ('GAO S' vs 'GAO  S').
         return _re.sub(r"\s+", " ", str(s or "")).strip().lower()
 
     affected = 0
     for entry in approved:
-        sp = lookup.get(entry.get("split_id")) or entry  # tam obje de kabul
+        sp = lookup.get(entry.get("split_id")) or entry  # a full object is also accepted
         name = sp.get("name")
         if not name:
             continue
@@ -916,15 +926,15 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
         for g in sp.get("groups", []):
             suffix = (g.get("suffix") or "").strip()
             if not suffix:
-                continue  # düz grup — dokunma
+                continue  # plain group — leave it alone
             new_name = f"{name} {suffix}"
             for rec in g.get("records", []):
                 if not isinstance(rec, int) or rec < 0 or rec >= len(df):
                     continue
                 cell = df.at[rec, "AU"]
                 cur = "" if pd.isna(cell) else str(cell)
-                # Boşluk-toleranslı token eşleşmesi (ham AU yazımı korunur, yalnız
-                # eşleşen token yeni adla değiştirilir).
+                # Whitespace-tolerant token matching (the raw AU spelling is preserved,
+                # only the matching token is replaced with the new name).
                 new_parts, hit = [], False
                 for x in cur.split(";"):
                     if _nkey(x) == name_key:
@@ -959,7 +969,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     })
     audit_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Onaylanan split'leri proposals'tan düş — uygulananlar listede tekrar görünmesin.
+    # Remove the approved splits from the proposals — so applied ones don't show up in the list again.
     applied_ids = {e.get("split_id") for e in approved if e.get("split_id")}
     if applied_ids:
         props = list_proposals(project_id, "authors")
@@ -984,8 +994,8 @@ def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
     target = merger.merged_dataset_path(project_id)
     if target is None:
         raise HTTPException(409, "no_merged_data")
-    # Byte kopyası DEĞİL, format dönüştüren okuma+yazma: snapshot xlsx (legacy)
-    # olabilirken hedef parquet'tir; ham kopya merged.parquet'i bozardı.
+    # NOT a byte copy but a format-converting read+write: the snapshot may be xlsx
+    # (legacy) while the target is parquet; a raw copy would corrupt merged.parquet.
     dataset_io.atomic_write_dataset(dataset_io.read_dataset(snap_path), target)
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()

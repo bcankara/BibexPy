@@ -37,7 +37,7 @@ class DeepSeekClient:
         return r.json()
 
     def chat_json(self, system: str, user_payload: dict, temperature: float = 0.0) -> dict:
-        """JSON yanıt iste. Prompt 'json' kelimesini içermek zorunda (DeepSeek kuralı)."""
+        """Request a JSON response. The prompt must contain the word 'json' (a DeepSeek rule)."""
         body = {
             "model": self.model,
             "messages": [
@@ -58,8 +58,8 @@ class DeepSeekClient:
         return await asyncio.to_thread(self.chat_json, system, user_payload, temperature)
 
     def chat_text(self, system: str, user_text: str, temperature: float = 0.3) -> str:
-        """Serbest metin yanıt iste (JSON zorlaması yok). Metodoloji raporu gibi
-        düz prose çıktılar için kullanılır."""
+        """Request a free-text response (no JSON enforcement). Used for plain
+        prose outputs such as the methodology report."""
         body = {
             "model": self.model,
             "messages": [

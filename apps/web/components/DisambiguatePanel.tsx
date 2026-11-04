@@ -18,11 +18,12 @@ import { useConfirm, useToast } from "./Dialogs";
 type Kind = "authors" | "affiliations" | "countries" | "organizations";
 
 /**
- * Bir job'ın backend `kind`'ı, panelin gösterdiği `Kind`'a ait mi? Backend authors/
- * affiliations için ayrı job.kind kullanır ("disambiguate_authors" / "disambiguate_
- * affiliations"); countries ve organizations ise TEK ortak job.kind ("disambiguate")
- * paylaşır (bkz. apps/api/routers/disambiguate.py) — ikisi backend'de ayırt edilemez,
- * zaten proje başına aynı anda yalnız bir exclusive job çalışabildiği için bu yeterli.
+ * Does a job's backend `kind` belong to the `Kind` the panel is showing? The backend
+ * uses separate job.kind values for authors/affiliations ("disambiguate_authors" /
+ * "disambiguate_affiliations"); countries and organizations, however, share a SINGLE
+ * common job.kind ("disambiguate") (see apps/api/routers/disambiguate.py) — the two
+ * cannot be told apart in the backend, and since only one exclusive job can run per
+ * project at a time anyway, this is sufficient.
  */
 function jobMatchesKind(job: JobInfo, kind: Kind): boolean {
   if (kind === "authors") return job.kind === "disambiguate_authors";
@@ -31,11 +32,11 @@ function jobMatchesKind(job: JobInfo, kind: Kind): boolean {
 }
 
 /**
- * Yazar Ayrıştırma paneli — tek "Tara" akışı, iki tür öneri:
- *   • Ayrıştırma (split): aynı isim, alan-ayrık → farklı kişiler → (b)(c) eki
- *   • Birleştirme (merge): farklı yazılış, aynı kişi → tek standart yazılış
- * Tier 1 (deterministik) önerileri ön-işaretli gelir; Tier 2 (AI/sınırda)
- * işaretsiz. Hepsi kullanıcı onayına tabi.
+ * Author Disambiguation panel — a single "Scan" flow, two kinds of suggestions:
+ *   • Split: same name, disjoint fields → different people → (b)(c) suffix
+ *   • Merge: different spellings, same person → a single standard spelling
+ * Tier 1 (deterministic) suggestions come pre-checked; Tier 2 (AI/borderline)
+ * come unchecked. All of them are subject to user approval.
  */
 export function DisambiguatePanel({
   projectId, kind = "authors",
@@ -50,8 +51,8 @@ export function DisambiguatePanel({
   const [approvedMerges, setApprovedMerges] = useState<Set<string>>(new Set());
   const [approvedSplits, setApprovedSplits] = useState<Set<string>>(new Set());
   const [canonicalEdits, setCanonicalEdits] = useState<Record<string, string>>({});
-  // Üç ayrı buton (Tara / Yenile / Onayla & uygula), üç ayrı in-flight durumu —
-  // her biri kendi spinner'ını gösterir ve kendi başına yeniden-giriş'e kapalıdır.
+  // Three separate buttons (Scan / Refresh / Approve & apply), three separate in-flight states —
+  // each shows its own spinner and is independently guarded against re-entry.
   const [scanning, setScanning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -60,8 +61,9 @@ export function DisambiguatePanel({
 
   function applyProposalSet(p: ProposalSet) {
     setProposals(p);
-    // Tier 1 (deterministik) önerileri ön-işaretle — ama yalnız GÖRÜNÜR (≥2 varyant)
-    // kümeleri; gizli tek-varyant kümeler pre-check edilmez (yoksa sayım/uygulama desenk).
+    // Pre-check Tier 1 (deterministic) suggestions — but only the VISIBLE (≥2 variants)
+    // clusters; hidden single-variant clusters are not pre-checked (otherwise the
+    // count and apply go out of sync).
     const visible = (p.clusters || []).filter(
       (c) => c.members.length >= 2 || clusterVariants(c, kind).length >= 2,
     );
@@ -82,9 +84,10 @@ export function DisambiguatePanel({
     }
   }
 
-  // kind/proje değişince: eski önerileri HEMEN temizle ve yalnız GÜNCEL kind'in
-  // yanıtını uygula. Bayat (yavaş gelen önceki kind) yanıtını yok say — yoksa ilk
-  // yüklenen authors yanıtı sonradan gelip içeriği hep authors'a sabitler.
+  // When kind/project changes: clear the old suggestions IMMEDIATELY and apply only the
+  // response for the CURRENT kind. Ignore a stale response (a slow response for the previous
+  // kind) — otherwise the first-loaded authors response would arrive later and pin the
+  // content to authors.
   useEffect(() => {
     let alive = true;
     setProposals(null);
@@ -96,12 +99,12 @@ export function DisambiguatePanel({
     api.getProposals(projectId, kind)
       .then((p) => { if (alive) applyProposalSet(p); })
       .catch((e) => { if (alive) setError(translateApiError(t, e)); });
-    // Devam eden bir taramayı yeniden bağla: kullanıcı "Tara"yı başlatıp başka bir
-    // araca/sayfaya geçip geri dönerse (component unmount/remount) `jobId` state'i
-    // kaybolur ve panel BOŞTA görünür — oysa backend'de iş hâlâ çalışıyordur, hatta
-    // "Tara"ya tekrar basınca "job_already_running" hatası alınır. Mount'ta bu proje
-    // için hâlâ kuyrukta/çalışan bir job var mı diye sor; varsa aynı ilerleme UI'sine
-    // (JobProgress) yeniden bağlan — sanki "Tara" az önce başlatılmış gibi.
+    // Re-attach to an in-progress scan: if the user starts "Scan", switches to another
+    // tool/page and comes back (component unmount/remount), the `jobId` state is
+    // lost and the panel looks IDLE — yet the job is still running in the backend, and
+    // pressing "Scan" again even yields a "job_already_running" error. On mount, ask
+    // whether this project still has a queued/running job; if so, re-attach to the
+    // same progress UI (JobProgress) — as if "Scan" had just been started.
     api.listJobs(projectId)
       .then((jobs) => {
         if (!alive) return;
@@ -110,7 +113,7 @@ export function DisambiguatePanel({
         );
         if (active) setJobId(active.id);
       })
-      .catch(() => {}); // sessiz — bu iyimser bir kontrol, panel yine de idle çalışabilir
+      .catch(() => {}); // silent — this is an optimistic check, the panel can still work idle
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, projectId]);
@@ -132,8 +135,8 @@ export function DisambiguatePanel({
   }
 
   const splits = (kind === "authors" ? proposals?.splits : []) || [];
-  // Tek varyantlı/tek üyeli kümeleri gizle — birleştirilecek bir şey yok (boş kart olmasın).
-  // apply YALNIZ bu görünür listeyi kullanır; gizli küme sessizce uygulanmaz.
+  // Hide single-variant/single-member clusters — there is nothing to merge (avoid empty cards).
+  // apply uses ONLY this visible list; a hidden cluster is never silently applied.
   const clusters = (proposals?.clusters || []).filter(
     (c) => c.members.length >= 2 || clusterVariants(c, kind).length >= 2,
   );
@@ -141,7 +144,7 @@ export function DisambiguatePanel({
   const totalApproved = approvedMerges.size + approvedSplits.size;
 
   function canonicalFor(c: Cluster): string | undefined {
-    const vs = clusterVariants(c, kind);  // name_variants veya variants → id fallback
+    const vs = clusterVariants(c, kind);  // name_variants or variants → id fallback
     return canonicalEdits[c.cluster_id] || c.canonical_name || vs[0];
   }
 
@@ -150,8 +153,8 @@ export function DisambiguatePanel({
     if (!(await confirm({ message: t("disambiguate.applyConfirm", { n: totalApproved }) }))) return;
     setApplying(true); setError(null);
     try {
-      // YALNIZ görünür (filtrelenmiş) kümelerden onaylananları uygula — gizli tek-varyant
-      // kümeler (ör. tek yazılışlı ülke/kurum) sessizce uygulanmaz.
+      // Apply ONLY the approved ones from the visible (filtered) clusters — hidden single-variant
+      // clusters (e.g. a country/organization with a single spelling) are never silently applied.
       const mergeItems = clusters
         .filter((c) => approvedMerges.has(c.cluster_id))
         .map((c) => ({ cluster_id: c.cluster_id, canonical: canonicalFor(c) }));
@@ -197,7 +200,7 @@ export function DisambiguatePanel({
 
       <p className="text-xs text-muted">{kind === "authors" ? t("disambiguate.scanHint") : t("disambiguate.scanHintStd", { subject })}</p>
 
-      {/* Tara */}
+      {/* Scan */}
       <div className="flex items-center gap-2 flex-wrap">
         <Button onClick={start} disabled={scanning || !!jobId} size="sm">
           {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -217,7 +220,7 @@ export function DisambiguatePanel({
 
       {jobId && <JobProgress jobId={jobId} onComplete={() => { loadProposals(); setJobId(null); }} onClose={() => setJobId(null)} />}
 
-      {/* Ayrıştırma (split) — yalnız authors */}
+      {/* Split — authors only */}
       {kind === "authors" && (
         <section className="space-y-2">
           <div className="flex items-center gap-2">
@@ -250,7 +253,7 @@ export function DisambiguatePanel({
         </section>
       )}
 
-      {/* Birleştirme (merge) */}
+      {/* Merge */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
           <Combine className="h-4 w-4 text-brand-600" />
@@ -286,7 +289,7 @@ export function DisambiguatePanel({
   );
 }
 
-/** Tier rozeti — otomatik (deterministik) veya incele (LLM/sınırda). */
+/** Tier badge — auto (deterministic) or review (LLM/borderline). */
 function TierBadge({ tier, source }: { tier?: number; source?: string }) {
   const t = useT();
   const auto = tier === 1 || source === "deterministic";
@@ -331,7 +334,7 @@ function SplitRow({ split, approved, onToggle }: { split: AuthorSplit; approved:
   );
 }
 
-/** Bir kümenin birleştirdiği farklı varyantlar; varyant yoksa üye id'sine düşer. */
+/** The distinct variants a cluster merges; falls back to the member id if there are no variants. */
 function clusterVariants(c: Cluster, kind: Kind): string[] {
   const out: string[] = [];
   for (const m of c.members) {

@@ -7,17 +7,18 @@ import { useT } from "@/lib/i18n";
 import { useProjectId } from "@/lib/use-project-id";
 import { PIPELINE_STEPS, usePipelineGating } from "@/lib/use-pipeline";
 
-// Geriye uyumluluk — advancedKey artık lib/use-pipeline'da.
+// Backward compatibility — advancedKey now lives in lib/use-pipeline.
 export { advancedKey } from "@/lib/use-pipeline";
 
 /**
- * Pipeline stepper — wizard görünümlü, gating'li (Burak: "daha görünür/şık,
- * takip edilebilir"). 5 adım, numaralı/✓/kilit daireler + bağlayıcı çizgiler:
- *   1 Veri & Birleştirme        : her zaman açık
- *   2 Records / 3 Harmonizasyon : Birleştir + "Gelişmiş Düzenleme" açıldıysa (kilitli)
- *   4 Export / 5 Report         : Birleştir tamamlandıysa
- * Geçilen adımlar ✓, aktif vurgulu, kilitli soluk + tıklanamaz. Gating durumu
- * lib/use-pipeline (usePipelineGating) ile StepNav'le paylaşılır.
+ * Pipeline stepper — wizard-style, with gating (Burak: "more visible/stylish,
+ * easy to follow"). 5 steps, numbered/✓/lock circles + connecting lines:
+ *   1 Data & Merge              : always open
+ *   2 Records / 3 Harmonization : if Merge is done + "Advanced Editing" has been enabled (locked)
+ *   4 Export / 5 Report         : if Merge is completed
+ * Completed steps get a ✓, the active one is highlighted, locked ones are faded + not
+ * clickable. The gating state is shared with StepNav via lib/use-pipeline
+ * (usePipelineGating).
  */
 export function ProjectNav() {
   const id = useProjectId();

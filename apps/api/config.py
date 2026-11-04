@@ -4,13 +4,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _resolve_env_file() -> str:
-    """`.env` dosyasının yolu.
+    """Path of the `.env` file.
 
-    `BIBEXPY_CONFIG_DIR` env var'ı set ise oradaki `.env` kullanılır (paket
-    modu: ~/.bibexpy/.env gibi yazılabilir bir konum). Aksi halde CWD'deki
-    `.env` (geliştirme: uvicorn apps/api'den çalışır, CWD = apps/api);
-    o da yoksa ~/.bibexpy/.env (settings router'ın yazma yoluyla hizalı —
-    aksi halde UI'dan kaydedilen anahtarlar farklı dosyadan okunurdu).
+    If the `BIBEXPY_CONFIG_DIR` env var is set, the `.env` there is used (package
+    mode: a writable location such as ~/.bibexpy/.env). Otherwise the `.env` in
+    the CWD (development: uvicorn runs from apps/api, CWD = apps/api); if that
+    does not exist either, ~/.bibexpy/.env (aligned with the settings router's
+    write path — otherwise keys saved from the UI would be read from a different
+    file).
     """
     cfg_dir = os.environ.get("BIBEXPY_CONFIG_DIR")
     if cfg_dir:
@@ -24,12 +25,12 @@ def _resolve_env_file() -> str:
 
 
 def _default_storage_dir() -> str:
-    """Yazilabilir varsayilan depolama yolu.
+    """Writable default storage path.
 
-    `STORAGE_DIR` env'i (cli.py pakette set eder) varsa pydantic onu okur.
-    Aksi halde: gelistirme agacindaki mevcut `./storage` varsa onu (dev'i
-    bozmamak icin); yoksa kullanici-yazilabilir `~/.bibexpy/storage`
-    (pip/rastgele CWD'de veriyi rastgele yere yazmamak icin).
+    If the `STORAGE_DIR` env var is set (cli.py sets it in the package), pydantic
+    reads it. Otherwise: the existing `./storage` in the development tree, if
+    present (so as not to break dev); else the user-writable `~/.bibexpy/storage`
+    (so that data is not written to a random place under pip / an arbitrary CWD).
     """
     if Path("./storage").is_dir():
         return "./storage"
@@ -54,13 +55,13 @@ class Settings(BaseSettings):
     unpaywall_email: str = ""
     crossref_email: str = ""
 
-    # LLM yapılandırması — yeni birleşik alanlar
+    # LLM configuration — new unified fields
     llm_provider: str = "deepseek"                  # "deepseek" | "openai" | "custom"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-v4-flash"
 
-    # Geriye dönük uyumluluk — eski .env'lerden okuyacak
+    # Backward compatibility — will read from old .env files
     deepseek_api_key: str = ""
     deepseek_model: str = ""
     deepseek_base_url: str = ""
@@ -68,8 +69,8 @@ class Settings(BaseSettings):
     disambiguation_enabled: bool = True
     disambiguation_blocking_threshold: float = 0.75
     disambiguation_auto_approve_threshold: float = 0.95
-    # ORCID-öncelikli disambiguation: ambigu gruplar için OpenAlex'e anlık ORCID
-    # sorgusu (veride OI yoksa) ve çekileni veriye geri yazma.
+    # ORCID-first disambiguation: for ambiguous groups, an on-the-fly ORCID query
+    # to OpenAlex (if the data has no OI) and writing the fetched value back to the data.
     disambiguation_orcid_lookup: bool = True
     disambiguation_orcid_persist: bool = True
 
@@ -100,16 +101,16 @@ settings = Settings()
 
 
 def reload_settings() -> None:
-    """`.env` yeniden okunup GLOBAL `settings` objesi YERİNDE güncellenir.
+    """Re-read `.env` and update the GLOBAL `settings` object IN PLACE.
 
-    Ayarlar UI'dan kaydedildiğinde çağrılır — böylece API anahtarları vb.
-    sunucu yeniden başlatılmadan anında etkinleşir. Diğer modüller
-    `from config import settings` ile AYNI objeyi tuttuğundan, yeni bir obje
-    atamak yerine alan değerleri mevcut objeye kopyalanır.
+    Called when the settings are saved from the UI — so that API keys etc. take
+    effect immediately without restarting the server. Since other modules hold the
+    SAME object via `from config import settings`, the field values are copied
+    into the existing object instead of assigning a new one.
 
-    Not: pydantic önceliği gereği gerçek ortam değişkenleri .env'i ezer;
-    launcher'ın süreç başında set ettiği STORAGE_DIR bu yüzden yalnızca
-    yeniden başlatmayla değişir (UI'da da öyle belirtilir).
+    Note: because of pydantic precedence, real environment variables override .env;
+    so the STORAGE_DIR that the launcher sets at process start changes only on
+    restart (the UI states it that way too).
     """
     fresh = Settings()
     for name in Settings.model_fields:

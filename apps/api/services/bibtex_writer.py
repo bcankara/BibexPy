@@ -17,7 +17,7 @@ def _escape(value: str) -> str:
     if not value:
         return ""
     s = str(value)
-    # Yaygın LaTeX kaçırma — minimum (literal tutmak için)
+    # Common LaTeX escaping — minimal (to keep things literal)
     s = s.replace("\\", "\\textbackslash{}")
     for ch in "&%$#_{}":
         s = s.replace(ch, f"\\{ch}")
@@ -88,7 +88,7 @@ def write_bibtex(df: pd.DataFrame, output: Path) -> Path:
             if not v or v.lower() == "nan":
                 continue
             lines.append(f"  {k} = {{{_escape(v)}}},")
-        # son virgülü temizle
+        # strip the trailing comma
         if lines[-1].endswith(","):
             lines[-1] = lines[-1][:-1]
         lines.append("}")

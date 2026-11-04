@@ -13,7 +13,7 @@ router = APIRouter(prefix="/projects/{project_id}/merge", tags=["merge"])
 
 
 class MergeRequest(BaseModel):
-    # Tek algoritma: Smart Merge. Alan geriye uyumluluk için duruyor ama yok sayılır.
+    # Single algorithm: Smart Merge. The field is kept for backward compatibility but ignored.
     method: str = "smart"
 
 
@@ -21,9 +21,9 @@ class MergeRequest(BaseModel):
 async def start_merge(project_id: str, payload: MergeRequest | None = None):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    # Tek algoritma: Smart Merge — payload.method artık yok sayılır.
-    # Hazırlık kontrolü — job submit ETMEDEN önce; hazırlanmış XLSX yoksa 409 (UI
-    # kullanıcıyı 1. adıma yönlendirir). Böylece merge ham CSV/TXT'yi sessizce kullanmaz.
+    # Single algorithm: Smart Merge — payload.method is now ignored.
+    # Readiness check — BEFORE submitting the job; if there is no prepared XLSX, 409 (the UI
+    # sends the user back to step 1). This way the merge never silently uses raw CSV/TXT.
     merger.check_ready_to_merge(project_id)
 
     async def worker(ctx):
@@ -47,7 +47,7 @@ def list_merged(project_id: str):
     return merger.list_merged(project_id)
 
 
-# Alan kodları → açıklayıcı Türkçe etiket
+# Field codes → descriptive Turkish label
 FIELD_LABELS = {
     "TI": "Başlık", "AU": "Yazarlar (kısa)", "AF": "Yazarlar (tam)",
     "SO": "Dergi/Kaynak", "JI": "Dergi (ISO)", "J9": "Dergi (kısa)",
@@ -63,12 +63,12 @@ FIELD_LABELS = {
 
 
 def _merge_is_stale(project_id: str, meta: dict[str, Any] | None) -> bool:
-    """Ham (raw) veriler aktif merge'den SONRA eklendiyse/değiştiyse True.
+    """True if raw data was added/changed AFTER the active merge.
 
-    Hazırlık artık merge içinde örtük yapıldığından, kullanıcı yeni ham dosya
-    eklediğinde raw/*.{csv,txt,isi} mtime'ı merge zamanını geçer → aktif merge
-    eski veriye dayanır. UI bunu "Eski Merge" olarak işaretleyip kullanıcıyı
-    yeniden Smart Merge'e yönlendirir.
+    Since preparation is now done implicitly inside the merge, when the user
+    adds a new raw file the mtime of raw/*.{csv,txt,isi} exceeds the merge
+    time → the active merge relies on old data. The UI flags this as "Stale
+    Merge" and directs the user to run Smart Merge again.
     """
     if not meta:
         return False
@@ -86,8 +86,8 @@ def _merge_is_stale(project_id: str, meta: dict[str, Any] | None) -> bool:
                     newest = max(newest, f.stat().st_mtime)
                 except OSError:
                     continue
-        # 2 sn tolerans: merge'in completed_at'i ile son yüklemenin mtime'ı
-        # arasındaki küçük farktan ötürü yanlış-pozitif olmasın.
+        # 2 s tolerance: avoid a false positive caused by the small gap
+        # between the merge's completed_at and the last upload's mtime.
         return bool(newest and newest > float(merge_ts) + 2.0)
     except Exception:
         return False
@@ -95,22 +95,22 @@ def _merge_is_stale(project_id: str, meta: dict[str, Any] | None) -> bool:
 
 @router.get("/summary")
 def merge_summary(project_id: str) -> dict[str, Any]:
-    """Aktif analizin detaylı istatistikleri.
+    """Detailed statistics of the active analysis.
 
-    has_merge = aktif bir analiz klasörünün varlığı. Statistic.xlsx olsa da
-    olmasa da has_merge=True döner; Statistic yoksa sadece `general` boş kalır,
-    `files` listesi yine doldurulur.
+    has_merge = whether an active analysis folder exists. has_merge=True is
+    returned whether or not Statistic.xlsx exists; without Statistic, only
+    `general` stays empty and the `files` list is still populated.
     """
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
 
-    # Aktif analiz klasörü
+    # Active analysis folder
     merged_dir = analyses.get_active_analysis_dir(project_id)
     if merged_dir is None or not merged_dir.exists():
         return {"has_merge": False}
 
     out: dict[str, Any] = {"has_merge": True}
-    # Analiz meta'sını ek (Statistic'ten bağımsız — analiz varsa hep döner)
+    # Attach the analysis meta (independent of Statistic — always returned if an analysis exists)
     meta = analyses.get_analysis_meta(project_id, merged_dir.name)
     if meta:
         out["analysis"] = {
@@ -122,18 +122,18 @@ def merge_summary(project_id: str) -> dict[str, Any]:
             "is_active": meta.get("is_active"),
         }
 
-    # Bayatlık: işlenmiş veriler bu merge'den sonra yeniden hazırlandıysa
-    # (yeni dosya + tekrar prepare) aktif merge eski veriye dayanır.
+    # Staleness: if the processed data was re-prepared after this merge
+    # (new file + prepare again), the active merge relies on old data.
     out["stale"] = _merge_is_stale(project_id, meta)
 
-    # Statistic.xlsx tercih edilir; geriye uyumluluk için Statistic_Smart de denenir
+    # Statistic.xlsx is preferred; Statistic_Smart is also tried for backward compatibility
     stats_xlsx = merged_dir / "Statistic.xlsx"
     if not stats_xlsx.exists():
         stats_xlsx_smart = merged_dir / "Statistic_Smart.xlsx"
         if stats_xlsx_smart.exists():
             stats_xlsx = stats_xlsx_smart
 
-    # 1) Genel istatistikler — önce Statistic.xlsx'ten oku, yoksa merged.xlsx + lost'tan hesapla
+    # 1) General statistics — read from Statistic.xlsx first; if missing, compute from merged.xlsx + lost
     if stats_xlsx.exists():
         try:
             gen = pd.read_excel(stats_xlsx, sheet_name="General Stats")
@@ -156,7 +156,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
-    # Fallback: Statistic.xlsx yok / okunamadı → merged.xlsx'ten hesapla
+    # Fallback: Statistic.xlsx missing / unreadable → compute from merged.xlsx
     if "general" not in out:
         try:
             from services import merger
@@ -178,7 +178,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
-    # 2) Alan-bazlı istatistikler
+    # 2) Per-field statistics
     if stats_xlsx.exists():
         try:
             fs = pd.read_excel(stats_xlsx, sheet_name="Field Stats")
@@ -208,14 +208,14 @@ def merge_summary(project_id: str) -> dict[str, Any]:
     else:
         out["fields"] = []
 
-    # 3) Dosyalar — ana çıktı + yan dosyalar
+    # 3) Files — main output + side files
     files = []
     lost_wos = 0
     lost_scopus = 0
     for f in sorted(merged_dir.iterdir()):
         if not f.is_file() or f.name == "meta.json":
             continue
-        # Atomik yazımın yarıda kalmış artığı — kullanıcıya dosya diye gösterme.
+        # Leftover of an interrupted atomic write — do not show it to the user as a file.
         if f.name.endswith(".tmp~"):
             continue
         kind = "other"
@@ -255,14 +255,14 @@ def merge_summary(project_id: str) -> dict[str, Any]:
     out["lost_wos_count"] = lost_wos
     out["lost_scopus_count"] = lost_scopus
 
-    # 4) Method — tek algoritma Smart Merge. meta.json'da varsa onu kullan
-    #    ("single" tek-kaynak için), yoksa smart varsay.
+    # 4) Method — single algorithm, Smart Merge. Use the one in meta.json if present
+    #    ("single" for a single source), otherwise assume smart.
     method = (meta.get("method") if meta else None) or "smart"
     out["method"] = method
 
-    # 5) Smart-özel istatistikler
+    # 5) Smart-specific statistics
     if method == "smart":
-        # match_audit.xlsx → stage dağılımı
+        # match_audit.xlsx → stage distribution
         audit_xlsx = merged_dir / "match_audit.xlsx"
         if audit_xlsx.exists():
             try:
@@ -273,7 +273,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
             except Exception:
                 out["match_stages"] = {}
 
-        # conflict_log.xlsx → çakışma sayısı
+        # conflict_log.xlsx → conflict count
         conflict_xlsx = merged_dir / "conflict_log.xlsx"
         if conflict_xlsx.exists():
             try:
@@ -285,7 +285,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
             except Exception:
                 out["conflict_count"] = 0
 
-        # borderline state'ten pending sayısı
+        # pending count from the borderline state
         state_path = merged_dir / "borderline_state.json"
         if state_path.exists():
             try:
@@ -303,12 +303,12 @@ def merge_summary(project_id: str) -> dict[str, Any]:
 
 
 # ────────────────────────────────────────────────────────────────────
-#  Smart Merge — Borderline review endpoint'leri
+#  Smart Merge — Borderline review endpoints
 # ────────────────────────────────────────────────────────────────────
 
 @router.get("/borderline")
 def list_borderline(project_id: str):
-    """Smart Merge'in borderline kuyruğunu listele (manuel onay için)."""
+    """List Smart Merge's borderline queue (for manual approval)."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     from services import smart_merger
@@ -326,7 +326,7 @@ class BorderlineDecidePayload(BaseModel):
 
 @router.post("/borderline/decide")
 def decide_borderline(project_id: str, payload: BorderlineDecidePayload):
-    """Kullanıcının borderline kararlarını uygula. Snapshot alır, audit yazar."""
+    """Apply the user's borderline decisions. Takes a snapshot, writes an audit record."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     from services import smart_merger
@@ -341,12 +341,12 @@ def decide_borderline(project_id: str, payload: BorderlineDecidePayload):
 
 
 # ────────────────────────────────────────────────────────────────────
-#  Analiz yönetimi — her birleştirme bağımsız analiz klasörüdür
+#  Analysis management — every merge is an independent analysis folder
 # ────────────────────────────────────────────────────────────────────
 
 @router.get("/analyses")
 def list_analyses_endpoint(project_id: str):
-    """Bu projedeki tüm analizleri en yeniden eskiye listele.
+    """List all analyses in this project, from newest to oldest.
 
     Her item: {id, label, method, created_at, completed_at?, file_count, total_size, is_active}
     """
@@ -360,14 +360,14 @@ def list_analyses_endpoint(project_id: str):
 
 @router.post("/analyses/{analysis_id}/activate")
 def activate_analysis(project_id: str, analysis_id: str):
-    """Bir analizi aktif yap — Records/Filter/Quality bundan sonra onun üzerinde çalışır."""
+    """Make an analysis active — Records/Filter/Quality operate on it from then on."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     meta = analyses.get_analysis_meta(project_id, analysis_id)
     if not meta:
         raise HTTPException(404, "analysis_not_found")
     analyses.set_active_analysis(project_id, analysis_id)
-    # Filter cache invalidate (aktif dataset değişti)
+    # Invalidate the filter cache (the active dataset changed)
     try:
         from services import filter_engine
         filter_engine._DF_CACHE.clear()
@@ -396,9 +396,9 @@ def activate_analysis(project_id: str, analysis_id: str):
 
 @router.delete("/analyses/{analysis_id}")
 def delete_analysis_endpoint(project_id: str, analysis_id: str):
-    """Bir analizi sil. Windows'ta dosya kilidi varsa soft-delete'e düşer
-    (UI'da görünmez ama dosyalar diskte). Aktifse aktiflik en yeni başka
-    analize geçer."""
+    """Delete an analysis. On Windows, if there is a file lock it falls back
+    to soft-delete (invisible in the UI but the files remain on disk). If it
+    was active, the active status moves to the newest other analysis."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     meta = analyses.get_analysis_meta(project_id, analysis_id)
@@ -407,7 +407,7 @@ def delete_analysis_endpoint(project_id: str, analysis_id: str):
     ok = analyses.delete_analysis(project_id, analysis_id)
     if not ok:
         raise HTTPException(500, "analysis_delete_failed")
-    # Cache temizle
+    # Clear the cache
     try:
         from services import filter_engine
         filter_engine._DF_CACHE.clear()
@@ -431,9 +431,9 @@ def delete_analysis_endpoint(project_id: str, analysis_id: str):
     except Exception:
         pass
     active_id = analyses.get_active_analysis_id(project_id)
-    # Bu analizin geçmiş kayıtlarını sil — her analizin AYRI geçmişi (Burak: "hepsinin
-    # geçmişi ayrı olmalı"). Proje-seviye kurulum (upload vb.) ve DİĞER analizlerin
-    # kayıtları korunur.
+    # Delete this analysis's history records — every analysis has its OWN separate history
+    # (Burak: "each one should have its own separate history"). Project-level setup
+    # records (upload etc.) and the records of OTHER analyses are preserved.
     try:
         from services import audit as _audit
         _audit.delete_for_analysis(project_id, analysis_id)

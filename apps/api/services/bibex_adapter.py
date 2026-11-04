@@ -28,7 +28,7 @@ def _suppress_stdio():
 
 
 def df_to_records(df, max_rows: int | None = None) -> list[dict[str, Any]]:
-    """Pandas DataFrame -> JSON-serializable kayıt listesi (NaN -> None)."""
+    """Pandas DataFrame -> JSON-serializable list of records (NaN -> None)."""
     if df is None:
         return []
     if max_rows is not None:

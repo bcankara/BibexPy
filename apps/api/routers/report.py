@@ -36,7 +36,7 @@ def _attach_text(text: str, filename: str, media: str) -> Response:
     )
 
 
-# ───────────────────────── Ham günlük ─────────────────────────
+# ───────────────────────── Raw log ─────────────────────────
 
 @router.get("/log.md")
 def log_markdown(project_id: str):
@@ -59,19 +59,19 @@ def log_pdf(project_id: str):
     return _pdf(pdf, "operation_log.pdf")
 
 
-# ───────────────────────── Veri akış şeması ─────────────────
+# ───────────────────────── Data flow diagram ─────────────────
 
 @router.get("/flow")
 def data_flow(project_id: str):
-    """Audit log'dan türetilen kayıt-sayısı akışı — Report sayfası bunu
-    indirilebilir bir akış şeması (SVG/PNG) olarak çizer."""
+    """Record-count flow derived from the audit log — the Report page draws it
+    as a downloadable flow diagram (SVG/PNG)."""
     _require(project_id)
     return report_flow.build_flow(project_id)
 
 
 @router.get("/flow.pdf")
 def data_flow_pdf(project_id: str, lang: str = "en"):
-    """Aynı şemanın vektörel (yayına hazır) PDF sürümü — lang: en|tr."""
+    """Vector (publication-ready) PDF version of the same diagram — lang: en|tr."""
     _require(project_id)
     if not report_flow.build_flow(project_id).get("has_merge"):
         raise HTTPException(409, "no_merge_for_flow")
@@ -79,7 +79,7 @@ def data_flow_pdf(project_id: str, lang: str = "en"):
     return _pdf(pdf, "bibexpy_data_flow.pdf")
 
 
-# ───────────────────────── Metodoloji raporu (LLM) ─────────────────────────
+# ───────────────────────── Methodology report (LLM) ─────────────────────────
 
 @router.get("/methodology")
 def methodology_get(project_id: str):

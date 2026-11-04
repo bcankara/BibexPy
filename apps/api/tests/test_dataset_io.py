@@ -44,68 +44,68 @@ def test_parquet_roundtrip(tmp_path):
     assert len(back) == 2
     assert list(back["TI"]) == ["a", "b"]
     assert list(back["PY"]) == [2020, 2021]
-    assert str(back["PY"].dtype).startswith("int")  # dtype korunur (xlsx'te de öyle)
-    # Geçici dosya artığı kalmamalı
+    assert str(back["PY"].dtype).startswith("int")  # dtype is preserved (same as in xlsx)
+    # No leftover temp files
     assert not list(tmp_path.glob("*.tmp~"))
 
 
-# ── T2: karışık-tip coercion, girdi df MUTASYONSUZ ───────────────────────
+# ── T2: mixed-type coercion, input df NOT MUTATED ────────────────────────
 
 def test_mixed_dtype_coercion_does_not_mutate_input(tmp_path):
-    """Arrow karışık-tipli object kolonu reddeder → önce SAYISAL geri kazanım
-    (read_excel'in eskiden her okumada yaptığı re-inference'ın karşılığı),
-    sayısal olamıyorsa temiz string'leme.
+    """Arrow rejects a mixed-type object column → first try NUMERIC recovery
+    (the counterpart of the re-inference read_excel used to do on every read),
+    and if it cannot be numeric, clean stringification.
 
-    Girdi frame'i filter_engine cache'indeki frame olabilir; bozulması sonraki
-    tüm okumaları zehirlerdi.
+    The input frame may be the frame held in the filter_engine cache; corrupting
+    it would have poisoned all subsequent reads.
     """
     from services import dataset_io
 
     df = pd.DataFrame({"PY": [2020, "2021", None]})
     coerced = dataset_io._coerce_for_parquet(df)
-    # Sayısala çevrilebilen karışık kolon SAYISAL kalır — string'e düşmez
+    # A mixed column that can be converted to numeric stays NUMERIC — it does not fall back to string
     assert str(coerced["PY"].dtype).startswith("float")
     assert list(coerced["PY"].dropna()) == [2020.0, 2021.0]
-    # Girdi df dokunulmamış olmalı
+    # The input df must be untouched
     assert df["PY"].iloc[0] == 2020 and df["PY"].iloc[2] is None
 
-    # Yazma yolu da aynı frame'i kabul etmeli (doğrudan to_parquet ArrowInvalid verir)
+    # The write path must also accept the same frame (calling to_parquet directly raises ArrowInvalid)
     p = tmp_path / "merged.parquet"
     dataset_io.atomic_write_dataset(df, p)
     back = dataset_io.read_dataset(p)
     assert str(back["PY"].dtype).startswith("float")
-    assert df["PY"].iloc[0] == 2020  # yazım sonrası da mutasyon yok
+    assert df["PY"].iloc[0] == 2020  # no mutation after the write either
     assert not list(tmp_path.glob("*.tmp~"))
 
 
 def test_coercion_no_float_repr_artifacts(tmp_path):
-    """Float üyeli, sayısala ÇEVRİLEMEYEN karışık kolon string'lenirken
-    "2020.0" artefaktı bırakmamalı; ve Arrow'un ZATEN kabul ettiği kolonlara
-    (saf sayısal object) coercion sıçramamalı."""
+    """When a mixed column that has float members and CANNOT be converted to
+    numeric is stringified, it must not leave a "2020.0" artifact; and coercion
+    must not spill over onto columns Arrow ALREADY accepts (pure numeric object)."""
     from services import dataset_io
 
     df = pd.DataFrame({
-        "BAD": pd.Series([1, "x", None], dtype="object"),      # yazımı düşüren kolon
-        "MIXF": pd.Series([2020.0, "abc", None], dtype="object"),  # float + str, sayısal olamaz
-        "TCNUM": pd.Series([1, 2.5, 3], dtype="object"),       # saf sayısal object (Arrow kabul eder)
+        "BAD": pd.Series([1, "x", None], dtype="object"),      # column that makes the write fail
+        "MIXF": pd.Series([2020.0, "abc", None], dtype="object"),  # float + str, cannot be numeric
+        "TCNUM": pd.Series([1, 2.5, 3], dtype="object"),       # pure numeric object (Arrow accepts it)
     })
     p = tmp_path / "merged.parquet"
     dataset_io.atomic_write_dataset(df, p)
     back = dataset_io.read_dataset(p)
 
     assert list(back["BAD"]) == ["1", "x", ""]
-    # float 2020.0 → "2020", "2020.0" DEĞİL (xlsx döneminde sayı olarak görünürdü)
+    # float 2020.0 → "2020", NOT "2020.0" (in the xlsx era it appeared as a number)
     assert list(back["MIXF"].dropna().astype(str))[:1] == ["2020"]
     assert "2020.0" not in back["MIXF"].astype(str).tolist()
-    # Kolateral hasar yok: başka kolon düştü diye sayısal kolon string olmaz
+    # No collateral damage: a numeric column does not become a string just because another column failed
     assert str(back["TCNUM"].dtype).startswith("float")
     assert list(back["TCNUM"]) == [1.0, 2.5, 3.0]
 
 
 def test_write_survives_bigint_and_duplicate_columns(tmp_path):
-    """to_excel'in tolere ettiği iki uç durum yazımı düşürmemeli: 2^63 üstü
-    Python int'leri (OverflowError) ve duplike kolon etiketleri (pyarrow
-    ValueError; eski coercion içinde AttributeError'a dönüşüyordu)."""
+    """Two edge cases that to_excel tolerated must not make the write fail: Python
+    ints above 2^63 (OverflowError) and duplicate column labels (pyarrow
+    ValueError; inside the old coercion it turned into an AttributeError)."""
     from services import dataset_io
 
     p1 = tmp_path / "big.parquet"
@@ -118,12 +118,12 @@ def test_write_survives_bigint_and_duplicate_columns(tmp_path):
     dup.columns = ["X", "X"]
     dataset_io.atomic_write_dataset(dup, p2)
     back = dataset_io.read_dataset(p2)
-    assert list(back.columns) == ["X", "X.1"]  # read_excel'in mangling'iyle aynı
+    assert list(back.columns) == ["X", "X.1"]  # same as read_excel's mangling
     assert not list(tmp_path.glob("*.tmp~"))
 
 
 def test_coercion_leaves_numeric_columns_alone(tmp_path):
-    """Sayısal kolonlar ASLA string'e çevrilmez (PY/TC tüketicileri numeriktir)."""
+    """Numeric columns are NEVER converted to string (PY/TC consumers are numeric)."""
     from services import dataset_io
 
     df = pd.DataFrame({"PY": [2020, 2021], "MIX": [1, "x"]})
@@ -133,10 +133,10 @@ def test_coercion_leaves_numeric_columns_alone(tmp_path):
     assert list(coerced["MIX"]) == ["1", "x"]
 
 
-# ── T3: bozuk parquet → 409 (500 değil) ──────────────────────────────────
+# ── T3: corrupted parquet → 409 (not 500) ────────────────────────────────
 
 def test_corrupted_parquet_returns_409_not_500(client):
-    """Yarım/bozuk merged.parquet → 500 yerine temiz 409 (snapshot ipucuyla)."""
+    """Half-written/corrupted merged.parquet → a clean 409 instead of 500 (with a snapshot hint)."""
     from services import analyses
     from services.filter_engine import _DF_CACHE
 
@@ -151,11 +151,12 @@ def test_corrupted_parquet_returns_409_not_500(client):
     assert "unreadable" in r.json()["detail"]
 
 
-# ── T4: tembel migrasyon (gerçek API çağrısıyla) ─────────────────────────
+# ── T4: lazy migration (with a real API call) ────────────────────────────
 
 def test_lazy_migration_on_first_api_call(client):
-    """Legacy merged.xlsx: ilk istekte parquet oluşur, xlsx analiz klasöründen
-    çıkar ve snapshots/ altına pre_parquet_migration_*.xlsx olarak taşınır."""
+    """Legacy merged.xlsx: on the first request a parquet is created, the xlsx
+    leaves the analysis folder and is moved under snapshots/ as
+    pre_parquet_migration_*.xlsx."""
     from services import analyses
     from services.filter_engine import _DF_CACHE
 
@@ -174,16 +175,16 @@ def test_lazy_migration_on_first_api_call(client):
     assert not (adir / "merged.xlsx").exists()
     snaps = list((adir / "snapshots").glob("pre_parquet_migration_*.xlsx"))
     assert len(snaps) == 1, [p.name for p in (adir / "snapshots").iterdir()]
-    # Taşınan dosya orijinal xlsx byte'ları — hâlâ okunabilir olmalı
+    # The moved file holds the original xlsx bytes — it must still be readable
     assert len(pd.read_excel(snaps[0])) == 2
     assert not list(adir.glob("*.tmp~"))
 
 
-# ── T5: xlsx dönemi snapshot'ının parquet dataset'e restore'u ────────────
+# ── T5: restoring an xlsx-era snapshot onto a parquet dataset ────────────
 
 def test_legacy_xlsx_snapshot_restores_onto_parquet_dataset(client):
-    """İki restore yolu da (records endpoint'i + pipeline) format dönüştürür;
-    ham byte kopyası merged.parquet'i bozardı."""
+    """Both restore paths (the records endpoint + the pipeline) convert the format;
+    a raw byte copy would corrupt merged.parquet."""
     from services import analyses, dataset_io, storage
     from services.filter_engine import _DF_CACHE
 
@@ -201,33 +202,33 @@ def test_legacy_xlsx_snapshot_restores_onto_parquet_dataset(client):
     rel = str(legacy.relative_to(storage.settings.storage_path))
     _DF_CACHE.clear()
 
-    # Legacy snapshot listede görünmeli (xlsx + parquet birlikte)
+    # The legacy snapshot must show up in the list (xlsx + parquet together)
     listed = client.get(f"/api/projects/{pid}/records/snapshots").json()
     assert legacy.name in [it["name"] for it in listed]
 
-    # 1) records endpoint'i
+    # 1) the records endpoint
     r = client.post(f"/api/projects/{pid}/records/restore-snapshot", json={"snapshot": rel})
     assert r.status_code == 200, r.text
     assert r.json()["restored"] == 3
     assert target.exists() and len(dataset_io.read_dataset(target)) == 3
 
-    # 2) disambiguation pipeline yolu
+    # 2) the disambiguation pipeline path
     from services.disambiguation import pipeline
 
     dataset_io.atomic_write_dataset(pd.DataFrame({"TI": ["y"], "PY": [2020]}), target)
     _DF_CACHE.clear()
     out = pipeline.restore_snapshot(pid, rel)
     assert out["restored_from"] == rel
-    back = dataset_io.read_dataset(target)  # geçerli parquet olarak okunabilmeli
+    back = dataset_io.read_dataset(target)  # must be readable as a valid parquet
     assert len(back) == 3 and list(back["TI"]) == ["a", "b", "c"]
 
 
-# ── T6: None/NaN normalizasyon regresyonu ────────────────────────────────
+# ── T6: None/NaN normalization regression ────────────────────────────────
 
 def test_missing_values_read_back_as_empty_string(tmp_path):
-    """Parquet NA'yı None döndürür; `astype(str).ne("NAN")` gibi boşluk
-    kontrolleri "None"u yakalayamaz → DOI'siz kayıtlar DOI'liymiş gibi
-    işlenirdi. read_dataset her iki formatta da "" garanti eder."""
+    """Parquet returns NA as None; blank checks such as `astype(str).ne("NAN")`
+    cannot catch "None" → records without a DOI would be processed as if they
+    had a DOI. read_dataset guarantees "" in both formats."""
     from services import dataset_io
 
     df = pd.DataFrame({"DI": ["10.1/a", None, ""], "AB": [None, None, "text"]})
@@ -238,17 +239,17 @@ def test_missing_values_read_back_as_empty_string(tmp_path):
     assert list(back["DI"]) == ["10.1/a", "", ""]
     assert list(back["AB"]) == ["", "", "text"]
     assert "None" not in back["DI"].astype(str).tolist()
-    # Üretimdeki boşluk testi (enricher._api_pass) doğru saymalı: 1 DOI'li kayıt
+    # The production blank test (enricher._api_pass) must count correctly: 1 record with a DOI
     with_doi = back[back["DI"].astype(str).str.strip().ne("")
                     & back["DI"].astype(str).str.upper().ne("NAN")]
     assert len(with_doi) == 1
 
 
-# ── T7: oku-hemen-değiştir (Windows dosya kilidi) ────────────────────────
+# ── T7: read-then-immediately-replace (Windows file lock) ────────────────
 
 def test_read_then_immediately_replace(tmp_path):
-    """Okuma dosyayı açık tutmamalı (memory_map / ParquetFile handle'ı yok);
-    aksi halde os.replace Windows'ta PermissionError verirdi."""
+    """Reading must not keep the file open (no memory_map / ParquetFile handle);
+    otherwise os.replace would raise PermissionError on Windows."""
     from services import dataset_io
 
     p = tmp_path / "merged.parquet"
@@ -274,19 +275,19 @@ def test_ensure_parquet_is_idempotent(tmp_path):
     migrations = list((tmp_path / "snapshots").glob("pre_parquet_migration_*.xlsx"))
     assert len(migrations) == 1
 
-    # Parquet yolu → aynen döner, ikinci migrasyon snapshot'ı YOK
+    # Parquet path → returned as-is, NO second migration snapshot
     assert dataset_io.ensure_parquet(first) == first
-    # Eski xlsx yolu tekrar sorulsa bile hedef zaten var → onu döndürür
+    # Even if the old xlsx path is asked about again, the target already exists → it returns that
     assert dataset_io.ensure_parquet(src) == first
     assert len(list((tmp_path / "snapshots").glob("pre_parquet_migration_*.xlsx"))) == 1
     assert not list(tmp_path.glob("*.tmp~"))
 
 
-# ── T9: bozuk legacy xlsx'te migrasyon raise ETMEZ ───────────────────────
+# ── T9: migration does NOT raise on a corrupted legacy xlsx ──────────────
 
 def test_ensure_parquet_on_unreadable_xlsx_returns_original(tmp_path):
-    """Bozuk legacy dosyada migrasyon sessizce vazgeçer — 409 sözleşmesi
-    (filter_engine) 500'e dönüşmemeli."""
+    """On a corrupted legacy file the migration quietly gives up — the 409 contract
+    (filter_engine) must not turn into a 500."""
     from services import dataset_io
 
     src = tmp_path / "merged.xlsx"
@@ -298,7 +299,7 @@ def test_ensure_parquet_on_unreadable_xlsx_returns_original(tmp_path):
     assert not list(tmp_path.glob("*.tmp~"))
 
 
-# ── T10: boş DataFrame roundtrip ─────────────────────────────────────────
+# ── T10: empty DataFrame roundtrip ───────────────────────────────────────
 
 def test_empty_dataframe_roundtrip(tmp_path):
     from services import dataset_io
@@ -313,13 +314,13 @@ def test_empty_dataframe_roundtrip(tmp_path):
     assert not list(tmp_path.glob("*.tmp~"))
 
 
-# ── T11: eşzamanlı migrasyon TEK okuma yapar (lost-update yarışı kapalı) ──
+# ── T11: concurrent migration does a SINGLE read (lost-update race closed) ───
 
 def test_concurrent_migration_reads_legacy_exactly_once(tmp_path, monkeypatch):
-    """İki thread aynı legacy xlsx'i aynı anda çözerse migrasyon kilit altında
-    TEK SEFER koşmalı. Kilitsiz halde yavaş thread bayat frame'i sonradan
-    yayınlayıp bu arada parquet'e inmiş bir mutasyonu sessizce geri alıyordu
-    (thread'li repro ile doğrulanmış major bulgu)."""
+    """If two threads resolve the same legacy xlsx at the same time, the migration
+    must run ONLY ONCE under the lock. Without the lock, the slow thread would
+    later publish a stale frame and silently undo a mutation that had meanwhile
+    landed in the parquet (a major finding verified with a threaded repro)."""
     import threading as th
     from services import dataset_io
 
@@ -332,7 +333,7 @@ def test_concurrent_migration_reads_legacy_exactly_once(tmp_path, monkeypatch):
     def slow_read(path):
         calls["n"] += 1
         import time as _t
-        _t.sleep(0.4)  # okuma penceresini büyüt — kilitsiz kodda 2. thread buraya girerdi
+        _t.sleep(0.4)  # widen the read window — without the lock the 2nd thread would get in here
         return real_read(path)
 
     monkeypatch.setattr(dataset_io, "read_dataset", slow_read)
@@ -353,25 +354,25 @@ def test_concurrent_migration_reads_legacy_exactly_once(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("*.tmp~"))
 
 
-# ── T12: zombi legacy xlsx sonraki çözümlemede iyileştirilir ─────────────
+# ── T12: zombie legacy xlsx is healed on a later resolution ──────────────
 
 def test_leftover_legacy_xlsx_is_healed_on_later_resolution(tmp_path):
-    """İlk migrasyonda taşıma başarısız olursa (Excel'de açık dosya, AV taraması)
-    xlsx parquet'in yanında kalıyordu — sonsuza dek: UI iki 'ana dataset' gösterir
-    ve xlsx sessizce bayatlar. Sonraki ensure_parquet çağrısı taşımayı yeniden
-    denemeli."""
+    """If the move fails during the first migration (file open in Excel, AV scan),
+    the xlsx stayed next to the parquet — forever: the UI shows two 'main datasets'
+    and the xlsx silently goes stale. A later ensure_parquet call must retry the
+    move."""
     from services import dataset_io
 
     src = tmp_path / "merged.xlsx"
     pd.DataFrame({"TI": ["old"]}).to_excel(src, index=False)
     target = tmp_path / "merged.parquet"
     dataset_io.atomic_write_dataset(pd.DataFrame({"TI": ["new", "er"]}), target)
-    # Durum: ikisi de yan yana (başarısız taşımanın kalıntısı)
+    # State: both side by side (leftover of a failed move)
 
     out = dataset_io.ensure_parquet(src)
     assert out == target
     assert not src.exists(), "zombi xlsx snapshots/ altına taşınmalıydı"
     moved = list((tmp_path / "snapshots").glob("pre_parquet_migration_*.xlsx"))
     assert len(moved) == 1 and len(pd.read_excel(moved[0])) == 1
-    # Parquet içeriğine dokunulmamış olmalı (taşıma veri yazmaz)
+    # The parquet contents must be untouched (the move writes no data)
     assert len(dataset_io.read_dataset(target)) == 2

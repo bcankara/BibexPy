@@ -22,7 +22,7 @@ from services import analyses, audit
 
 
 def build_flow(project_id: str) -> dict[str, Any]:
-    """Aktif analizin kayıtlı operasyonlarından akış özetini çıkar."""
+    """Extract the flow summary from the active analysis's recorded operations."""
     aid: Optional[str] = None
     try:
         aid = analyses.get_active_analysis_id(project_id)
@@ -31,11 +31,11 @@ def build_flow(project_id: str) -> dict[str, Any]:
 
     entries = audit.read(project_id, analysis_id=aid)
 
-    # Son Smart Merge girdisi — akışın kökü
+    # Latest Smart Merge entry — the root of the flow
     merge_entry: Optional[dict] = None
     for e in entries:
         if e.get("kind") == "merge" and (e.get("details") or {}).get("method") == "smart":
-            merge_entry = e  # sonuncusu kazanır (yeniden merge)
+            merge_entry = e  # the last one wins (re-merge)
 
     flow: dict[str, Any] = {
         "analysis_id": aid,
@@ -63,7 +63,7 @@ def build_flow(project_id: str) -> dict[str, Any]:
         flow["after_merge"] = int(d.get("merged_count") or 0)
         merge_ts = float(merge_entry.get("ts") or 0)
 
-    # Merge SONRASI dışlama adımları — kronolojik
+    # Exclusion steps AFTER the merge — chronological
     for e in entries:
         ts = float(e.get("ts") or 0)
         if ts <= merge_ts:
@@ -98,7 +98,7 @@ def build_flow(project_id: str) -> dict[str, Any]:
                     "ts": ts,
                 })
 
-    # Nihai kayıt sayısı — canlı dataset'ten (audit zinciri eksik olsa da doğru)
+    # Final record count — from the live dataset (correct even if the audit chain is incomplete)
     try:
         from services import filter_engine
         flow["final_total"] = int(len(filter_engine.load_merged(project_id)))
@@ -109,22 +109,23 @@ def build_flow(project_id: str) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-#  Vektörel PDF çıktısı (aynı şema — reportlab.pdfgen ile)
+#  Vector PDF output (same diagram — via reportlab.pdfgen)
 # ─────────────────────────────────────────────────────────────────────────
 #
-# Geometri ve renkler DataFlowDiagram.tsx ile birebir aynıdır; oradaki SVG
-# kullanıcı birimleri (px) burada da kullanılır, sayfaya sığdırmak için tek
-# bir uniform ölçek uygulanır. Çizim gerçek vektördür (roundRect/line/path),
-# metinler gömülü font ile yazılır — dergiye gönderilecek figür kalitesinde.
+# Geometry and colours are identical to DataFlowDiagram.tsx; the SVG user units
+# (px) used there are used here as well, and a single uniform scale is applied
+# to fit the page. The drawing is true vector (roundRect/line/path), and the
+# text is written with an embedded font — at the quality of a figure to be
+# submitted to a journal.
 
-_W = 760.0            # şema genişliği
-_MAIN_W = 380.0       # ana kutu genişliği
-_MAIN_X = 40.0        # ana kutu sol x
-_SIDE_W = 260.0       # yan (çıkarma) kutusu genişliği
+_W = 760.0            # diagram width
+_MAIN_W = 380.0       # main box width
+_MAIN_X = 40.0        # main box left x
+_SIDE_W = 260.0       # side (exclusion) box width
 _SIDE_X = _MAIN_X + _MAIN_W + 40.0
 _LINE_H = 17.0
 _PAD = 10.0
-_GAP = 34.0           # kutular arası dikey boşluk (ok payı)
+_GAP = 34.0           # vertical gap between boxes (room for the arrow)
 
 _NAVY = "#0c2847"
 _INK = "#172033"
@@ -137,7 +138,7 @@ _OK_BG = "#e8f6f1"
 _OK_BR = "#4a9e97"
 _OK_INK = "#0b433f"
 
-# Frontend i18n anahtarlarının (report.flow.*) sunucu tarafı karşılığı
+# Server-side counterpart of the frontend i18n keys (report.flow.*)
 _LABELS: dict[str, dict[str, str]] = {
     "en": {
         "identification": "Identification (raw input)",
@@ -171,7 +172,7 @@ _LABELS: dict[str, dict[str, str]] = {
     },
 }
 
-# Unicode TTF adayları (regular, bold) — ilk bulunan kazanır
+# Unicode TTF candidates (regular, bold) — the first one found wins
 _FONT_CANDIDATES: list[tuple[str, str]] = [
     (r"C:\Windows\Fonts\arial.ttf", r"C:\Windows\Fonts\arialbd.ttf"),
     (r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\segoeuib.ttf"),
@@ -181,8 +182,9 @@ _FONT_CANDIDATES: list[tuple[str, str]] = [
      "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
 ]
 
-# TTF yoksa Helvetica WinAnsi'ye düşülür — Türkçe (ve U+2212 eksi) harfleri
-# render edemediği için ASCII'ye çevrilir ki hiçbir karakter bozulmasın.
+# If no TTF is available, fall back to Helvetica WinAnsi — it cannot render
+# Turkish letters (or the U+2212 minus), so they are converted to ASCII so that
+# no character gets corrupted.
 _ASCII_MAP = str.maketrans({
     "ğ": "g", "Ğ": "G", "ş": "s", "Ş": "S", "ı": "i", "İ": "I",
     "ö": "o", "Ö": "O", "ü": "u", "Ü": "U", "ç": "c", "Ç": "C",
@@ -193,7 +195,7 @@ _FONT_CACHE: Optional[tuple[str, str, bool]] = None
 
 
 def _fonts() -> tuple[str, str, bool]:
-    """(regular, bold, unicode_ok) — bir kez kaydedip önbellekle."""
+    """(regular, bold, unicode_ok) — register once and cache."""
     global _FONT_CACHE
     if _FONT_CACHE is not None:
         return _FONT_CACHE
@@ -224,7 +226,7 @@ def _fonts() -> tuple[str, str, bool]:
 
 
 def _fmt_n(value: Any, lang: str) -> str:
-    """Binlik ayraçlı sayı — en: 1,972 / tr: 1.972."""
+    """Number with a thousands separator — en: 1,972 / tr: 1.972."""
     try:
         n = int(value or 0)
     except Exception:
@@ -238,7 +240,7 @@ def _box_h(lines: list[str]) -> float:
 
 
 def _build_boxes(flow: dict[str, Any], lang: str) -> list[dict[str, Any]]:
-    """DataFlowDiagram.tsx'teki kutu modelinin birebir karşılığı."""
+    """One-to-one counterpart of the box model in DataFlowDiagram.tsx."""
     L = _LABELS.get(lang, _LABELS["en"])
     inputs = flow.get("inputs") or {}
     boxes: list[dict[str, Any]] = []
@@ -295,10 +297,10 @@ def _build_boxes(flow: dict[str, Any], lang: str) -> list[dict[str, Any]]:
 
 
 def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
-    """Veri akış şemasını tek sayfalık, vektörel bir PDF olarak üret.
+    """Produce the data-flow diagram as a single-page vector PDF.
 
-    Frontend'deki SVG ile aynı geometri/renk; A4 dikey, 2 cm kenar boşluğu,
-    yatayda ortalanmış ve tek sayfaya sığacak şekilde uniform ölçeklenmiş.
+    Same geometry/colours as the SVG in the frontend; A4 portrait, 2 cm margins,
+    centred horizontally and uniformly scaled to fit on a single page.
     """
     from reportlab.lib.colors import HexColor
     from reportlab.lib.pagesizes import A4
@@ -319,7 +321,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
 
     boxes = _build_boxes(flow, lang)
 
-    # ── Geometri (SVG ile aynı akış) ──
+    # ── Geometry (same flow as the SVG) ──
     y = 16.0
     placed: list[dict[str, Any]] = []
     for b in boxes:
@@ -328,14 +330,14 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
         y += h + _GAP
     total_h = y - _GAP + 16.0
 
-    # ── Sayfa yerleşimi ──
+    # ── Page layout ──
     page_w, page_h = A4
     margin = 2 * cm
     avail_w = page_w - 2 * margin
     avail_h = page_h - 2 * margin
     scale = min(avail_w / _W, avail_h / total_h, 1.0)
     x_off = margin + (avail_w - _W * scale) / 2.0
-    y_off = page_h - margin  # şemanın üst kenarı
+    y_off = page_h - margin  # top edge of the diagram
 
     buf = io.BytesIO()
     c = pdfcanvas.Canvas(buf, pagesize=A4)
@@ -347,11 +349,11 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
     c.saveState()
     c.translate(x_off, y_off)
     c.scale(scale, scale)
-    # Bundan sonrası SVG kullanıcı birimi; y aşağı doğru arttığı için -y çizilir.
+    # Everything from here on is in SVG user units; since y increases downward, -y is drawn.
 
     def draw_centred(s: str, cx: float, y_svg: float, size: float,
                      bold: bool, color: str, max_w: float) -> None:
-        """Ortalanmış metin — kutuya sığmazsa punto küçültülür (taşma olmasın)."""
+        """Centred text — if it does not fit in the box, the font size is reduced (so nothing overflows)."""
         font = font_bold if bold else font_reg
         s = txt(s)
         try:
@@ -370,7 +372,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
         h: float = b["h"]
         cx = _MAIN_X + _MAIN_W / 2
 
-        # dikey ok — önceki kutudan
+        # vertical arrow — from the previous box
         if i > 0:
             prev = placed[i - 1]
             c.setStrokeColor(HexColor(_NAVY))
@@ -382,7 +384,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
             p.lineTo(cx + 4, -(top - 7))
             c.drawPath(p, stroke=1, fill=0)
 
-        # ana kutu
+        # main box
         c.setFillColor(HexColor(_OK_BG if is_final else "#ffffff"))
         c.setStrokeColor(HexColor(_OK_BR if is_final else _NAVY))
         c.setLineWidth(1.5)
@@ -396,7 +398,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
                 _MAIN_W - 16,
             )
 
-        # yan kutu (çıkarılanlar)
+        # side box (removed records)
         side: list[str] = b["side"] or []
         if side:
             mid = top + h / 2

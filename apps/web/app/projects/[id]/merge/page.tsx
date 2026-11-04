@@ -32,17 +32,18 @@ export default function MergePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
-  /** Akademik "Nasıl çalışır" detay modalı açık mı (gizli, linkle açılır) */
+  /** Whether the academic "How it works" detail modal is open (hidden, opened via a link) */
   const [showInfo, setShowInfo] = useState(false);
-  /** "Yeni analiz" tıklandı → mevcut merge kompakt "old"a çekilir, UploadSection öne gelir */
+  /** "New analysis" was clicked → the current merge is moved to a compact "old" row, UploadSection comes to the front */
   const [newAnalysisMode, setNewAnalysisMode] = useState(false);
-  /** İlk veri çekimi sürerken true — summary null "merge yok" değil "henüz bilinmiyor"
-   * demektir; bu olmadan boş upload ekranı yanıp sonra aktif merge'e atlardı. */
+  /** True while the initial data fetch is in progress — a null summary then means
+   * "not known yet", not "no merge"; without this the empty upload screen would flash
+   * and then jump to the active merge. */
   const [initialLoading, setInitialLoading] = useState(true);
-  /** Job %100'e ulaştıktan sonra, summary/analiz/dosya listesi tazelenene kadar true.
-   * Bu olmadan JobProgress kartı "tamamlandı" derken sayfa hiçbir şey göstermez ve
-   * kullanıcı büyük veri setlerinde (xlsx rapor okuma saniyeler sürebilir) takıldığını
-   * sanır. Başarı ve hata (refresh() içeride catch'ler) her iki durumda da kapanır. */
+  /** True after the job reaches 100% until the summary/analysis/file list is refreshed.
+   * Without this the JobProgress card says "completed" while the page shows nothing, and
+   * on large datasets (reading the xlsx report can take seconds) the user thinks it is
+   * stuck. It turns off on both success and error (refresh() catches internally). */
   const [summaryLoading, setSummaryLoading] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -79,26 +80,26 @@ export default function MergePage() {
     setSummaryLoading(true);
     refresh().finally(() => setSummaryLoading(false));
     setNewAnalysisMode(false);
-    // Pipeline stepper'ı (ProjectNav) anında güncelle — Export/Report kilidi açılsın
+    // Update the pipeline stepper (ProjectNav) immediately — so the Export/Report lock opens
     try { window.dispatchEvent(new Event("bibexpy:status")); } catch { /* ignore */ }
   }, [refresh]);
 
-  /** Analiz silme/aktifleştirme sonrası — refresh + stepper/Next-Prev gating tazele
-   * (son analiz silindiyse adımlar kilitlenir; aktif değişince analiz-bağlı advanced
-   * yeniden okunur). */
+  /** After an analysis is deleted/activated — refresh + refresh the stepper/Next-Prev gating
+   * (if the last analysis was deleted the steps get locked; when the active one changes, the
+   * analysis-bound advanced flag is re-read). */
   const handleChanged = useCallback(() => {
     refresh();
     try { window.dispatchEvent(new Event("bibexpy:status")); } catch { /* ignore */ }
   }, [refresh]);
 
   function handleNewAnalysis() {
-    // Mevcut merge "old"a çekilir (kompakt) + UploadSection öne gelir; sayfayı başa al.
+    // The current merge is moved to "old" (compact) + UploadSection comes to the front; scroll to the top of the page.
     setNewAnalysisMode(true);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* ignore */ }
   }
 
-  /** Header "Sonraki: Gelişmiş Düzenleme" → aktif analiz için advanced kilidini aç
-   * (records/enrich açılır) + /records'a git. "Advanced Editing" kartıyla aynı eylem. */
+  /** Header "Next: Advanced Editing" → unlock advanced for the active analysis
+   * (records/enrich open up) + go to /records. Same action as the "Advanced Editing" card. */
   function unlockAdvancedForActive() {
     try {
       const aid = summary?.analysis?.id;
@@ -113,7 +114,7 @@ export default function MergePage() {
   const otherAnalyses = analyses.filter((a) => a.id !== activeId);
   const hasRaw = files.length > 0;
   const stale = !!summary?.stale;
-  // Yükleme bölümünü öne al: bayat (otomatik, yeni ham dosya) veya kullanıcı "Yeni analiz" dedi (manuel)
+  // Bring the upload section to the front: stale (automatic, new raw file) or the user chose "New analysis" (manual)
   const uploadFirst = hasMerge && (stale || newAnalysisMode);
 
   return (
@@ -149,10 +150,11 @@ export default function MergePage() {
           />
         )}
 
-        {/* Job %100 oldu ama summary/analiz/dosya tazeleme (xlsx rapor okuma) hâlâ
-            sürüyor — bu boşlukta JobProgress kartı "tamamlandı" görünüp aşağıda hiçbir
-            şey değişmediği için kullanıcı takıldı sanıyordu. summaryLoading kapanınca
-            (başarı veya hata, her iki yol da refresh() içinde ele alınır) otomatik kalkar. */}
+        {/* The job reached 100% but the summary/analysis/file refresh (reading the xlsx
+            report) is still running — in this gap the JobProgress card looked "completed"
+            while nothing below changed, so the user thought it was stuck. It goes away
+            automatically when summaryLoading clears (success or error, both paths are
+            handled inside refresh()). */}
         {summaryLoading && (
           <div className="rounded-xl border border-border bg-bg-card shadow-card px-6 py-10 flex flex-col items-center justify-center gap-3 text-muted">
             <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
@@ -160,8 +162,9 @@ export default function MergePage() {
           </div>
         )}
 
-        {/* İlk veri çekimi sürerken loader — summary daha gelmeden boş upload
-            ekranını gösterip sonra aktif merge'e atlama (flash) sorununu önler. */}
+        {/* Loader while the initial data fetch is in progress — prevents the flash of
+            showing an empty upload screen before the summary arrives and then jumping
+            to the active merge. */}
         {initialLoading && !jobId && (
           <div className="rounded-xl border border-border bg-bg-card shadow-card px-6 py-16 flex flex-col items-center justify-center gap-3 text-muted">
             <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
@@ -169,9 +172,10 @@ export default function MergePage() {
           </div>
         )}
 
-        {/* ── YÜKLEME ÖNDE: bayat (yeni ham dosya) VEYA "Yeni analiz" tıklandı →
-            UploadSection öne + mevcut merge KOMPAKT "old" satırı (Burak: "yeni analiz
-            deyince mevcutu old'a çek, data & merge'e at") ── */}
+        {/* ── UPLOAD FIRST: stale (new raw file) OR "New analysis" was clicked →
+            UploadSection to the front + the existing merge as a COMPACT "old" row
+            (Burak: "when I say new analysis, move the current one to old and send
+            me to data & merge") ── */}
         {uploadFirst && !jobId && (
           <div id="add-data">
             <UploadSection
@@ -204,7 +208,7 @@ export default function MergePage() {
           </div>
         )}
 
-        {/* ── NORMAL: taze aktif merge: hero + sonraki adımlar ── */}
+        {/* ── NORMAL: fresh active merge: hero + next steps ── */}
         {hasMerge && !uploadFirst && activeAnalysis && summary && (
           <ActiveAnalysisHero
             projectId={id}
@@ -214,9 +218,9 @@ export default function MergePage() {
             onDeleted={handleChanged}
           />
         )}
-        {/* Belirsiz çiftler — Smart Merge kesin karar veremediği çiftleri burada,
-            birleştirme adımında sorar: önce "kontrol etmek ister misiniz?" uyarısı,
-            "Evet" ile inceleme açılır. Hiç bekleyen belirsizlik yoksa görünmez. */}
+        {/* Borderline pairs — the pairs Smart Merge cannot decide with certainty are
+            asked about here, at the merge step: first a "would you like to check?"
+            prompt, and "Yes" opens the review. Not shown if no ambiguity is pending. */}
         {hasMerge && !uploadFirst && (
           <BorderlineReviewPanel
             key={summary?.analysis?.id ?? "none"}
@@ -228,7 +232,7 @@ export default function MergePage() {
           <MergeNextButtons projectId={id} analysisId={summary.analysis?.id ?? ""} />
         )}
 
-        {/* Geçmiş (aktif olmayan) analizler — collapse */}
+        {/* Past (non-active) analyses — collapse */}
         {otherAnalyses.length > 0 && (
           <OtherAnalysesCollapse
             projectId={id}
@@ -238,7 +242,7 @@ export default function MergePage() {
           />
         )}
 
-        {/* Akademik detay modalı — gizli; başlatma kartındaki "Nasıl çalışır" ile açılır */}
+        {/* Academic detail modal — hidden; opened via "How it works" on the start card */}
         <AlgorithmInfoModal
           open={showInfo}
           onClose={() => setShowInfo(false)}
@@ -263,8 +267,9 @@ export default function MergePage() {
           isActive={currentMethod === "smart"}
         />
 
-        {/* ── İlk merge YOK → yükle + Smart Merge (birleşik "Veri & Birleştirme" akışı) ──
-            initialLoading bitene kadar gösterme: aksi halde "merge yok" sanıp boş ekran çıkar. */}
+        {/* ── NO first merge yet → upload + Smart Merge (combined "Data & Merge" flow) ──
+            Do not show until initialLoading is done: otherwise it assumes "no merge" and an
+            empty screen appears. */}
         {!hasMerge && !jobId && !initialLoading && (
           <div id="add-data">
             <UploadSection
@@ -300,9 +305,9 @@ type AlgorithmDetails = {
 };
 
 /**
- * Merge sonrası 2 büyük buton (Burak): "Veriyi İndir" (→ Export) ve
- * "Gelişmiş Düzenleme" (→ Filtre; pipeline'da 3-4. adım kilidini açar).
- * Detay panelleri & dosya indirme bu sayfada GÖSTERİLMEZ.
+ * Two big buttons after the merge (Burak): "Download Data" (→ Export) and
+ * "Advanced Editing" (→ Filter; unlocks pipeline steps 3-4).
+ * Detail panels & file downloads are NOT SHOWN on this page.
  */
 function MergeNextButtons({ projectId, analysisId }: { projectId: string; analysisId: string }) {
   const t = useT();
@@ -412,7 +417,7 @@ function AlgorithmInfoModal({
 
           {/* Body — scroll */}
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-            {/* Nasıl çalışır */}
+            {/* How it works */}
             <section>
               <h3 className={cn("text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5", palette.text)}>
                 <Cpu className="h-3.5 w-3.5" /> {t("algoCard.howItWorks")}
@@ -447,7 +452,7 @@ function AlgorithmInfoModal({
               </ul>
             </section>
 
-            {/* Çıktılar */}
+            {/* Outputs */}
             <section>
               <h3 className={cn("text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5", palette.text)}>
                 <FileSpreadsheet className="h-3.5 w-3.5" /> {t("algoCard.outputs")}
@@ -465,7 +470,7 @@ function AlgorithmInfoModal({
               </ul>
             </section>
 
-            {/* Sınırlamalar */}
+            {/* Limitations */}
             {details.limitations.length > 0 && (
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5 text-warning">
@@ -482,7 +487,7 @@ function AlgorithmInfoModal({
               </section>
             )}
 
-            {/* Akademik atıf */}
+            {/* Academic citation */}
             {details.citation && (
               <section className="rounded-lg border border-success/30 bg-success-soft/40 px-4 py-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5 text-emerald-800">
@@ -507,7 +512,7 @@ function AlgorithmInfoModal({
             )}
           </div>
 
-          {/* Footer — başlat butonu */}
+          {/* Footer — start button */}
           <div className="px-6 py-3 border-t border-border flex items-center justify-between bg-bg-soft/30">
             <span className="text-xs text-muted">{t("algoCard.escClose")}</span>
             <Button

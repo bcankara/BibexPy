@@ -10,7 +10,7 @@ export type PipelineStep = {
   icon: typeof Combine;
 };
 
-/** Pipeline adımları — ProjectNav (stepper) + StepNav (next/prev) ortak kaynağı. */
+/** Pipeline steps — the shared source for ProjectNav (stepper) + StepNav (next/prev). */
 export const PIPELINE_STEPS: PipelineStep[] = [
   { slug: "merge",   labelKey: "nav.analyses", icon: Combine },
   { slug: "records", labelKey: "nav.records",  icon: FilterX },
@@ -19,18 +19,18 @@ export const PIPELINE_STEPS: PipelineStep[] = [
   { slug: "report",  labelKey: "nav.report",   icon: ScrollText },
 ];
 
-/** localStorage anahtarı — "Gelişmiş Düzenleme" kilidi. AKTİF ANALİZE bağlı:
- * yeni merge (yeni analiz id) → kilit otomatik sıfırlanır; eski (analiz-bağımsız)
- * takılı bayraklar yok sayılır. */
+/** localStorage key — the "Advanced Editing" lock. Tied to the ACTIVE ANALYSIS:
+ * a new merge (new analysis id) → the lock is reset automatically; old
+ * (analysis-independent) stuck flags are ignored. */
 export const advancedKey = (id: string, analysisId: string) => `bibexpy_adv_${id}_${analysisId}`;
 
 /**
- * Pipeline gating durumu — ProjectNav (stepper) ve StepNav (next/prev) paylaşır:
- *   merge          : her zaman açık
- *   export / report: merge yapıldıysa
- *   records / enrich: merge + "Gelişmiş Düzenleme" açıldıysa
- * mergeSummary + localStorage'tan çekilir; sayfa değişiminde + 'bibexpy:status'
- * event'inde tazelenir.
+ * Pipeline gating state — shared by ProjectNav (stepper) and StepNav (next/prev):
+ *   merge          : always enabled
+ *   export / report: if a merge has been done
+ *   records / enrich: if merge is done + "Advanced Editing" has been enabled
+ * Pulled from mergeSummary + localStorage; refreshed on page change + on the
+ * 'bibexpy:status' event.
  */
 export function usePipelineGating(id: string) {
   const pathname = usePathname();
@@ -44,8 +44,8 @@ export function usePipelineGating(id: string) {
       const ms = await api.mergeSummary(id);
       const hasMerge = !!ms?.has_merge;
       setMerged(hasMerge);
-      // "Gelişmiş Düzenleme" kilidi aktif analize bağlı okunur — merge yoksa /
-      // analiz id'si yoksa kapalı (records/enrich kilitli).
+      // The "Advanced Editing" lock is read per the active analysis — if there is no
+      // merge / no analysis id it is off (records/enrich locked).
       const analysisId = ms?.analysis?.id;
       let adv = false;
       if (hasMerge && analysisId) {
@@ -53,7 +53,7 @@ export function usePipelineGating(id: string) {
       }
       setAdvanced(adv);
     } catch {
-      /* ağ hatası — kilitleri zorlama (loaded false kalırsa hepsi açık görünür) */
+      /* network error — do not force the locks (if loaded stays false, everything appears open) */
     } finally {
       setLoaded(true);
     }
@@ -68,7 +68,7 @@ export function usePipelineGating(id: string) {
   }, [refresh]);
 
   const isEnabled = useCallback((slug: string): boolean => {
-    if (!loaded) return true; // yüklenene kadar kilit-flash gösterme
+    if (!loaded) return true; // do not flash the locks until loaded
     switch (slug) {
       case "merge": return true;
       case "export":

@@ -31,41 +31,41 @@ from services.disambiguation.similarity import jaro_winkler, name_initials, norm
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  SABİTLER — Caputo (2024) field preferences
+#  CONSTANTS — Caputo (2024) field preferences
 # ════════════════════════════════════════════════════════════════════════
 
 # Reference: Caputo, A., Pizzi, S., Pellegrini, M. M., & Dabić, M. (2024).
 # Automatic Merging of Scopus and Web of Science Data for Simplified and
 # Effective Bibliometric Analysis. Annals of Data Science, 11(3), 1023–1047.
 #
-# Bu kurallar SABIT — UI'dan değiştirilemez. Akademik reproducibility için.
-# Her dataset üzerinde Smart Merge'in v1.0 sürümü aynı sonucu üretmelidir.
+# These rules are FIXED — they cannot be changed from the UI, for academic
+# reproducibility. Smart Merge v1.0 must produce the same result on each dataset.
 FIELD_PREFERENCES: dict[str, str] = {
-    # WoS-öncelikli (atıf metrikleri ve referans listeleri WoS'ta daha temiz)
+    # WoS-preferred (citation metrics and reference lists are cleaner in WoS)
     "TC": "wos",          # times cited
     "CR": "wos",          # cited references
     "NR": "wos",          # number of references
-    # Scopus-öncelikli (özet, yazar listeleri Scopus'ta daha tam)
+    # Scopus-preferred (abstracts and author lists are more complete in Scopus)
     "AB": "scopus",       # abstract
     "AU": "scopus",       # author short
     "AF": "scopus",       # author full
     "C1": "scopus",       # affiliations
-    # Union (her ikisinin birleşimi, ; ile dedup'lu)
+    # Union (union of both, joined with ; and deduplicated)
     "DE": "union",        # author keywords
     "ID": "union",        # keywords plus
-    # Cross-fill (biri boşsa diğerinden doldur)
+    # Cross-fill (if one is empty, fill it from the other)
     "WC": "cross_fill_wos_first",
     "SC": "cross_fill_wos_first",
 }
-DEFAULT_PREFERENCE = "wos_first"  # diğer tüm alanlar için
+DEFAULT_PREFERENCE = "wos_first"  # for all other fields
 
-# Eşik sabitleri
+# Threshold constants
 TITLE_EXACT_THRESHOLD = 0.92          # Stage 3
-TITLE_BORDERLINE_LOW = 0.80           # Stage 5 alt sınır
-YEAR_TOLERANCE = 1                    # ±1 yıl
+TITLE_BORDERLINE_LOW = 0.80           # Stage 5 lower bound
+YEAR_TOLERANCE = 1                    # ±1 year
 JOURNAL_SIMILARITY = 0.90             # Stage 4
 
-# Title normalize için stopwords
+# Stopwords for title normalization
 STOPWORDS: set[str] = {
     "the", "a", "an", "of", "in", "on", "and", "or", "for", "to", "with",
     "by", "from", "as", "at", "is", "are", "was", "were", "be", "been",
@@ -73,12 +73,13 @@ STOPWORDS: set[str] = {
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 1 — Normalize fonksiyonları
+#  PHASE 1 — Normalization functions
 # ════════════════════════════════════════════════════════════════════════
 
 _DOI_PREFIX_RE = re.compile(r"^https?://(dx\.)?doi\.org/", re.IGNORECASE)
-# Alt çizgi + Unicode tire ailesi (hyphen, non-breaking hyphen, figure/en/em/
-# horizontal dash) tek kanonik '-' işaretine katlanır.
+# Underscore + the Unicode dash family (hyphen, non-breaking hyphen,
+# figure/en/em/horizontal dash) are folded into a single canonical '-'
+# character.
 _DOI_SEP_RE = re.compile(r"[_\u2010-\u2015]")
 _PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
 _WS_RE = re.compile(r"\s+")
@@ -98,14 +99,15 @@ def _to_str(v: Any) -> str:
 
 
 def _present(v: Any) -> bool:
-    """Bir KİMLİK değeri gerçekten dolu mu? (None / NaN / "" / "nan" → False)
+    """Is an IDENTIFIER value actually filled in? (None / NaN / "" / "nan" → False)
 
-    "Boş", pandas sürümüne göre üç ayrı şeye dönüşür: None (object dtype),
-    NaN (pandas 3'ün `str` dtype'ı — üstelik TRUTHY) ve "" / "nan" (xlsx
-    gidiş-dönüşü). Çıplak `if v` kontrolü NaN'ı dolu sanar ve boş kimlikleri
-    birbirine eşit kabul eder; bu da DOI'siz kayıtların tek anahtarda toplanıp
-    silinmesine ve DOI'siz ↔ DOI'li gerçek çiftlerin vetolanmasına yol açar.
-    Kimlik karşılaştırmaları (DOI/PMID/UT/ISSN) YALNIZ bu yardımcıyı kullanır.
+    "Empty" turns into three different things depending on the pandas version:
+    None (object dtype), NaN (pandas 3's `str` dtype — and NaN is TRUTHY) and
+    "" / "nan" (xlsx round-trip). A bare `if v` check treats NaN as filled and
+    considers empty identifiers equal to each other; this causes records
+    without a DOI to be collected under a single key and deleted, and genuine
+    DOI-less ↔ DOI-bearing pairs to be vetoed.
+    Identifier comparisons (DOI/PMID/UT/ISSN) use ONLY this helper.
     """
     if v is None:
         return False
@@ -119,7 +121,7 @@ def _present(v: Any) -> bool:
 
 
 def _clean_num(v: Any) -> str:
-    """Sayısal alan (VL/BP/PG) karşılaştırma formu: '100.0' → '100'."""
+    """Comparison form of a numeric field (VL/BP/PG): '100.0' → '100'."""
     s = _to_str(v)
     if re.fullmatch(r"\d+\.0+", s):
         return s.split(".", 1)[0]
@@ -127,9 +129,9 @@ def _clean_num(v: Any) -> str:
 
 
 def normalize_doi(raw: Any) -> Optional[str]:
-    """Bir DOI'yi kanonik biçime indir.
+    """Reduce a DOI to its canonical form.
 
-    Örnekler:
+    Examples:
       'https://doi.org/10.1234/ABC'  → '10.1234/abc'
       'http://dx.doi.org/10.x'        → '10.x'
       '10.1234/abc/'                  → '10.1234/abc'
@@ -139,8 +141,9 @@ def normalize_doi(raw: Any) -> Optional[str]:
     if not s:
         return None
     s = s.lower()
-    # Kirli veride önekler üst üste binebilir ('doi:', çift 'https://doi.org/');
-    # değişmez hale gelene dek soy. 4 tur pratikte tüm kombinasyonları kapsar.
+    # In dirty data, prefixes can be stacked ('doi:', a doubled
+    # 'https://doi.org/'); strip them until the string stops changing. 4 rounds
+    # practically cover every combination.
     for _ in range(4):
         prev = s
         s = _DOI_PREFIX_RE.sub("", s)
@@ -149,14 +152,14 @@ def normalize_doi(raw: Any) -> Optional[str]:
         if s == prev:
             break
     s = s.rstrip("/. \t")
-    # Ayırıcı katlaması: DOI'ler KANONİK biçimde karşılaştırılır, çünkü
-    # dizinleyiciler ayırıcıyı farklı yazıyor — WoS aynı makaleyi
-    # '10.4103/jgid.jgid_12_19', Scopus '10.4103/jgid.jgid-12-19' verir.
-    # Bir registrant'ın YALNIZCA '_' ile '-' farkı olan iki DOI'yi FARKLI
-    # eserler için üretmesi pratikte yok denecek kadar nadirdir; buna karşılık
-    # mevcut davranış gerçek çiftleri fiilen yasaklıyor: doi_conflict() True
-    # döndüğü an çift borderline kuyruğuna bile giremeden vetolanıyor
-    # (belirleyici DOI kuralı kanonik form üzerinde işler).
+    # Separator folding: DOIs are compared in CANONICAL form, because the
+    # indexers write the separator differently — WoS gives the same article as
+    # '10.4103/jgid.jgid_12_19', Scopus as '10.4103/jgid.jgid-12-19'.
+    # It is practically unheard of for a registrant to issue two DOIs that
+    # differ ONLY by '_' vs '-' for DIFFERENT works; by contrast, the existing
+    # behavior effectively bans genuine pairs: the moment doi_conflict()
+    # returns True, the pair is vetoed without even being able to enter the
+    # borderline queue (the decisive DOI rule operates on the canonical form).
     s = _DOI_SEP_RE.sub("-", s)
     if not s.startswith("10."):
         return None
@@ -164,11 +167,14 @@ def normalize_doi(raw: Any) -> Optional[str]:
 
 
 def normalize_title(raw: Any) -> str:
-    """Title'ı kanonik forma indir: Unicode NFKD → ASCII → lower → punct strip → stopwords."""
+    """Reduce a title to its canonical form.
+
+    Unicode NFKD → ASCII → lower → punct strip → stopwords.
+    """
     s = _to_str(raw)
     if not s:
         return ""
-    # LaTeX makro temizliği
+    # LaTeX macro cleanup
     s = _LATEX_RE.sub(" ", s)
     # Unicode normalize
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
@@ -181,7 +187,7 @@ def normalize_title(raw: Any) -> str:
 
 
 def normalize_year(raw: Any) -> Optional[int]:
-    """'2023.0' / '2023' / 2023 → 2023; geçersizler → None."""
+    """'2023.0' / '2023' / 2023 → 2023; invalid values → None."""
     s = _to_str(raw)
     if not s:
         return None
@@ -195,24 +201,24 @@ def normalize_year(raw: Any) -> Optional[int]:
 
 
 def normalize_author_surname(raw: Any) -> str:
-    """İlk yazarın soyadını uppercase ASCII normalize et.
+    """Normalize the first author's surname to uppercase ASCII.
 
-    WoS 'Smith J;Lee K' veya Scopus 'Smith, John A.;Lee, Kim' her ikisi 'SMITH'.
-    Boş ise '' döner.
+    WoS 'Smith J;Lee K' and Scopus 'Smith, John A.;Lee, Kim' both give 'SMITH'.
+    Returns '' if empty.
     """
     s = _to_str(raw)
     if not s:
         return ""
-    # İlk yazar
+    # First author
     first = re.split(r"[;|]", s, maxsplit=1)[0]
-    # Scopus formatı: 'Smith, John A.' → 'Smith John A'
+    # Scopus format: 'Smith, John A.' → 'Smith John A'
     first = first.replace(",", " ")
     surname, _initials = name_initials(first)
     return surname.upper()
 
 
 def normalize_issn(raw: Any) -> Optional[str]:
-    """ISSN'i 8 hane (rakam + X) forma indir; geçersiz → None."""
+    """Reduce an ISSN to the 8-character (digits + X) form; invalid → None."""
     s = _to_str(raw)
     if not s:
         return None
@@ -223,7 +229,7 @@ def normalize_issn(raw: Any) -> Optional[str]:
 
 
 def normalize_id_token(raw: Any) -> Optional[str]:
-    """PMID / UT gibi genel token normalize: lowercase, whitespace strip."""
+    """Normalize a generic token such as PMID / UT: lowercase, whitespace strip."""
     s = _to_str(raw)
     if not s:
         return None
@@ -232,14 +238,14 @@ def normalize_id_token(raw: Any) -> Optional[str]:
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 2 — Blocking
+#  PHASE 2 — Blocking
 # ════════════════════════════════════════════════════════════════════════
 
 def build_blocks(df: pd.DataFrame) -> dict[tuple[Optional[int], str], list[int]]:
-    """key = (year, surname[0]) → satır indeksleri listesi.
+    """key = (year, surname[0]) → list of row indices.
 
-    Year None ise (None, surname[0]) bloğuna düşer.
-    Surname boş ise (year, '') bloğuna düşer.
+    If year is None, the row falls into the (None, surname[0]) block.
+    If surname is empty, it falls into the (year, '') block.
     """
     blocks: dict[tuple[Optional[int], str], list[int]] = {}
     for idx, row in df.iterrows():
@@ -252,22 +258,24 @@ def build_blocks(df: pd.DataFrame) -> dict[tuple[Optional[int], str], list[int]]
 
 
 def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Aynı kaynak İÇİNDEKİ kimlik-duplikelerini ele (UT/EID ve DOI).
+    """Eliminate identifier duplicates WITHIN the same source (UT/EID and DOI).
 
-    Üst üste binen export dosyaları aynı kaydı iki kez getirebilir (aynı WoS UT)
-    ya da aynı DOI'li iki satır bulunabilir. Cross-source eşleştirme yalnız
-    WoS↔Scopus baktığından bunlar yakalanmıyordu; ayrıca kaynak-içi kopya varken
-    greedy 1-1 eşleşme ikinci kopyayı açıkta bırakıyordu. Her kimlik grubunda
-    EN DOLU satır (boş olmayan hücre sayısı en yüksek) tutulur.
+    Overlapping export files can bring in the same record twice (the same WoS
+    UT), or two rows with the same DOI may exist. Cross-source matching only
+    looks at WoS↔Scopus, so these were not being caught; moreover, with an
+    in-source copy present, the greedy 1-1 matching left the second copy
+    unmatched. In each identifier group the FULLEST row (the one with the
+    highest number of non-empty cells) is kept.
 
-    Dönüş: (dedup edilmiş df — orijinal index korunur, çıkarılan satır sayısı)
+    Returns: (deduplicated df — original index preserved, number of rows removed)
     """
     if df.empty:
         return df, 0
-    # Doluluk skoru KOLON KOLON hesaplanır: df.astype(str) tüm frame'in string
-    # kopyasını tek seferde materialize eder (100k satırlı object frame'de
-    # yüzlerce MB ve pipeline'ın en yoğun tek numpy/SIMD patlaması). Kolon
-    # başına birikim aynı sonucu çok daha düşük tepe bellekle verir.
+    # The completeness score is computed COLUMN BY COLUMN: df.astype(str)
+    # materializes a string copy of the whole frame in one go (hundreds of MB
+    # on a 100k-row object frame, and the single most intense numpy/SIMD burst
+    # in the pipeline). Accumulating per column gives the same result with a
+    # much lower peak memory.
     richness = pd.Series(0, index=df.index, dtype="int64")
     for col in df.columns:
         s = df[col]
@@ -297,14 +305,14 @@ def dedup_within_source(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 3 — Multi-stage matching
+#  PHASE 3 — Multi-stage matching
 # ════════════════════════════════════════════════════════════════════════
 
 _DOI_SEP_CHARS = frozenset("-._")
 
 
 def _doi_sep_profile(suffix: str) -> tuple[str, dict[int, str]]:
-    """DOI son ekini (ayırıcısız çekirdek, konum→ayırıcı) ikilisine ayır."""
+    """Split a DOI suffix into a (separator-free core, position→separator) pair."""
     core: list[str] = []
     gaps: dict[int, str] = {}
     for ch in suffix:
@@ -316,26 +324,30 @@ def _doi_sep_profile(suffix: str) -> tuple[str, dict[int, str]]:
 
 
 def doi_separator_variants(canon_a: Optional[str], canon_b: Optional[str]) -> bool:
-    """İki KANONİK DOI yalnızca ayırıcı yazımında mı farklı?
+    """Do two CANONICAL DOIs differ only in separator spelling?
 
-    DOI BELİRLEYİCİ kuralı yerinde kalır: normalize DOI'leri farklı olan kayıtlar
-    farklı yayındır. Tek istisna, dizinleyicinin aynı DOI'yi farklı yazmasıdır —
-    '10.7189/jogh.12-05057' ile '10.7189/JOGH.12.05057' aynı makaledir. Böyle bir
-    çiftte veto kalkar; ama DOI KANIT SAYILMAZ, çift kanıtını başlık+yıl+yazar
-    aşamalarından almak zorundadır (asla Stage 1 üretmez).
+    The decisive-DOI rule stays in place: records whose normalized DOIs differ
+    are different publications. The only exception is an indexer spelling the
+    same DOI differently — '10.7189/jogh.12-05057' and '10.7189/JOGH.12.05057'
+    are the same article. For such a pair the veto is lifted; but the DOI IS NOT
+    COUNTED AS EVIDENCE, and the pair must get its evidence from the
+    title+year+author stages (it never yields Stage 1).
 
-    Kural KASITLI olarak dar. Ayırıcıların hepsini silip karşılaştırmak (iskelet
-    yaklaşımı) gerçek ve FARKLI yayınları çakıştırıyor: ölçümde Physical Review'da
-    cilt|sayfa sınırının kaydığı 34 doğrulanmış çift bulundu — '…/physrevc.5.350'
-    (Michaud 1972, cilt 5, s.350) ile '…/physrevc.53.50' (Awasthi 1996, cilt 53,
-    s.50) ikisi de kayıtlı, apayrı makaleler. Bu yüzden:
-      • registrant öneki (ilk '/' öncesi) birebir aynı olmalı,
-      • ayırıcı olmayan çekirdek birebir aynı olmalı,
-      • farklılaşan her ayırıcı konumu ya bire-bir ikame (- ↔ . ↔ _) olmalı,
-        ya da en az bir komşusu rakam OLMAYAN iç sınırda ekleme/silme olmalı.
-    İki rakam arasında ayırıcı ekleme/silme, kenarda ekleme/silme ve '--' ↔ '-'
-    REDDEDİLİR. Ölçüm: 34 farklı-yayın çiftinin 34'ü reddedilir, 10 gerçek
-    yazım-farkı çiftinin 10'u kabul edilir, 32.454 adayda yanlış pozitif 0.
+    The rule is DELIBERATELY narrow. Deleting all separators and comparing
+    (the skeleton approach) collides genuine and DIFFERENT publications: in a
+    measurement, 34 verified pairs were found in Physical Review where the
+    volume|page boundary shifts — '…/physrevc.5.350' (Michaud 1972, volume 5,
+    p.350) and '…/physrevc.53.50' (Awasthi 1996, volume 53, p.50) are both
+    registered, entirely separate articles. Therefore:
+      • the registrant prefix (before the first '/') must be identical,
+      • the core without separators must be identical,
+      • every differing separator position must be either a one-to-one
+        substitution (- ↔ . ↔ _), or an insertion/deletion at an internal
+        boundary where at least one neighbor is NOT a digit.
+    Separator insertion/deletion between two digits, insertion/deletion at an
+    edge, and '--' ↔ '-' are REJECTED. Measurement: 34 of 34 different-publication
+    pairs are rejected, 10 of 10 genuine spelling-difference pairs are accepted,
+    0 false positives across 32,454 candidates.
     """
     if not canon_a or not canon_b or canon_a == canon_b:
         return False
@@ -352,55 +364,58 @@ def doi_separator_variants(canon_a: Optional[str], canon_b: Optional[str]) -> bo
         if x == y:
             continue
         if len(x) == 1 and len(y) == 1:
-            continue                      # bire-bir ikame: güvenli
+            continue                      # one-to-one substitution: safe
         if len(x) > 1 or len(y) > 1:
             return False                  # '--' ↔ '-'
         if i == 0 or i == len(ca):
-            return False                  # kenarda ekleme/silme
+            return False                  # insertion/deletion at an edge
         if ca[i - 1].isdigit() and ca[i].isdigit():
-            return False                  # rakam|rakam: bölümleme kayması
+            return False                  # digit|digit: partitioning shift
     return True
 
 
 def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
-    """İki ham DOI normalize edilince ikisi de mevcut ve FARKLI mı?
+    """After normalization, are two raw DOIs both present and DIFFERENT?
 
-    DOI BELİRLEYİCİDİR: arındırılmış (normalize) DOI'ler farklıysa kayıtlar ASLA
-    aynı yayın değildir — borderline (manuel onay) listesinde bile gösterilmezler.
-    Bir tarafta DOI yoksa çelişki yoktur (False). `negative_rule_check` yeni
-    merge'lerde bu çiftleri zaten eler; bu yardımcı, eski kuyrukları okurken
-    (`list_borderline`) geriye dönük güvenlik katmanı sağlar.
+    DOI IS DECISIVE: if the sanitized (normalized) DOIs differ, the records are
+    NEVER the same publication — they are not even shown in the borderline
+    (manual approval) list. If one side has no DOI, there is no conflict
+    (False). `negative_rule_check` already filters these pairs out in new
+    merges; this helper provides a retroactive safety layer when reading old
+    queues (`list_borderline`).
     """
     a = normalize_doi(raw_a)
     b = normalize_doi(raw_b)
     if not a or not b or a == b:
         return False
-    # Yalnız ayırıcı yazımı farklıysa bu bir çelişki değil; çift manuel
-    # incelemeye (borderline) girebilsin diye veto uygulanmaz.
+    # If only the separator spelling differs, this is not a conflict; the veto
+    # is not applied, so that the pair can enter manual review (borderline).
     return not doi_separator_variants(a, b)
 
 
 def compute_match(w: dict, s: dict) -> Optional[dict]:
-    """5-aşamalı eşleştirme kararı.
+    """5-stage matching decision.
 
-    Dönüş: None (no match) veya {stage, confidence, reason, jw_title, year_diff, surname_match}
+    Returns: None (no match) or {stage, confidence, reason, jw_title, year_diff, surname_match}
     """
-    # ── Kimlik HİYERARŞİSİ: DOI > PMID > ISSN ─────────────────────────────
-    # Bir üst seviyedeki KESİN eşitlik, alt seviyedeki çelişkiyi geçersiz kılar.
-    # Örn. WoS print-ISSN, Scopus e-ISSN verir — aynı DOI'li çiftte ISSN
-    # çelişkisi vetolayamaz (eski davranış: negative_rule_check tüm seviyeleri
-    # birden uygulayıp aynı-DOI çifti sessizce duplike bırakıyordu). Alt-seviye
-    # çelişki yalnız üst seviyede eşitlik YOKKEN reddeder.
+    # ── Identifier HIERARCHY: DOI > PMID > ISSN ───────────────────────────
+    # A DEFINITE equality at a higher level overrides a contradiction at a lower
+    # level. E.g. WoS gives the print-ISSN, Scopus the e-ISSN — an ISSN
+    # contradiction cannot veto a pair with the same DOI (old behavior:
+    # negative_rule_check applied all levels at once and silently left the
+    # same-DOI pair as a duplicate). A lower-level contradiction rejects only
+    # when there is NO equality at a higher level.
 
-    # DOI: çelişki → asla aynı yayın; eşitlik → kesin merge
+    # DOI: conflict → never the same publication; equality → definite merge
     w_doi = w.get("_norm_doi")
     s_doi = s.get("_norm_doi")
     doi_note = ""
     if _present(w_doi) and _present(s_doi) and w_doi != s_doi:
         if not doi_separator_variants(w_doi, s_doi):
             return None
-        # Ayırıcı/yazım farkı: veto kalkar, DOI kanıt sayılmaz. Çift aşağıdaki
-        # başlık/yıl/yazar aşamalarından geçmek zorunda — Stage 1 üretilmez.
+        # Separator/spelling difference: the veto is lifted, the DOI is not counted
+        # as evidence. The pair must go through the title/year/author stages
+        # below — Stage 1 is not produced.
         doi_note = f" | DOI yazım farkı: {w_doi} ↔ {s_doi}"
     elif _present(w_doi) and _present(s_doi):
         return {
@@ -413,8 +428,8 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             "surname_match": None,
         }
 
-    # PMID (DOI karşılaştırılamadıysa): çelişki → reject; eşitlik → merge
-    # (UT cross-database aynı değildir, sadece PMID)
+    # PMID (if the DOI could not be compared): conflict → reject; equality → merge
+    # (UT is not the same across databases, only PMID)
     w_pmid = w.get("_norm_pmid")
     s_pmid = s.get("_norm_pmid")
     if _present(w_pmid) and _present(s_pmid):
@@ -430,7 +445,7 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             "surname_match": None,
         }
 
-    # ISSN (dergi-seviyesi koruma): yalnız başlık aşamalarını veto eder
+    # ISSN (journal-level safeguard): vetoes only the title stages
     w_issn = w.get("_norm_issn")
     s_issn = s.get("_norm_issn")
     if _present(w_issn) and _present(s_issn) and w_issn != s_issn:
@@ -448,11 +463,12 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
         s_surname = s.get("_norm_surname", "")
         surname_match = bool(w_surname and s_surname and w_surname == s_surname)
 
-        # Jenerik/kısa başlık koruması: "Editorial", "Erratum", "Preface" gibi
-        # başlıklar aynı yazar+yılda BİRDEN ÇOK farklı yayına ait olabilir
-        # (derginin editörü her sayıya bir editorial yazar). Bu tür başlıklar
-        # otomatik Stage 3'e giremez; yalnız kimlik (DOI/PMID) veya Stage 4
-        # (dergi+cilt+sayfa) ile birleşir.
+        # Generic/short title safeguard: titles such as "Editorial", "Erratum",
+        # "Preface" can belong to MORE THAN ONE different publication by the same
+        # author in the same year (a journal's editor writes an editorial for
+        # every issue). Such titles cannot automatically enter Stage 3; they are
+        # merged only via an identifier (DOI/PMID) or Stage 4
+        # (journal+volume+page).
         informative_title = len(w_title.split()) >= 3 or len(w_title) >= 15
 
         if (
@@ -472,13 +488,14 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                 "surname_match": surname_match,
             }
 
-        # Stage 4 — Journal + Volume + (Pages veya BP) — DOI'siz eski yayınlar için
+        # Stage 4 — Journal + Volume + (Pages or BP) — for old publications without a DOI
         w_journal = w.get("_norm_journal", "")
         s_journal = s.get("_norm_journal", "")
         if w_journal and s_journal:
             jw_journal = jaro_winkler(w_journal, s_journal)
-            # xlsx yolu sayısal alanları float yapar ("100.0"); WoS txt string
-            # ("100"). ".0" kuyruğu temizlenmeden karşılaştırma hep ıskalardı.
+            # The xlsx path turns numeric fields into floats ("100.0"); WoS txt
+            # gives strings ("100"). Without stripping the ".0" tail, the
+            # comparison would always miss.
             w_vol = _clean_num(w.get("VL", ""))
             s_vol = _clean_num(s.get("VL", ""))
             w_bp = _clean_num(w.get("BP", ""))
@@ -521,17 +538,18 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
 def generate_candidates(
     wos_df: pd.DataFrame, scp_df: pd.DataFrame,
 ) -> list[tuple[float, int, int, dict]]:
-    """Aday (WoS, Scopus) çiftlerini üret — KİMLİK-ÖNCELİKLİ + blocking.
+    """Generate candidate (WoS, Scopus) pairs — IDENTIFIER-FIRST + blocking.
 
-    Kritik kural: aynı normalize DOI'yi (veya PMID'yi) paylaşan her çift,
-    blocking'e BAKILMAKSIZIN değerlendirilir. Eski davranışta adaylar yalnız
-    (yıl, soyad ilk harfi) bloklarından geliyordu; WoS ile Scopus soyadı farklı
-    ayrıştırınca (örn. 'RAHIM ZA' vs 'ABDUL RAHIM NR') veya yıl farklıysa
-    (early-access 2024 vs basılı 2025) aynı DOI'li çift HİÇ karşılaştırılmıyor,
-    DOI-exact aşamasına sıra gelmiyordu → duplike kayıtlar dataset'te kalıyordu.
-    Blocking artık yalnız başlık-benzerliği aşamaları için aday sınırlar.
+    Critical rule: every pair sharing the same normalized DOI (or PMID) is
+    evaluated REGARDLESS of blocking. In the old behavior, candidates came
+    only from (year, first letter of surname) blocks; when WoS and Scopus
+    parsed the surname differently (e.g. 'RAHIM ZA' vs 'ABDUL RAHIM NR') or
+    the year differed (early-access 2024 vs print 2025), the pair with the
+    same DOI was NEVER compared and the DOI-exact stage never got its turn →
+    duplicate records stayed in the dataset. Blocking now limits candidates
+    only for the title-similarity stages.
 
-    Dönüş: confidence azalan sırada [(confidence, w_idx, s_idx, match), ...]
+    Returns: [(confidence, w_idx, s_idx, match), ...] sorted by descending confidence
     """
     candidates: list[tuple[float, int, int, dict]] = []
     seen_pairs: set[tuple[int, int]] = set()
@@ -545,7 +563,7 @@ def generate_candidates(
         if m is not None:
             candidates.append((m["confidence"], pair[0], pair[1], m))
 
-    # 1) Kimlik indeksleri — DOI ve PMID paylaşan çiftler blok bağımsız
+    # 1) Identifier indexes — DOI- and PMID-sharing pairs are block-independent
     for key_col in ("_norm_doi", "_norm_pmid"):
         if key_col not in wos_df.columns or key_col not in scp_df.columns:
             continue
@@ -561,13 +579,14 @@ def generate_candidates(
             for w_idx in w_index.get(v, ()):
                 consider(w_idx, int(idx))
 
-    # 2) Blocking — başlık-benzerliği aşamaları için aday uzayı
-    # Blok anahtarı (yıl, soyad ilk harfi) BİREBİR yıl istediği için Stage 3'ün
-    # ±1 yıl toleransı pratikte hiç devreye girmiyordu: erken-erişim/basılı yıl
-    # farkı olan gerçek çiftler aday bile olmuyordu. WoS satırı artık komşu
-    # yılların Scopus bloklarıyla da karşılaştırılır (TEK taraflı: aday sayısı
-    # ~3× artar, 9× değil). Yılı bilinmeyen kayıtlar eski davranışta kalır —
-    # None'ı her yıla açmak aday uzayını patlatır.
+    # 2) Blocking — candidate space for the title-similarity stages
+    # Because the block key (year, first letter of surname) demands an EXACT
+    # year, Stage 3's ±1 year tolerance practically never kicked in: genuine
+    # pairs with an early-access/print year difference were not even
+    # candidates. A WoS row is now also compared against the Scopus blocks of
+    # the neighboring years (ONE-sided: the candidate count grows ~3×, not 9×).
+    # Records with an unknown year keep the old behavior — opening None to
+    # every year would blow up the candidate space.
     wos_blocks = build_blocks(wos_df)
     scp_blocks = build_blocks(scp_df)
     for (year, letter), w_idxs in wos_blocks.items():
@@ -585,7 +604,7 @@ def generate_candidates(
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 4 — Field merge with Caputo 2024 preferences
+#  PHASE 4 — Field merge with Caputo 2024 preferences
 # ════════════════════════════════════════════════════════════════════════
 
 def _is_empty(v: Any) -> bool:
@@ -601,7 +620,7 @@ def _is_empty(v: Any) -> bool:
 
 
 def _union_values(w_val: Any, s_val: Any, sep: str = "; ") -> str:
-    """Iki değeri ; ile birleştirip dedup et (case-insensitive)."""
+    """Join two values with ; and dedup them (case-insensitive)."""
     parts: list[str] = []
     seen: set[str] = set()
     for v in (w_val, s_val):
@@ -620,9 +639,9 @@ def _union_values(w_val: Any, s_val: Any, sep: str = "; ") -> str:
 
 
 def _apply_preference(field: str, w_val: Any, s_val: Any) -> tuple[Any, str]:
-    """Bir alan için Caputo 2024 default tercihini uygula.
+    """Apply the Caputo 2024 default preference for a field.
 
-    Dönüş: (chosen_value, chosen_source) — source in {"wos","scopus","union","cross_fill","empty"}
+    Returns: (chosen_value, chosen_source) — source in {"wos","scopus","union","cross_fill","empty"}
     """
     pref = FIELD_PREFERENCES.get(field, DEFAULT_PREFERENCE)
     w_empty = _is_empty(w_val)
@@ -645,7 +664,7 @@ def _apply_preference(field: str, w_val: Any, s_val: Any) -> tuple[Any, str]:
         if not w_empty:
             return w_val, "wos"
         return s_val, "scopus"
-    # Bilinmeyen pref — default wos_first
+    # Unknown pref — default wos_first
     if not w_empty:
         return w_val, "wos"
     return s_val, "scopus"
@@ -657,22 +676,22 @@ def merge_pair_with_preferences(
     s: dict,
     all_columns: list[str],
 ) -> tuple[dict, list[dict]]:
-    """İki kaydı birleştir, çakışmaları logla.
+    """Merge two records and log the conflicts.
 
-    Dönüş: (merged_row, conflicts_list)
+    Returns: (merged_row, conflicts_list)
     """
     merged: dict[str, Any] = {}
     conflicts: list[dict] = []
 
     for col in all_columns:
         if col.startswith("_norm_"):
-            continue  # internal kolonlar
+            continue  # internal columns
         w_val = w.get(col)
         s_val = s.get(col)
         chosen, source = _apply_preference(col, w_val, s_val)
         merged[col] = chosen
 
-        # Çakışma logu: iki taraf da dolu VE değerler farklı
+        # Conflict log: both sides are filled AND the values differ
         if not _is_empty(w_val) and not _is_empty(s_val):
             if _to_str(w_val).lower().strip() != _to_str(s_val).lower().strip():
                 conflicts.append({
@@ -685,7 +704,7 @@ def merge_pair_with_preferences(
                     "preference_rule": FIELD_PREFERENCES.get(col, DEFAULT_PREFERENCE),
                 })
 
-    # DB etiketleme — birleştirilmiş kayıt
+    # DB labeling — merged record
     merged["DB"] = "BIBEXPY_SMART"
     merged["DB_Original"] = "ISI; SCOPUS"
 
@@ -693,7 +712,7 @@ def merge_pair_with_preferences(
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 5 — Yazıcılar (audit, conflict, borderline, lost, statistic)
+#  PHASE 5 — Writers (audit, conflict, borderline, lost, statistic)
 # ════════════════════════════════════════════════════════════════════════
 
 def _write_match_audit(rows: list[dict], out: Path) -> None:
@@ -723,7 +742,7 @@ def _write_borderline_queue(items: list[dict], out: Path) -> None:
 def _write_lost_records(df: pd.DataFrame, out: Path) -> None:
     if df.empty:
         return
-    # Internal _norm_* kolonlarını çıkar
+    # Drop the internal _norm_* columns
     cols = [c for c in df.columns if not c.startswith("_norm_")]
     df[cols].to_excel(out, index=False)
 
@@ -732,7 +751,7 @@ def _write_statistic_smart(
     total: int, wos_count: int, scp_count: int,
     merged_df: pd.DataFrame, out: Path,
 ) -> None:
-    """Mevcut Statistic.xlsx şemasıyla uyumlu — General Stats + Field Stats sheet'leri."""
+    """Matches the existing Statistic.xlsx schema — General Stats + Field Stats sheets."""
     general = pd.DataFrame([{
         "Total Records": total,
         "WoS Records": wos_count,
@@ -767,8 +786,9 @@ def _write_statistic_smart(
         })
     fields = pd.DataFrame(field_rows)
 
-    # Atomik yazım: merge özeti (GET /merge/summary) bu dosyayı okurken yarım
-    # yazılmış bir dosya görürse sessizce yedek yola düşüp WoS/Scopus=0 gösterir.
+    # Atomic write: if the merge summary (GET /merge/summary) sees a half-written
+    # file while reading this one, it silently falls through to the fallback path
+    # and shows WoS/Scopus=0.
     tmp = out.with_name(out.name + f".{uuid4().hex[:8]}.tmp~")
     try:
         with pd.ExcelWriter(tmp, engine="openpyxl") as writer:
@@ -781,12 +801,13 @@ def _write_statistic_smart(
 
 
 def _refresh_statistic_after_borderline(adir: Path, df: pd.DataFrame) -> None:
-    """Borderline kabulünden sonra Statistic.xlsx'i dataset'in gerçek haliyle yaz.
+    """Rewrite Statistic.xlsx to match the real dataset after a borderline acceptance.
 
-    Merge özeti ve yöntem paragrafı sayılarını Statistic.xlsx'ten okur; dosya
-    yalnız merge anında yazıldığı için kabul edilen çiftler hiç yansımıyordu
-    (dataset 1.292 kayda inse de metin 1.296 diyordu). Girdi sayıları (WoS /
-    Scopus) değişmez; toplam ve alan doluluk istatistikleri yeniden hesaplanır.
+    The merge summary and the method paragraph read their counts from
+    Statistic.xlsx; since the file was written only at merge time, accepted
+    pairs never showed up in it (the dataset dropped to 1,292 records, yet the
+    text said 1,296). The input counts (WoS / Scopus) do not change; the total
+    and field-completeness statistics are recomputed.
     """
     stat = adir / "Statistic.xlsx"
     if not stat.exists():
@@ -804,10 +825,11 @@ def _refresh_statistic_after_borderline(adir: Path, df: pd.DataFrame) -> None:
 
 
 def _append_conflict_log(path: Path, conflicts: list[dict]) -> int:
-    """Kabul edilen çiftlerin alan çakışmalarını conflict_log.xlsx'e ekle.
+    """Append the field conflicts of accepted pairs to conflict_log.xlsx.
 
-    Aynı pair_id'nin eski satırları atılır (tekrar kabul idempotent kalsın).
-    Atomik yazılır; hata dataset kararını geri almaz — çağıran yakalar.
+    Old rows of the same pair_id are discarded (so that re-accepting stays
+    idempotent). Written atomically; a failure does not roll back the dataset
+    decision — the caller catches it.
     """
     if not conflicts:
         return 0
@@ -828,11 +850,11 @@ def _append_conflict_log(path: Path, conflicts: list[dict]) -> int:
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  Borderline state yönetimi (JSON)
+#  Borderline state management (JSON)
 # ════════════════════════════════════════════════════════════════════════
 
 def _borderline_state_path(project_id: str, adir: Optional[Path] = None) -> Optional[Path]:
-    """Borderline state dosyasının yolu — aktif analiz klasöründe."""
+    """Path of the borderline state file — in the active analysis folder."""
     if adir is None:
         adir = analyses.get_active_analysis_dir(project_id)
     if adir is None:
@@ -859,28 +881,28 @@ def _write_borderline_state(project_id: str, state: dict[str, dict], adir: Optio
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  ANA ORKESTRATÖR
+#  MAIN ORCHESTRATOR
 # ════════════════════════════════════════════════════════════════════════
 
 async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
-    """Smart Merge ana iş akışı. Result dict döner (audit hook için).
+    """Main Smart Merge workflow. Returns a result dict (for the audit hook).
 
-    Yeni bir analiz klasörü oluşturur, çıktıları oraya yazar ve sonunda
-    aktif analiz olarak işaretler. Hata durumunda yarım klasör temizlenir.
+    Creates a new analysis folder, writes the outputs into it, and finally
+    marks it as the active analysis. On error the half-written folder is cleaned up.
     """
 
     ctx.log("Starting Smart Merge...")
     ctx.progress(0.02)
 
-    # 0. Yeni analiz klasörü
+    # 0. New analysis folder
     analysis_id, adir = analyses.create_analysis(project_id, "smart")
     ctx.log(f"Analysis folder: {analysis_id}")
 
-    # 1. Veriyi yükle (merger.py'dan reuse)
+    # 1. Load the data (reuse from merger.py)
     from services.merger import _load_inputs
 
-    # Büyük konsolide workbook'ların okunması dakikalar sürebilir ve bu sırada
-    # başka ilerleme yayını yok — kullanıcı donma sanmasın.
+    # Reading large consolidated workbooks can take minutes and there is no
+    # other progress output in the meantime — so the user doesn't think it froze.
     ctx.log("Loading consolidated sources — large workbooks can take a few minutes...")
     try:
         scp_df, wos_df = await asyncio.to_thread(_load_inputs, project_id, ctx)
@@ -893,29 +915,30 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log(f"Data loaded: {len(wos_df)} WoS + {len(scp_df)} Scopus")
     ctx.progress(0.10)
 
-    # DB etiketle (_load_inputs taze frame döndürür — .copy() burada yalnızca
-    # korpusun bellekte fazladan bir kopyasını yaratıyordu)
+    # Label the DB (_load_inputs returns a fresh frame — .copy() here only
+    # created an extra in-memory copy of the corpus)
     wos_df["DB"] = "ISI"
     scp_df["DB"] = "SCOPUS"
 
-    # NOT: Aşağıdaki CPU-ağır aşamalar (normalize / dedup / aday üretimi /
-    # eşleştirme / alan birleştirme) run_cpu havuzunda koşar. Event loop'ta
-    # inline koşmaları, büyük korpuslarda loop'u dakikalarca donduruyordu:
-    # SSE ping'leri (15 sn) gönderilemiyor, boşta kalan izleme bağlantısı
-    # ERR_CONNECTION_RESET ile kopuyor, uygulamanın geri kalanı yanıtsızlaşıyordu.
+    # NOTE: The CPU-heavy stages below (normalize / dedup / candidate generation /
+    # matching / field merge) run in the run_cpu pool. Running them inline on the
+    # event loop froze the loop for minutes on large corpora: SSE pings (15 s)
+    # could not be sent, an idle monitoring connection dropped with
+    # ERR_CONNECTION_RESET, and the rest of the application became unresponsive.
 
-    # 2. Normalize — yan kolonlar
+    # 2. Normalize — side columns
     ctx.log(f"Normalization: {len(wos_df) + len(scp_df)} rows")
 
     def _stage_normalize() -> None:
-        # Kolonlar LİSTEDEN ve dtype=object olarak kurulur — `.apply()` DEĞİL.
-        # pandas 3'te metin sonuçlu apply() `str` dtype üretir ve normalize
-        # fonksiyonlarının "boş" demek olan None dönüşlerini NaN'a çevirir.
-        # NaN truthy olduğundan `if not v` ile korunan her kimlik kontrolü boş
-        # DOI'yi geçerli kimlik sanar: aynı kaynaktaki DOI'siz kayıtların hepsi
-        # tek NaN anahtarında toplanıp bire iner (SESSİZ VERİ KAYBI) ve DOI'siz
-        # kayıtlar hiçbir şeyle eşleşemez. `astype(object)` bunu DÜZELTMEZ —
-        # NaN, object dtype içinde de NaN kalır ve hâlâ truthy'dir.
+        # Columns are built FROM A LIST with dtype=object — NOT with `.apply()`.
+        # In pandas 3, an apply() with text results yields a `str` dtype and
+        # turns the None returns of the normalize functions (which mean "empty")
+        # into NaN. Since NaN is truthy, every identifier check guarded by
+        # `if not v` takes an empty DOI for a valid identifier: all DOI-less
+        # records in the same source get collected under the single NaN key and
+        # collapse to one (SILENT DATA LOSS), and DOI-less records can never
+        # match anything. `astype(object)` does NOT FIX this — NaN stays NaN
+        # inside an object dtype and is still truthy.
         def _norm_col(frame: pd.DataFrame, src: str, fn) -> pd.Series:
             raw = frame[src] if src in frame.columns else pd.Series([""] * len(frame), index=frame.index)
             return pd.Series([fn(v) for v in raw], index=frame.index, dtype=object)
@@ -929,9 +952,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             df["_norm_pmid"] = _norm_col(df, "PM", normalize_id_token)
             df["_norm_ut"] = _norm_col(df, "UT", normalize_id_token)
             df["_norm_journal"] = _norm_col(df, "SO", normalize_title)
-            # Invariant — sessiz kayıp yerine gürültülü hata: kimlik kolonları
-            # object dtype olmazsa (ileride biri .apply()'a dönerse) boş kimlik
-            # yeniden NaN olur ve veri kaybı sessizce geri gelir.
+            # Invariant — a loud error instead of silent loss: if the identifier
+            # columns are not object dtype (if someone goes back to .apply() later),
+            # empty identifiers become NaN again and the data loss silently returns.
             for _col in ("_norm_doi", "_norm_pmid", "_norm_ut"):
                 if df[_col].dtype != object:
                     raise RuntimeError(
@@ -942,8 +965,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     await run_cpu(_stage_normalize)
     ctx.progress(0.20)
 
-    # 2b. Kaynak-İÇİ dedup — aynı UT/EID veya aynı DOI'li satırlardan en dolusu
-    # kalır (üst üste binen export dosyaları; cross-source eşleşme bunları görmez).
+    # 2b. WITHIN-source dedup — among rows with the same UT/EID or the same DOI,
+    # the fullest one is kept (overlapping export files; cross-source matching
+    # does not see these).
     wos_raw_n, scp_raw_n = len(wos_df), len(scp_df)
     (wos_df, intra_wos_removed), (scp_df, intra_scp_removed) = await run_cpu(
         lambda: (dedup_within_source(wos_df), dedup_within_source(scp_df))
@@ -952,15 +976,15 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         ctx.log(f"Intra-source dedup: {intra_wos_removed} WoS + {intra_scp_removed} Scopus duplicate rows removed")
     ctx.progress(0.25)
 
-    # 3-4. Aday üretimi (KİMLİK-ÖNCELİKLİ: aynı DOI/PMID'li çiftler blocking'e
-    # bakılmaksızın değerlendirilir; blocking yalnız başlık aşamalarını sınırlar)
-    # + greedy one-to-one atama.
+    # 3-4. Candidate generation (IDENTIFIER-FIRST: pairs with the same DOI/PMID
+    # are evaluated regardless of blocking; blocking limits only the title
+    # stages) + greedy one-to-one assignment.
     matches: list[dict] = []           # match_audit rows
     borderline: list[dict] = []        # borderline_queue rows
     matched_wos: set[int] = set()
     matched_scp: set[int] = set()
 
-    # Sayaçlar
+    # Counters
     stage_counts: dict[str, int] = {}
     pair_counter = 0
 
@@ -968,8 +992,8 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     ctx.log(f"Candidate pairs: {len(candidates)}")
     ctx.progress(0.40)
 
-    # Greedy assignment + borderline ayır (CPU havuzunda — aday sayısı büyük
-    # korpuslarda yüz binleri bulabilir)
+    # Greedy assignment + set aside the borderline pairs (in the CPU pool — the
+    # number of candidates can reach hundreds of thousands on large corpora)
     def _stage_assign() -> int:
         pair_counter = 0
         for conf, w_idx, s_idx, m in candidates:
@@ -980,7 +1004,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             pair_id = f"p{pair_counter:06d}"
 
             if m["stage"] == "5_borderline":
-                # Borderline — UI'da manuel onay bekleyecek
+                # Borderline — will wait for manual approval in the UI
                 w_row = wos_df.loc[w_idx]
                 s_row = scp_df.loc[s_idx]
                 borderline.append({
@@ -995,9 +1019,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "reason": m["reason"],
                     "wos_doi": _to_str(w_row.get("DI", "")),
                     "scp_doi": _to_str(s_row.get("DI", "")),
-                    # Kimlikler: kabul edilen çiftin satırını DOI'ye bakmadan
-                    # bulmak için (DOI'siz çiftlerde kabul sessizce hiçbir şey
-                    # yapmıyordu). Scopus EID'si UT kolonunda taşınır.
+                    # Identifiers: to find the rows of an accepted pair without
+                    # relying on the DOI (for DOI-less pairs, acceptance silently
+                    # did nothing). The Scopus EID is carried in the UT column.
                     "wos_ut": _to_str(w_row.get("UT", "")),
                     "scp_ut": _to_str(s_row.get("UT", "")),
                     "wos_title": _to_str(w_row.get("TI", ""))[:200],
@@ -1013,7 +1037,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "status": "pending",
                 })
             else:
-                # Definite match — birleştir
+                # Definite match — merge
                 matched_wos.add(w_idx)
                 matched_scp.add(s_idx)
                 stage_counts[m["stage_label"]] = stage_counts.get(m["stage_label"], 0) + 1
@@ -1038,7 +1062,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         ctx.log(f"  Stage [{stage_label}]: {n}")
     ctx.progress(0.65)
 
-    # 5-7. Field merge + eşleşmeyenler + tek DataFrame + UID (CPU havuzunda)
+    # 5-7. Field merge + unmatched rows + single DataFrame + UID (in the CPU pool)
     ctx.log("Field merge (Caputo 2024 defaults)...")
 
     cr_stats: dict[str, int] = {"normalized": 0, "nr_filled": 0}
@@ -1063,10 +1087,10 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                 src = c["chosen_source"]
                 field_source_distribution[src] = field_source_distribution.get(src, 0) + 1
 
-        # 6. Eşleşmeyen WoS / Scopus satırları → ana df'ye olduğu gibi eklenir
+        # 6. Unmatched WoS / Scopus rows → appended to the main df as they are
         wos_not_matched = wos_df.loc[~wos_df.index.isin(matched_wos)].copy()
         scp_not_matched = scp_df.loc[~scp_df.index.isin(matched_scp)].copy()
-        # _norm_* kolonlarını çıkar
+        # Drop the _norm_* columns
         for df in (wos_not_matched, scp_not_matched):
             drop_cols = [c for c in df.columns if c.startswith("_norm_")]
             df.drop(columns=drop_cols, inplace=True, errors="ignore")
@@ -1077,15 +1101,15 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
         if drop_cols:
             merged_df.drop(columns=drop_cols, inplace=True, errors="ignore")
 
-        # Tek bir DataFrame + UID kolonu (filter_engine ile aynı şema)
+        # A single DataFrame + UID column (same schema as filter_engine)
         final_df = pd.concat([merged_df, wos_not_matched, scp_not_matched], ignore_index=True)
         filter_engine._ensure_uid_column(final_df)
 
-        # SAYI KORUNUMU (lineage invariant): çıktı = (kaynak − kaynak-içi
-        # duplike) − eşleşen çift. Sapma, sessizce kayıt kaybı ya da
-        # duplikasyon demektir; pandas 3 NaN hatası tam olarak böyle, hiçbir
-        # uyarı vermeden 70 yayın kaybettirmişti. Bozuk bir dataset yazmaktansa
-        # koşuyu burada düşürmek doğrudur.
+        # COUNT PRESERVATION (lineage invariant): output = (source − intra-source
+        # duplicates) − matched pairs. A deviation means silent record loss or
+        # duplication; the pandas 3 NaN bug lost 70 publications in exactly this
+        # way, without giving any warning. It is right to fail the run here
+        # rather than write a corrupt dataset.
         _expected = ((wos_raw_n - intra_wos_removed)
                      + (scp_raw_n - intra_scp_removed)
                      - len(matches))
@@ -1097,32 +1121,32 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                 f"üretilen {len(final_df)}"
             )
 
-        # CR normalizasyonu — Scopus dilbilgisindeki atıflar WoS dilbilgisine
-        # çevrilir. Aksi hâlde VOSviewer/bibliometrix birleştirilmiş dataset'in
-        # Scopus kaynaklı satırlarında hiçbir atıfı eşleştiremez.
-        # normalize_cr idempotenttir; WoS satırları olduğu gibi geri döner.
+        # CR normalization — citations in Scopus grammar are converted to WoS
+        # grammar. Otherwise VOSviewer/bibliometrix cannot match any citation in
+        # the Scopus-sourced rows of the merged dataset.
+        # normalize_cr is idempotent; WoS rows come back as they are.
         if "CR" in final_df.columns:
             before = final_df["CR"].fillna("").astype(str)
             after = before.map(normalize_cr)
-            # Yalnız dolu hücreler yazılır — boş/NaN CR hücreleri olduğu gibi kalır.
+            # Only filled cells are written — empty/NaN CR cells are left as they are.
             filled_cr = before.str.strip() != ""
             changed = filled_cr & (after != before)
             cr_stats["normalized"] = int(changed.sum())
             if changed.any():
                 final_df["CR"] = final_df["CR"].astype(object)
                 final_df.loc[changed, "CR"] = after[changed]
-            # NR (referans sayısı): boşsa VEYA CR bu adımda yeniden yazıldıysa
-            # CR'den say. Scopus dosyalarında NR kolonu yoktur; ayrıca
-            # scopus_fallback ile CR'ı Scopus'tan gelen eşleşmiş satırlarda WoS
-            # tarafının NR'ı (çoğu kez 0) artık dizgeyi tarif etmez.
+            # NR (reference count): if blank OR if CR was rewritten in this step,
+            # count from CR. Scopus files have no NR column; also, in matched rows
+            # where CR came from Scopus via scopus_fallback, the WoS side's NR
+            # (often 0) no longer describes the string.
             if "NR" not in final_df.columns:
                 final_df["NR"] = ""
             nr = final_df["NR"]
             blank = nr.isna() | nr.astype(str).str.strip().isin(("", "nan", "NaN", "None"))
             fill = (blank | changed) & filled_cr
             if fill.any():
-                # object'e çevir: int64/float64 kolona tamsayı yazmak 3 yerine
-                # 3.0 üretir ve WoS dosyasına "NR 3.0" olarak düşer.
+                # Convert to object: writing an integer into an int64/float64
+                # column yields 3.0 instead of 3 and ends up in the WoS file as "NR 3.0".
                 final_df["NR"] = final_df["NR"].astype(object)
                 final_df.loc[fill, "NR"] = after[fill].map(count_refs)
                 cr_stats["nr_filled"] = int(fill.sum())
@@ -1135,9 +1159,9 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             f"{cr_stats['nr_filled']} NR values filled")
     ctx.progress(0.80)
 
-    # 8. Çıktıları yaz — analiz klasörüne
+    # 8. Write the outputs — into the analysis folder
     ctx.log("Writing output files...")
-    # Ana dataset parquet (dahili çalışma formatı); yan inceleme dosyaları xlsx kalır.
+    # Main dataset is parquet (internal working format); side review files stay xlsx.
     merged_dataset = adir / "merged.parquet"
     audit_xlsx = adir / "match_audit.xlsx"
     conflict_xlsx = adir / "conflict_log.xlsx"
@@ -1158,28 +1182,28 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             len(final_df), wos_raw_n, scp_raw_n, final_df, stat_xlsx,
         )
     except Exception:
-        # Yazma sırasında hata — yarım analiz klasörünü temizle
+        # Error while writing — clean up the half-written analysis folder
         try:
             analyses.delete_analysis(project_id, analysis_id)
         except Exception:
             pass
         raise
 
-    # 9. Borderline state'i kaydet (analiz klasörü içine)
+    # 9. Save the borderline state (inside the analysis folder)
     state = {b["pair_id"]: {"status": "pending", "decided_at": None} for b in borderline}
     if borderline:
         _write_borderline_state(project_id, state, adir=adir)
 
-    # 10. Filter cache invalidate (Smart artık aktif olacak)
+    # 10. Invalidate the filter cache (Smart is about to become active)
     filter_engine._DF_CACHE.clear()
 
-    # 11. Finalize — file_count + aktif yap
+    # 11. Finalize — file_count + make active
     analyses.finalize_analysis(project_id, analysis_id)
 
     ctx.progress(1.0)
     storage.touch_project(project_id)
 
-    # 12. Result özeti (audit hook için)
+    # 12. Result summary (for the audit hook)
     summary = {
         "method": "smart",
         "analysis_id": analysis_id,
@@ -1210,11 +1234,11 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  FAZ 6 — Borderline review
+#  PHASE 6 — Borderline review
 # ════════════════════════════════════════════════════════════════════════
 
 def list_borderline(project_id: str) -> list[dict]:
-    """borderline_queue.xlsx + borderline_state.json birleşik liste (aktif analizden)."""
+    """Combined list of borderline_queue.xlsx + borderline_state.json (active analysis)."""
     adir = analyses.get_active_analysis_dir(project_id)
     if adir is None:
         return []
@@ -1229,9 +1253,10 @@ def list_borderline(project_id: str) -> list[dict]:
     items: list[dict] = []
     for _, row in df.iterrows():
         pair_id = str(row.get("pair_id", ""))
-        # DOI belirleyici: arındırılmış DOI'ler farklıysa asla aynı yayın değildir.
-        # Eski (düzeltme öncesi) kuyruklarda kalmış olsa bile bu çiftleri manuel
-        # onaya GÖSTERME — kullanıcıya yalnızca gerçekten belirsiz çiftler sorulur.
+        # DOI is decisive: if the sanitized DOIs differ, it is never the same
+        # publication. Even if such pairs are left in old (pre-fix) queues, do NOT
+        # show them for manual approval — the user is asked only about genuinely
+        # ambiguous pairs.
         if doi_conflict(row.get("wos_doi"), row.get("scp_doi")):
             continue
         st = state.get(pair_id, {"status": "pending"})
@@ -1268,20 +1293,22 @@ def list_borderline(project_id: str) -> list[dict]:
 def _merge_accepted_pairs(
     df: pd.DataFrame, accept_pairs: list[dict], already: set[str],
 ) -> tuple[pd.DataFrame, dict[str, str], list[dict]]:
-    """Kabul edilen borderline çiftleri GERÇEKTEN birleştir (silme değil).
+    """Actually MERGE the accepted borderline pairs (not delete).
 
-    Eski davranış yalnızca Scopus satırını siliyordu; böylece kabul edilen her
-    çiftte Scopus tercihli alanlar (AB, AU, AF, C1), DE/ID birleşimi ve
-    cross-fill'ler kayboluyor, çakışma kaydı hiç yazılmıyordu. Artık merge
-    aşamasının kendi kuralları (Caputo tercihleri) uygulanır: kabul edilen çift,
-    merge sırasında kesin eşleşme sayılsaydı ne üretecekse onu üretir.
+    The old behavior only deleted the Scopus row; as a result, for every
+    accepted pair the Scopus-preferred fields (AB, AU, AF, C1), the DE/ID union
+    and the cross-fills were lost, and no conflict record was ever written.
+    Now the merge stage's own rules (Caputo preferences) are applied: an
+    accepted pair produces whatever it would have produced had it been counted
+    as a definite match during the merge.
 
-    Satırlar KİMLİKLE bulunur (WoS UT / Scopus EID), bulunamazsa normalize DOI,
-    en son normalize başlık+yıl ile; her adımda DB kolonu taraf doğrulaması
-    yapar. Belirsiz (birden çok isabet) ya da eksik satır sessizce varsayılmaz:
-    çift "unresolved" döner ve kuyrukta bekler.
+    Rows are located by IDENTIFIER (WoS UT / Scopus EID), falling back to the
+    normalized DOI, and finally to the normalized title+year; at each step the
+    DB column verifies the side. An ambiguous (multiple hits) or missing row is
+    never silently assumed: the pair returns as "unresolved" and waits in the
+    queue.
 
-    Dönüş: (yeni_df, {pair_id: sonuç}, çakışma_kayıtları)
+    Returns: (new_df, {pair_id: outcome}, conflict_records)
     """
     cols = [c for c in df.columns if c != "UID" and not c.startswith("_norm_")]
     ut_series = df["UT"].map(_to_str).str.lower() if "UT" in df.columns else None
@@ -1327,8 +1354,8 @@ def _merge_accepted_pairs(
         except (TypeError, ValueError):
             return 0.0
 
-    # En güvenilir çift önce: aynı satıra bağlı iki kabul varsa sonuç
-    # karar sırasına göre değişmesin.
+    # Most reliable pair first: if two acceptances are tied to the same row, the
+    # result should not change depending on the decision order.
     for pair in sorted(accept_pairs, key=lambda p: (-_conf(p), str(p.get("pair_id", "")))):
         pid = str(pair.get("pair_id", ""))
         if pid in already:
@@ -1349,12 +1376,13 @@ def _merge_accepted_pairs(
             outcomes[pid] = "unresolved:both_missing"
             continue
         if w_idx is None:
-            # Scopus satırı duruyor ama WoS tarafı yok (kullanıcı silmiş
-            # olabilir) — tek başına kalan satır SİLİNMEZ, veri kaybolmasın.
+            # The Scopus row is still there but the WoS side is missing (the user
+            # may have deleted it) — a row left on its own is NOT DELETED, so that
+            # no data is lost.
             outcomes[pid] = "unresolved:wos_missing"
             continue
         if s_idx is None:
-            # Scopus satırı zaten yok: karar fiilen uygulanmış durumda.
+            # The Scopus row is already gone: the decision is effectively applied.
             outcomes[pid] = "noop_scp_missing"
             continue
         if w_idx in used or s_idx in used or w_idx in drop or s_idx in drop:
@@ -1370,9 +1398,9 @@ def _merge_accepted_pairs(
             if col not in df.columns or col == "UID":
                 continue
             if val == "" and df[col].dtype != object:
-                continue  # sayısal kolona boş dize yazma
+                continue  # do not write an empty string into a numeric column
             df.at[w_idx, col] = val
-        # Birleştirilmiş CR'ın referans sayısı değiştiyse NR'ı düzelt.
+        # If the merged CR's reference count changed, fix NR.
         if "CR" in merged and "NR" in df.columns:
             new_cr = _to_str(merged.get("CR"))
             if new_cr and new_cr != _to_str(w_row.get("CR")):
@@ -1390,7 +1418,7 @@ def _merge_accepted_pairs(
 
 
 def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
-    """Kullanıcının borderline kararlarını uygula (aktif analiz üzerinde).
+    """Apply the user's borderline decisions (on the active analysis).
 
     decisions: [{pair_id, decision: 'accept'|'reject'|'skip'}]
     """
@@ -1401,8 +1429,9 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     if adir is None:
         raise RuntimeError("Aktif analiz yok — önce Smart Merge çalıştırın")
 
-    # Dataset yolunu resolver'dan al — uzantı (parquet/legacy xlsx) burada
-    # varsayılmaz; legacy proje ilk dokunuşta parquet'e taşınmış olabilir.
+    # Get the dataset path from the resolver — the extension (parquet/legacy xlsx)
+    # is not assumed here; a legacy project may have been migrated to parquet on
+    # first touch.
     merged_path = analyses.active_dataset_path(project_id)
     if merged_path is None or not merged_path.exists():
         raise RuntimeError("Birleştirilmiş dataset bulunamadı — önce Smart Merge çalıştırın")
@@ -1411,10 +1440,10 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     if not bq_path.exists():
         return {"applied": 0, "snapshot": None, "pending_after": 0}
 
-    # State güncelle
+    # Update the state
     state = _read_borderline_state(project_id, adir=adir)
-    # Bu çağrıdan ÖNCE zaten kabul edilmiş çiftler — tekrar kabul edilirse
-    # ikinci kez birleştirilmez (idempotent).
+    # Pairs ALREADY accepted BEFORE this call — if accepted again, they are not
+    # merged a second time (idempotent).
     prior_accepted = {pid for pid, v in state.items() if v.get("status") == "accept"}
     bq_df = pd.read_excel(bq_path)
     bq_by_id = {str(r["pair_id"]): r for _, r in bq_df.iterrows()}
@@ -1426,10 +1455,11 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         decision = d.get("decision")
         if not pair_id or decision not in ("accept", "reject", "skip"):
             continue
-        # DOI belirleyici: arındırılmış DOI'leri farklı olan çift ASLA aynı yayın
-        # değildir. Eski (düzeltme öncesi) kuyruktan gelmiş olsa bile hiçbir karar
-        # uygulanmaz — kural display katmanında (list_borderline) olduğu gibi apply
-        # katmanında da yetkilidir; doğrudan API çağrısıyla yanlış birleştirme olmaz.
+        # DOI is decisive: a pair whose sanitized DOIs differ is NEVER the same
+        # publication. Even if it came from an old (pre-fix) queue, no decision is
+        # applied — the rule is authoritative in the apply layer just as it is in
+        # the display layer (list_borderline); a direct API call cannot cause a
+        # wrong merge.
         bq_row = bq_by_id.get(pair_id)
         if bq_row is not None and doi_conflict(bq_row.get("wos_doi"), bq_row.get("scp_doi")):
             continue
@@ -1439,15 +1469,15 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             "decided_at": now_ts,
         }
         if decision == "accept" and pair_id in bq_by_id:
-            # "accept" state'e HEMEN yazılmaz; dataset'te karşılığı bulunup
-            # gerçekten uygulandıktan sonra yazılır (aşağıda).
+            # "accept" is NOT written to the state IMMEDIATELY; it is written after
+            # its counterpart is found in the dataset and actually applied (below).
             state.pop(pair_id, None)
             state[pair_id] = {**state.get(pair_id, {}), "status": "pending"}
             accept_pairs.append(bq_by_id[pair_id])
 
     _write_borderline_state(project_id, state, adir=adir)
 
-    # Kabul edilenler için dataset güncellemesi — GERÇEK BİRLEŞTİRME.
+    # Dataset update for the accepted pairs — ACTUAL MERGE.
     snapshot_rel: Optional[str] = None
     applied = 0
     merged_pairs = 0
@@ -1469,7 +1499,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         merged_pairs = sum(1 for o in outcomes.values() if o == "merged")
 
         if merged_pairs:
-            # Değişmezler — ihlalde dataset'e DOKUNULMAZ.
+            # Invariants — on violation the dataset is NOT TOUCHED.
             if len(df_after) != len(df_before) - merged_pairs:
                 raise RuntimeError(
                     f"borderline birleştirme değişmezi: {len(df_before)} - {merged_pairs} "
@@ -1478,7 +1508,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             if "UID" in df_after.columns and not df_after["UID"].astype(str).is_unique:
                 raise RuntimeError("borderline birleştirme sonrası UID tekil değil")
 
-            # Snapshot ÖNCEKİ dataset'ten — yalnız gerçekten bir şey değişecekse.
+            # Snapshot of the PREVIOUS dataset — only if something will really change.
             snaps_dir = analyses.work_dir(project_id) / "snapshots"
             snaps_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6]
@@ -1490,7 +1520,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             filter_engine._DF_CACHE.clear()
             applied = merged_pairs
 
-            # Yan artefaktlar — en iyi çaba; hata kararı geri almaz.
+            # Side artifacts — best effort; a failure does not roll back the decision.
             try:
                 conflicts_logged = _append_conflict_log(adir / "conflict_log.xlsx", pair_conflicts)
             except Exception:
@@ -1500,8 +1530,8 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             except Exception:
                 pass
 
-    # Uygulanan kabuller şimdi state'e yazılır; uygulanamayanlar "pending"
-    # kalır (kuyrukta görünmeye devam eder).
+    # Applied acceptances are now written to the state; the ones that could not
+    # be applied stay "pending" (they keep appearing in the queue).
     if accept_pairs:
         for pid in resolved_ids:
             state[pid] = {**state.get(pid, {}), "status": "accept", "decided_at": now_ts}
@@ -1538,8 +1568,8 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
         "applied": applied,
         "snapshot": snapshot_rel,
         "pending_after": pending_after,
-        # Kabul edilip dataset'te karşılığı bulunamayan çiftler — arayüz
-        # bunları "uygulandı" diye göstermemeli.
+        # Pairs that were accepted but whose counterpart could not be found in the
+        # dataset — the UI must not show them as "applied".
         "unresolved": unresolved_ids,
         "unresolved_reasons": unresolved_reasons,
         "merged_pairs": merged_pairs,

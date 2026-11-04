@@ -21,11 +21,11 @@ type Props = {
   onDeleted: () => void;
 };
 
-// Analiz tonu hiyerarşisi (V2 cyan + navy paletine uyumlu — marka tutarlılığı):
-//   simple   = slate (nötr, basit birleştirme)
-//   enhanced = cyan/brand (gelişmiş)
-//   smart    = cyan/brand (AI premium — marka rengi, eskiden emerald idi)
-//   unknown  = slate (legacy/eski)
+// Analysis tone hierarchy (consistent with the V2 cyan + navy palette — brand consistency):
+//   simple   = slate (neutral, simple merge)
+//   enhanced = cyan/brand (advanced)
+//   smart    = cyan/brand (AI premium — brand color, used to be emerald)
+//   unknown  = slate (legacy/old)
 const METHOD_META: Record<string, { label: string; icon: typeof Combine; tone: string; iconBg: string; ring: string }> = {
   simple: { label: "Simple", icon: Combine, tone: "text-slate-700", iconBg: "bg-slate-100", ring: "ring-slate-200" },
   enhanced: { label: "Enhanced", icon: Sparkles, tone: "text-brand-700", iconBg: "bg-brand-50", ring: "ring-brand-200" },
@@ -127,15 +127,15 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
           </div>
         )}
 
-        {/* #4: yayına-hazır yöntem paragrafı (kopyalanabilir) */}
+        {/* #4: publication-ready methods paragraph (copyable) */}
         {stats && <MergeNarrative general={stats} createdAt={analysis.created_at} />}
       </CardBody>
     </Card>
   );
 }
 
-/** Smart Merge sonuçlarını yayına-hazır bir metin paragrafına dönüştürür (kopyalanabilir).
- * Tüm sayılar summary.general'dan; ek backend çağrısı yok. */
+/** Turns the Smart Merge results into a publication-ready text paragraph (copyable).
+ * All numbers come from summary.general; no extra backend call. */
 function MergeNarrative({
   general, createdAt,
 }: {
@@ -159,7 +159,7 @@ function MergeNarrative({
     try {
       await navigator.clipboard.writeText(text);
       toast(t("merge.narrative.copied"), { tone: "success" });
-    } catch { /* pano erişimi yoksa sessiz */ }
+    } catch { /* silent if clipboard access is unavailable */ }
   }
 
   return (

@@ -11,57 +11,58 @@ import { cn } from "@/lib/cn";
 import { api, DOCS_URL } from "@/lib/api-client";
 
 /**
- * AppShell — AutoCAD/Office ribbon paterni:
- *  • Solda kompakt logo bloğu (yalnız marka) — anasayfada gizlenir çünkü
- *    Hero zaten büyük marka kimliğini taşır; iç sayfalarda görünür kalır.
- *  • Sağda ribbon paneller — 4 grup (Workspaces / System / Resources / Language)
- *    Her panel: butonlar üstte, panel başlığı altta (uppercase, small caps)
- *    Paneller arası ince dikey ayırıcı
- *  • Language paneli en sağda (ml-auto), boş kalan alanı doldurur
+ * AppShell — AutoCAD/Office ribbon pattern:
+ *  • Compact logo block on the left (brand only) — hidden on the home page because
+ *    the Hero already carries the large brand identity; stays visible on inner pages.
+ *  • Ribbon panels on the right — 4 groups (Workspaces / System / Resources / Language)
+ *    Each panel: buttons on top, panel title at the bottom (uppercase, small caps)
+ *    Thin vertical divider between panels
+ *  • Language panel at the far right (ml-auto), filling the remaining space
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { locale, setLocale, t } = useI18n();
   const pathname = usePathname();
   const isHome = pathname === "/";
 
-  // DOCS_URL runtime'da window.location origin'ine göre çözülür; SSR/build
-  // sırasında ise relative "/docs" olur. Hydration uyuşmazlığını önlemek için
-  // ilk render'da "/docs" (SSR ile aynı), mount'tan sonra gerçek DOCS_URL.
+  // DOCS_URL is resolved at runtime from the window.location origin; during SSR/build
+  // it is the relative "/docs". To avoid a hydration mismatch, the first render uses
+  // "/docs" (same as SSR), and the real DOCS_URL is used after mount.
   const [docsHref, setDocsHref] = useState("/docs");
   useEffect(() => { setDocsHref(DOCS_URL); }, []);
 
-  // Aktif sürüm — footer'da "hangi sürüm çalışıyor" göstermek için /api/health'ten.
+  // Active version — taken from /api/health to show "which version is running" in the footer.
   const [appVersion, setAppVersion] = useState<{ version: string; codename: string } | null>(null);
   useEffect(() => {
     let alive = true;
     api.health()
       .then((h) => { if (alive) setAppVersion({ version: h.version, codename: h.codename }); })
-      .catch(() => { /* health erişilemezse sürüm gösterilmez */ });
+      .catch(() => { /* if health is unreachable, the version is not shown */ });
     return () => { alive = false; };
   }, []);
 
   return (
     <>
-      {/* Header sayfa background'ı ile aynı (#f7f9fc) — ayrı bir "bar" gibi
-          değil sayfanın doğal başlangıcı gibi görünür. Card'lar (logo, ribbon)
-          beyaz arka planda yüzer. */}
+      {/* Header uses the same color as the page background (#f7f9fc) — it looks like
+          the natural start of the page rather than a separate "bar". Cards (logo, ribbon)
+          float on the white background. */}
       {!isHome && (
       <header className="border-b border-slate-300/70 bg-[#f7f9fc] text-slate-900 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-stretch gap-3 px-4 py-3 sm:px-6">
-          {/* === Ribbon (logo + paneller tek beyaz container içinde) === */}
-          {/* Paneller içerik genişliğinde; ribbon `justify-between` ile onları
-              eşit boşluklarla dağıtır — Logo solda, Language sağda,
-              arada Workspaces/System/Resources dengeli yayılır. */}
+          {/* === Ribbon (logo + panels inside a single white container) === */}
+          {/* Panels are content-width; the ribbon's `justify-between` distributes them
+              with equal gaps — Logo on the left, Language on the right,
+              with Workspaces/System/Resources spread evenly in between. */}
           <div className={cn(
             "flex min-w-0 items-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_4px_14px_-12px_rgba(15,23,42,0.25)]",
-            // Anasayfada nav panelleri gövdede ortada (Launcher) — header'da yalnız
-            // dil seçici kalır, sağa yaslı. İç sayfalarda tam ribbon.
+            // On the home page the nav panels sit centered in the body (Launcher) — only the
+            // language switcher remains in the header, right-aligned. Full ribbon on inner pages.
             isHome ? "ml-auto" : "flex-1 justify-between",
           )}>
             {!isHome && (
               <>
-                {/* Logo — container içinde, container yüksekliğini dolduran kare
-                    lockup; sağındaki dikey çizgi (border-r) menüden ayırır. */}
+                {/* Logo — inside the container, a square lockup that fills the
+                    container height; the vertical line on its right (border-r)
+                    separates it from the menu. */}
                 <Link
                   href="/"
                   aria-label="BibexPy — ana sayfa"
@@ -118,10 +119,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </>
             )}
 
-            {/* Language panel — gerçek bayrak ikonları + her dilin kendi adı.
-                Dil her zaman kendi yerel adıyla yazılır (English / Türkçe),
-                Wikipedia ve çoğu çok-dilli sitenin standardı.
-                `justify-between` ribbon container'da sağa dağıtır, ml-auto gereksiz. */}
+            {/* Language panel — real flag icons + each language's own name.
+                A language is always written in its own native name (English / Türkçe),
+                the standard on Wikipedia and most multilingual sites.
+                `justify-between` pushes it to the right in the ribbon container,
+                so ml-auto is unnecessary. */}
             <RibbonPanel title={t("nav.panel.locale")}>
               {(["en", "tr"] as Locale[]).map((l) => (
                 <RibbonButton
@@ -141,21 +143,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="flex-1">{children}</main>
 
-      {/* Footer — anasayfada gizli (Launcher kendi linklerini/cite'ını taşır).
-          Profesyonel 3-bölge: marka+açıklama+sosyal / Kaynaklar / Proje + alt bar. */}
+      {/* Footer — hidden on the home page (Launcher carries its own links/citation).
+          Professional 3-section layout: brand+description+social / Resources / Project + bottom bar. */}
       {!isHome && (
       <footer className="relative border-t border-slate-200 bg-gradient-to-b from-white to-[#eef2f8]">
-        {/* ince cyan üst aksan çizgisi */}
+        {/* thin cyan top accent line */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent"
         />
         <div className="mx-auto max-w-6xl px-6 py-10">
           <div className="grid grid-cols-2 gap-x-8 gap-y-9 md:grid-cols-[1.7fr_1fr_1fr]">
-            {/* Marka + açıklama + sosyal */}
+            {/* Brand + description + social */}
             <div className="col-span-2 md:col-span-1">
-              {/* Logo, alttaki açıklama bloğuyla aynı genişlikte (max-w-xs) ve
-                  sol-hizalı — sağ kenarları da hizalanır. */}
+              {/* Logo has the same width as the description block below (max-w-xs) and
+                  is left-aligned — their right edges line up as well. */}
               <Link
                 href="/"
                 aria-label="BibexPy"
@@ -187,7 +189,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* Kaynaklar */}
+            {/* Resources */}
             <FooterCol title={t("common.footerResources")}>
               <FooterLink href={docsHref} external icon={<LifeBuoy className="h-3.5 w-3.5" />}>
                 {t("common.footerDocs")}
@@ -200,7 +202,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </FooterLink>
             </FooterCol>
 
-            {/* Proje */}
+            {/* Project */}
             <FooterCol title={t("common.footerProject")}>
               <FooterLink
                 href="https://doi.org/10.1016/j.softx.2025.102098"
@@ -218,7 +220,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </FooterCol>
           </div>
 
-          {/* Alt bar — telif + lisans + atıf */}
+          {/* Bottom bar — copyright + license + citation */}
           <div className="mt-9 flex flex-col items-start justify-between gap-3 border-t border-slate-200/70 pt-5 text-[11px] text-slate-400 sm:flex-row sm:items-center">
             <span>
               © 2025 BibexPy ·{" "}
@@ -332,10 +334,10 @@ function FooterIcon({
 /* ───────────── Ribbon primitives ───────────── */
 
 /**
- * Ribbon paneli — bir veya birden çok button + altta panel başlığı.
- * Panel içerik genişliğinde; ribbon container `justify-between` ile paneller
- * arasındaki boşluğu otomatik dağıtır. Panel başlığı (alt label) zaten
- * gruplamayı gösterdiği için dikey ayırıcı çizgiye gerek yok.
+ * Ribbon panel — one or more buttons + the panel title at the bottom.
+ * The panel is content-width; the ribbon container's `justify-between` distributes
+ * the space between panels automatically. Since the panel title (bottom label)
+ * already shows the grouping, no vertical divider line is needed.
  */
 function RibbonPanel({
   title, children, className,
@@ -347,9 +349,9 @@ function RibbonPanel({
   return (
     <div
       className={cn(
-        // Panel içerik genişliğinde (flex-1 yok); ribbon container `justify-between`
-        // ile paneller arası boşluğu otomatik dağıtır. Dikey ayırıcı yok —
-        // panel arası boşluk + altta panel başlığı zaten gruplamayı gösterir.
+        // Panel is content-width (no flex-1); the ribbon container's `justify-between`
+        // distributes the space between panels automatically. No vertical divider —
+        // the gap between panels + the panel title at the bottom already show the grouping.
         "flex min-w-0 flex-col",
         className,
       )}
@@ -365,11 +367,11 @@ function RibbonPanel({
 }
 
 /**
- * Ribbon button — dikey: ikon üstte (cyan accent), label altta.
- * `onClick` veya `href` — biri kullanılır.
- * `active` — Language switcher gibi toggle button için.
- * `bareIcon` — true ise ikon kutusunun navy arka planı kaldırılır; bayrak
- * gibi self-contained görsel içerikler container'ı tam doldurur.
+ * Ribbon button — vertical: icon on top (cyan accent), label below.
+ * `onClick` or `href` — one of them is used.
+ * `active` — for toggle buttons such as the Language switcher.
+ * `bareIcon` — if true, the navy background of the icon box is removed; self-contained
+ * visual content such as flags fills the container completely.
  */
 function RibbonButton({
   href, onClick, icon, label, external = false, active = false, bareIcon = false,
@@ -383,8 +385,8 @@ function RibbonButton({
   bareIcon?: boolean;
 }) {
   const classes = cn(
-    // İçerik genişliğinde buton (flex-1 yok, min-w yok) — panel içinde
-    // `justify-center` ile ortalanır. Komşu paneldeki butonla çakışmaz.
+    // Content-width button (no flex-1, no min-w) — centered within the panel via
+    // `justify-center`. It does not collide with a button in the neighboring panel.
     "group flex flex-col items-center justify-start gap-2 rounded-lg",
     "px-3 py-2.5 text-center transition",
     active
@@ -395,9 +397,9 @@ function RibbonButton({
     <>
       <span className={cn(
         "flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl transition",
-        // İkon container — Hero'nun koyu navy paleti (parlak cyan yerine).
-        // bareIcon=true (bayraklar) → arka plan yok, sadece outline/ring;
-        // bareIcon=false (lucide ikonları) → navy chip / aktif cyan chip.
+        // Icon container — the Hero's dark navy palette (instead of bright cyan).
+        // bareIcon=true (flags) → no background, only outline/ring;
+        // bareIcon=false (lucide icons) → navy chip / active cyan chip.
         bareIcon
           ? active
             ? "ring-2 ring-cyan-500 shadow-[0_6px_18px_-8px_rgba(12,40,71,0.55)]"
@@ -440,11 +442,11 @@ function RibbonButton({
 }
 
 /**
- * Dil göstergesi — kare bayrak SVG'leri (inline, dış bağımlılık yok).
- * `h-full w-full` ile parent ikon container'ını (56×56) tamamen kaplar;
- * RibbonButton `bareIcon` modunda navy arka plan görünmez, bayrak baskındır.
- *  • EN → Birleşik Krallık (Union Jack), 24×24 kare; çapraz+haç 45°.
- *  • TR → Türk bayrağı, 24×24 kare; al zemin + hilal + yıldız merkez.
+ * Language indicator — square flag SVGs (inline, no external dependency).
+ * With `h-full w-full` it completely covers the parent icon container (56×56);
+ * in RibbonButton `bareIcon` mode the navy background is not visible, the flag dominates.
+ *  • EN → United Kingdom (Union Jack), 24×24 square; diagonal cross + cross at 45°.
+ *  • TR → Turkish flag, 24×24 square; red field + crescent + star centered.
  */
 export function LocaleFlag({ code }: { code: Locale }) {
   return code === "tr" ? <FlagTR /> : <FlagGB />;
@@ -460,12 +462,12 @@ function FlagTR() {
       aria-label="Türkçe"
       role="img"
     >
-      {/* Al zemin (resmi Türk bayrağı kırmızısı) */}
+      {/* Red field (the official red of the Turkish flag) */}
       <rect width="24" height="24" fill="#E30A17" />
-      {/* Hilal: beyaz büyük daire üstüne kırmızı küçük daire (offset) */}
+      {/* Crescent: a small red circle (offset) over a large white circle */}
       <circle cx="8.5" cy="12" r="5" fill="#fff" />
       <circle cx="10" cy="12" r="4" fill="#E30A17" />
-      {/* 5 köşeli beyaz yıldız (merkez 15, 12; R=2.2) — bir kolu sola bakar */}
+      {/* 5-pointed white star (center 15, 12; R=2.2) — one point faces left */}
       <polygon
         fill="#fff"
         points="12.8,12 14.32,11.51 14.32,9.91 15.26,11.2 16.78,10.71 15.84,12 16.78,13.29 15.26,12.8 14.32,14.09 14.32,12.49"
@@ -488,15 +490,15 @@ function FlagGB() {
         <rect width="24" height="24" />
       </clipPath>
       <g clipPath="url(#gb-flag-clip)">
-        {/* Mavi zemin */}
+        {/* Blue field */}
         <rect width="24" height="24" fill="#012169" />
-        {/* Beyaz çapraz (Saltire — Scotland) */}
+        {/* White diagonal cross (Saltire — Scotland) */}
         <path d="M0,0 L24,24 M24,0 L0,24" stroke="#fff" strokeWidth="5" />
-        {/* Kırmızı çapraz ince (St. Patrick — Ireland) */}
+        {/* Thin red diagonal cross (St. Patrick — Ireland) */}
         <path d="M0,0 L24,24 M24,0 L0,24" stroke="#C8102E" strokeWidth="2" />
-        {/* Beyaz haç (St. George geniş, England) */}
+        {/* White cross (St. George, wide, England) */}
         <path d="M12,0 V24 M0,12 H24" stroke="#fff" strokeWidth="8" />
-        {/* Kırmızı haç (St. George dar üstte) */}
+        {/* Red cross (St. George, narrow, on top) */}
         <path d="M12,0 V24 M0,12 H24" stroke="#C8102E" strokeWidth="5" />
       </g>
     </svg>

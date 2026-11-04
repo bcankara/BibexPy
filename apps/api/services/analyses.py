@@ -20,7 +20,7 @@ from services import dataset_io, storage
 
 
 # ─────────────────────────────────────────────────────────────
-#  Yol helper'ları
+#  Path helpers
 # ─────────────────────────────────────────────────────────────
 
 def analyses_dir(project_id: str) -> Path:
@@ -56,15 +56,15 @@ def _read_meta(adir: Path) -> dict[str, Any]:
 
 
 def create_analysis(project_id: str, method: str, label: Optional[str] = None) -> tuple[str, Path]:
-    """Yeni analiz oluştur — timestamp'li klasör + meta.json. Aktif yapılmaz.
+    """Create a new analysis — timestamped folder + meta.json. Not made active.
 
-    Dönüş: (analysis_id, path)
+    Returns: (analysis_id, path)
     """
     now = time.time()
     stamp = datetime.fromtimestamp(now).strftime("%Y%m%d_%H%M%S")
     analysis_id = f"analysis_{stamp}_{method}"
 
-    # Çakışma durumunda sonek ekle
+    # On a collision, append a suffix
     base = analyses_dir(project_id)
     i = 1
     while (base / analysis_id).exists():
@@ -90,7 +90,7 @@ def create_analysis(project_id: str, method: str, label: Optional[str] = None) -
 
 
 def finalize_analysis(project_id: str, analysis_id: str) -> None:
-    """Analiz tamamlandığında file_count'u güncelle + aktif yap."""
+    """When the analysis completes, update file_count + make it active."""
     adir = analysis_dir(project_id, analysis_id)
     if not adir.exists():
         return
@@ -102,7 +102,7 @@ def finalize_analysis(project_id: str, analysis_id: str) -> None:
 
 
 def list_analyses(project_id: str) -> list[dict[str, Any]]:
-    """Tüm analizleri en yeniden eskiye sırala."""
+    """List all analyses, sorted from newest to oldest."""
     out: list[dict[str, Any]] = []
     active_id = get_active_analysis_id(project_id)
     base = analyses_dir(project_id)
@@ -112,15 +112,15 @@ def list_analyses(project_id: str) -> list[dict[str, Any]]:
     for p in base.iterdir():
         if not p.is_dir():
             continue
-        # Trash klasörlerini (silinmiş ama henüz fiziksel temizlenmemiş) atla
+        # Skip trash folders (deleted but not yet physically cleaned up)
         if p.name.startswith("_deleted_"):
             continue
         meta = _read_meta(p)
-        # Soft-delete edilmiş analizleri atla (meta.json'da deleted: true)
+        # Skip soft-deleted analyses (deleted: true in meta.json)
         if meta.get("deleted"):
             continue
         if not meta:
-            # meta.json yoksa basic info üret
+            # If meta.json is missing, generate basic info
             meta = {
                 "id": p.name,
                 "created_at": p.stat().st_mtime,
@@ -129,7 +129,7 @@ def list_analyses(project_id: str) -> list[dict[str, Any]]:
                 "file_count": sum(1 for f in p.iterdir() if f.is_file()),
             }
         meta["is_active"] = (meta.get("id") == active_id)
-        # Boyut bilgisi
+        # Size information
         try:
             meta["total_size"] = sum(f.stat().st_size for f in p.iterdir() if f.is_file())
         except Exception:
@@ -145,7 +145,7 @@ def get_analysis_meta(project_id: str, analysis_id: str) -> Optional[dict[str, A
     if not adir.exists():
         return None
     meta = _read_meta(adir)
-    # Soft-deleted analizler "yok" gibi davranılır — tekrar silinemez
+    # Soft-deleted analyses are treated as non-existent — they cannot be deleted again
     if meta.get("deleted"):
         return None
     meta["is_active"] = (meta.get("id") == get_active_analysis_id(project_id))
@@ -153,20 +153,22 @@ def get_analysis_meta(project_id: str, analysis_id: str) -> Optional[dict[str, A
 
 
 def delete_analysis(project_id: str, analysis_id: str) -> bool:
-    """Bir analizi sil — Windows-friendly **soft delete** stratejisi.
+    """Delete an analysis — Windows-friendly **soft delete** strategy.
 
-    Windows'ta açık file handle'lar (pandas read_excel cache, openpyxl iç
-    state, vb.) dosyayı `unlink`/`rename` için kilitliyor. Bunu aşmak için:
+    On Windows, open file handles (pandas read_excel cache, openpyxl internal
+    state, etc.) lock the file against `unlink`/`rename`. To work around this:
 
-      1. Aktif analiz siliniyorsa aktifliği başka analize taşı
-      2. filter_engine DataFrame cache'i temizle + gc.collect()
-      3. **Önce hızlı yol**: shutil.rmtree dene (1 retry).
-      4. **Fallback (soft delete)**: meta.json'a `"deleted": true` flag'i yaz.
-         list_analyses() bunu filtreler; UI'da görünmez. Disk alanı sonraki
-         backend restart'ında `purge_soft_deleted()` ile temizlenir.
+      1. If the active analysis is being deleted, move the active pointer
+         to another analysis
+      2. Clear the filter_engine DataFrame cache + gc.collect()
+      3. **Fast path first**: try shutil.rmtree (1 retry).
+      4. **Fallback (soft delete)**: write a `"deleted": true` flag into
+         meta.json. list_analyses() filters it out; it is invisible in the
+         UI. The disk space is reclaimed on the next backend restart via
+         `purge_soft_deleted()`.
 
-    Soft-delete sayesinde DELETE hiçbir zaman 500 fırlatmaz; kullanıcı
-    deneyimi tutarlı kalır.
+    Thanks to soft delete, DELETE never raises a 500; the user experience
+    stays consistent.
     """
     import gc
     import time as _time
@@ -177,7 +179,7 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
 
     active_id = get_active_analysis_id(project_id)
 
-    # 1) Aktif analiz siliniyorsa önce aktifliği taşı
+    # 1) If the active analysis is being deleted, move the active pointer first
     if active_id == analysis_id:
         remaining = [a for a in list_analyses(project_id) if a["id"] != analysis_id]
         if remaining:
@@ -185,7 +187,7 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
         else:
             clear_active_analysis(project_id)
 
-    # 2) Filter cache'i temizle
+    # 2) Clear the filter cache
     try:
         from services import filter_engine
         filter_engine._DF_CACHE.clear()
@@ -193,7 +195,7 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
         pass
     gc.collect()
 
-    # 3) Hızlı yol: gerçek silme dene (Windows'ta sıklıkla fail eder)
+    # 3) Fast path: try a real delete (often fails on Windows)
     def _on_rmtree_error(func, path, exc_info):
         try:
             import os, stat
@@ -210,7 +212,7 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
             gc.collect()
             _time.sleep(0.3)
 
-    # 4) Soft delete fallback — meta.json'a flag yaz
+    # 4) Soft delete fallback — write the flag into meta.json
     meta_path = adir / "meta.json"
     try:
         meta = _read_meta(adir)
@@ -221,7 +223,7 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
     try:
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     except Exception:
-        # meta.json bile yazılamıyorsa gerçekten kilitli — başarısız
+        # If even meta.json cannot be written, it is truly locked — fail
         if active_id == analysis_id:
             try:
                 set_active_analysis(project_id, analysis_id)
@@ -232,9 +234,9 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
 
 
 def purge_soft_deleted(project_id: str) -> int:
-    """Soft-delete edilmiş ama henüz fiziksel olarak silinmemiş analiz
-    klasörlerini temizlemeyi dene. Backend startup'ta veya periyodik
-    çağrılabilir. Başarıyla silinen klasör sayısını döner."""
+    """Try to clean up analysis folders that were soft-deleted but not yet
+    physically removed. Can be called at backend startup or periodically.
+    Returns the number of folders successfully deleted."""
     import gc
     base = analyses_dir(project_id)
     if not base.exists():
@@ -284,20 +286,20 @@ def clear_active_analysis(project_id: str) -> None:
 
 
 def get_active_analysis_dir(project_id: str) -> Optional[Path]:
-    """Aktif analizin klasör yolunu döndür.
+    """Return the folder path of the active analysis.
 
-    Eğer aktif analiz yoksa, son yapılan analizi otomatik aktif yap.
-    Hiç analiz yoksa None döner.
+    If there is no active analysis, automatically make the most recent
+    analysis active. Returns None if there are no analyses at all.
     """
     active_id = get_active_analysis_id(project_id)
     if active_id:
         adir = analysis_dir(project_id, active_id)
         if adir.exists():
             return adir
-        # Aktif klasör silinmiş; pointer'ı temizle
+        # The active folder was deleted; clear the pointer
         clear_active_analysis(project_id)
 
-    # Aktif yoksa en yenisi
+    # If there is no active one, use the newest
     analyses = list_analyses(project_id)
     if analyses:
         latest = analyses[0]["id"]
@@ -308,24 +310,26 @@ def get_active_analysis_dir(project_id: str) -> Optional[Path]:
 
 
 def work_dir(project_id: str) -> Path:
-    """Analiz-spesifik çıktıların (disambiguation önerileri, snapshot'lar, audit)
-    yazılacağı klasör = AKTİF analiz klasörü. Böylece her yeni merge (yeni analiz)
-    kendi temiz çalışma alanına sahip olur ve eski öneriler/snapshot'lar taşınmaz.
+    """The folder where analysis-specific outputs (disambiguation suggestions,
+    snapshots, audit) are written = the ACTIVE analysis folder. This way every
+    new merge (new analysis) gets its own clean workspace, and old
+    suggestions/snapshots are not carried over.
 
-    Hiç analiz yoksa proje köküne düşer (geriye uyumluluk; pratikte merge'siz bu
-    yollar çağrılmaz).
+    If there are no analyses at all, falls back to the project root (backward
+    compatibility; in practice these paths are not called without a merge).
     """
     adir = get_active_analysis_dir(project_id)
     return adir if adir is not None else storage.project_dir(project_id)
 
 
 # ─────────────────────────────────────────────────────────────
-#  Dataset path resolver (filter_engine, merger için)
+#  Dataset path resolver (for filter_engine, merger)
 # ─────────────────────────────────────────────────────────────
 
-# Aktif analiz klasöründeki ana dataset dosya adı (Smart Merge → merged.parquet).
-# SIRA YÜK TAŞIR: parquet ÖNCE gelir; tembel migrasyon parquet'i atomik yayınladığı
-# an resolver ona döner, "ikisi de yok" penceresi hiç oluşmaz.
+# Main dataset file name in the active analysis folder (Smart Merge → merged.parquet).
+# ORDER MATTERS: parquet comes FIRST; the moment the lazy migration atomically
+# publishes the parquet, the resolver switches to it, so a "neither exists"
+# window never occurs.
 _DATASET_NAMES = (
     "merged.parquet",
     "merged.xlsx",
@@ -333,11 +337,12 @@ _DATASET_NAMES = (
 
 
 def _audit_migration(project_id: str):
-    """on_migrate callback: tek seferlik format geçişini History'ye yaz.
+    """on_migrate callback: write the one-time format migration to History.
 
-    Migrasyon snapshot'ı aksi halde UI'da görünmezdi — restore butonu audit
-    kaydındaki snapshot alanına bağlı. audit lazy import edilir (audit →
-    analyses lazy import'u ile simetrik; modül-seviyesi döngü yok).
+    The migration snapshot would otherwise not be visible in the UI — the
+    restore button depends on the snapshot field of the audit record. audit is
+    imported lazily (symmetric with audit's lazy import of analyses; no
+    module-level cycle).
     """
     def cb(target: Path, snapshot: Optional[Path]) -> None:
         from services import audit
@@ -355,10 +360,10 @@ def _audit_migration(project_id: str):
 
 
 def active_dataset_path(project_id: str) -> Optional[Path]:
-    """Aktif analizdeki ana birleştirilmiş dataset dosyasını döndür.
+    """Return the main merged dataset file in the active analysis.
 
-    Legacy xlsx dataset'ler burada — TEK noktada — tembel olarak parquet'e
-    taşınır; `merged_dataset_path` ve `load_merged` bunu otomatik devralır.
+    Legacy xlsx datasets are lazily migrated to parquet here — at this SINGLE
+    point; `merged_dataset_path` and `load_merged` pick this up automatically.
     """
     adir = get_active_analysis_dir(project_id)
     if adir is None:
@@ -368,7 +373,7 @@ def active_dataset_path(project_id: str) -> Optional[Path]:
         p = adir / name
         if p.exists():
             return dataset_io.ensure_parquet(p, on_migrate=on_migrate)
-    # Fallback: ilk dataset dosyası (yan dosyaları atla)
+    # Fallback: the first dataset file (skip side files)
     SKIP = {"statistic.xlsx", "statistic_smart.xlsx", "match_audit.xlsx",
             "conflict_log.xlsx", "borderline_queue.xlsx"}
     for f in sorted(adir.iterdir()):

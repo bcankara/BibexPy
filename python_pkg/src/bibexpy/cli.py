@@ -20,17 +20,17 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-# Wheel içindeki bu paketin kökü (cli.py'nin bulunduğu dizin).
+# Root of this package inside the wheel (the directory containing cli.py).
 _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
 __version__ = "2.3.0"
-__codename__ = "Helium"   # v2 surum kod adi (v1 "Hydrogen"in ardili; H -> He)
+__codename__ = "Helium"   # v2 release codename (successor to v1 "Hydrogen"; H -> He)
 
 
-# Ilk-calistirma .env sablonu — kullanici anahtarlari nereye gireceğini gorur.
-# Hepsi opsiyonel; anahtarsiz da calisir (enrichment/LLM graceful skip).
+# First-run .env template: shows the user where to enter their keys.
+# All keys are optional; it also works without keys (enrichment/LLM are skipped gracefully).
 _ENV_TEMPLATE = """\
 # BibexPy ayarlari — API anahtarlari (hepsi OPSIYONEL).
 # Crossref, OpenAlex ve Unpaywall UCRETSIZdir; yalniz Scopus anahtar ister.
@@ -51,7 +51,7 @@ LLM_MODEL=deepseek-v4-flash
 
 
 def _write_env_template(env_file: Path) -> None:
-    """`.env` yoksa yorumlu bir sablon yaz (varsa dokunma)."""
+    """Write a commented template if `.env` does not exist (leave it alone if it does)."""
     if env_file.exists():
         return
     try:
@@ -71,7 +71,7 @@ def _port_is_free(host: str, port: int) -> bool:
 
 
 def _resolve_port(host: str, preferred: int) -> int:
-    """Istenen port boşsa onu; degilse sonraki 20'yi, sonra OS'tan boş port dener."""
+    """Use the requested port if free; otherwise try the next 20, then ask the OS for a free port."""
     if _port_is_free(host, preferred):
         return preferred
     for p in range(preferred + 1, preferred + 21):
@@ -83,7 +83,7 @@ def _resolve_port(host: str, preferred: int) -> int:
 
 
 def _read_env_value(env_file: Path, key: str) -> str | None:
-    """`.env` dosyasından tek bir KEY değerini oku (yoksa None)."""
+    """Read a single KEY value from the `.env` file (None if absent)."""
     if not env_file.is_file():
         return None
     try:
@@ -103,12 +103,13 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
 
 
 def _windows_path_hint() -> str | None:
-    """Windows'ta `bibexpy` komutu PATH'te yoksa, exe'nin bulunduğu Scripts
-    klasörünü döndür (kullanıcıya kopyala-yapıştır düzeltme göstermek için).
+    """On Windows, if the `bibexpy` command is not on PATH, return the Scripts
+    folder that contains the exe (so a copy-paste fix can be shown to the user).
 
-    Tipik senaryo: Microsoft Store Python veya `pip install --user` →
-    Scripts klasörü PATH'te değil → "bibexpy is not recognized". Kullanıcı
-    `python -m bibexpy` ile başlatabildiği için bu ipucu tam o anda görünür.
+    Typical scenario: Microsoft Store Python or `pip install --user` →
+    the Scripts folder is not on PATH → "bibexpy is not recognized". The user
+    can still start it with `python -m bibexpy`, so this hint appears at exactly
+    that moment.
     """
     if os.name != "nt":
         return None
@@ -116,11 +117,12 @@ def _windows_path_hint() -> str | None:
     import sysconfig
 
     if shutil.which("bibexpy"):
-        return None  # zaten PATH'te — ipucuna gerek yok
-    # SIRA ÖNEMLİ: önce kullanıcı şeması (nt_user) — Store Python / --user
-    # kurulumlarında exe oraya düşer. sysconfig'in varsayılan 'scripts' yolu
-    # Store Python'da Program Files\WindowsApps sanal yolunu (süreç içinden
-    # "var" görünür, dışarıdan ERİŞİLEMEZ) gösterebilir → WindowsApps filtrele.
+        return None  # already on PATH — no hint needed
+    # ORDER MATTERS: user scheme (nt_user) first — in Store Python / --user
+    # installs the exe lands there. sysconfig's default 'scripts' path can point
+    # to the virtual Program Files\WindowsApps path in Store Python (it appears
+    # to "exist" from inside the process but is NOT ACCESSIBLE from outside)
+    # → filter out WindowsApps.
     candidates: list[Path] = []
     for args in (("scripts", "nt_user"), ("scripts",)):
         try:
@@ -139,12 +141,13 @@ def _windows_path_hint() -> str | None:
 
 
 def _add_to_user_path_windows(scripts_dir: str) -> bool:
-    """Scripts klasörünü kullanıcı PATH'ine KALICI ekle (HKCU\\Environment).
+    """PERMANENTLY add the Scripts folder to the user PATH (HKCU\\Environment).
 
-    setx KULLANILMAZ — değeri 1024 karakterde keser. winreg ile mevcut değer
-    tipi (REG_SZ / REG_EXPAND_SZ) korunarak sona eklenir; idempotenttir.
-    Yeni açılan terminaller güncel PATH'i görsün diye WM_SETTINGCHANGE
-    yayınlanır (mevcut açık terminaller etkilenmez). Başarıda True.
+    setx is NOT used — it truncates the value at 1024 characters. With winreg the
+    entry is appended at the end, preserving the existing value type
+    (REG_SZ / REG_EXPAND_SZ); it is idempotent. WM_SETTINGCHANGE is broadcast so
+    that newly opened terminals see the updated PATH (terminals that are already
+    open are not affected). Returns True on success.
     """
     try:
         import ctypes
@@ -161,7 +164,7 @@ def _add_to_user_path_windows(scripts_dir: str) -> bool:
                 current, vtype = "", winreg.REG_EXPAND_SZ
             parts = [p for p in str(current).split(";") if p.strip()]
             if any(os.path.normcase(os.path.normpath(p)) == target for p in parts):
-                return True  # zaten ekli
+                return True  # already added
             new_val = (str(current).rstrip(";") + ";" if current else "") + scripts_dir
             winreg.SetValueEx(key, "Path", 0, vtype, new_val)
 
@@ -176,10 +179,10 @@ def _add_to_user_path_windows(scripts_dir: str) -> bool:
 
 
 def _open_browser_when_ready(url: str, health_url: str, timeout: float = 30.0) -> None:
-    """Sunucu /api/health'e cevap verince tarayıcıyı aç.
+    """Open the browser once the server responds on /api/health.
 
-    Ayrı thread'de çalışır; sunucunun ayağa kalkmasını bekler ki tarayıcı
-    'bağlantı reddedildi' göstermesin.
+    Runs in a separate thread; it waits for the server to come up so the browser
+    does not show 'connection refused'.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -228,7 +231,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-# faulthandler'ın yazacağı dosya tanıtıcısı süreç boyunca açık kalmalı.
+# The file handle faulthandler writes to must stay open for the whole process lifetime.
 _CRASH_LOG_FH = None
 
 
@@ -249,7 +252,7 @@ def _supervise(argv: list[str] | None) -> int:
     first = True
     while True:
         cmd = [sys.executable, "-m", "bibexpy"] + base
-        # Yeniden başlatmada tarayıcıyı tekrar açma — sekme zaten açık.
+        # Do not reopen the browser on restart — the tab is already open.
         if not first and "--no-browser" not in cmd:
             cmd.append("--no-browser")
         started = time.monotonic()
@@ -277,9 +280,9 @@ def _supervise(argv: list[str] | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Windows konsolu (cp1254/cp850 vb.) UTF-8 olmayan codepage'lerde Türkçe
-    # karakterlerde veya ok işaretlerinde UnicodeEncodeError ile çökebilir.
-    # stdout/stderr'i UTF-8'e ayarla; errors='replace' → asla raise etmez.
+    # On non-UTF-8 codepages (cp1254/cp850 etc.) the Windows console can crash with
+    # UnicodeEncodeError on Turkish characters or arrow symbols.
+    # Set stdout/stderr to UTF-8; errors='replace' → never raises.
     for _stream in (sys.stdout, sys.stderr):
         try:
             _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -288,13 +291,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = _build_parser().parse_args(argv)
 
-    # 0. Gözetmen: sunucu ayrı bir çocuk süreçte koşar; native bir çökme (donanım
-    # kaynaklı SIMD hatası gibi) uygulamayı kalıcı öldürmesin, otomatik yeniden
-    # başlasın. Çocuk süreç BIBEXPY_SUPERVISED=1 ile bu bloğu atlar.
+    # 0. Supervisor: the server runs in a separate child process; a native crash
+    # (e.g. a hardware-triggered SIMD fault) must not kill the app permanently, it
+    # should restart automatically. The child process skips this block with
+    # BIBEXPY_SUPERVISED=1.
     if os.environ.get("BIBEXPY_SUPERVISED") != "1" and not args.no_supervisor:
         return _supervise(argv)
 
-    # 1. Paket bütünlüğü kontrolü — build script çalışmadan kurulmuşsa anlamlı hata ver.
+    # 1. Package integrity check — give a meaningful error if installed without running the build script.
     if not (_WEB_DIR / "index.html").is_file():
         sys.stderr.write(
             "ERROR: embedded frontend not found (_web/index.html missing).\n"
@@ -308,15 +312,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    # 2. Yapılandırma + depolama klasörleri (yazılabilir kullanıcı konumu).
+    # 2. Configuration + storage folders (writable user location).
     config_dir = Path(args.config_dir).expanduser() if args.config_dir else Path.home() / ".bibexpy"
     config_dir.mkdir(parents=True, exist_ok=True)
     env_file = config_dir / ".env"
-    _write_env_template(env_file)  # ilk calistirmada yorumlu sablon
+    _write_env_template(env_file)  # commented template on first run
 
-    # Native çökmelerde (access violation / illegal instruction) Python yığınını
-    # kaydet — aksi halde süreç İZ BIRAKMADAN ölür (gözlenen numpy SIMD çökmesi
-    # gibi). Dosya tanıtıcısı süreç ömrünce açık kalmalı (global).
+    # On native crashes (access violation / illegal instruction) record the Python
+    # stack — otherwise the process dies WITHOUT A TRACE (like the observed numpy
+    # SIMD crash). The file handle must stay open for the process lifetime (global).
     import faulthandler
     global _CRASH_LOG_FH
     try:
@@ -330,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         faulthandler.enable()
 
-    # Depolama önceliği: --storage > .env'deki STORAGE_DIR > <config_dir>/storage
+    # Storage precedence: --storage > STORAGE_DIR in .env > <config_dir>/storage
     storage = (
         args.storage
         or _read_env_value(env_file, "STORAGE_DIR")
@@ -339,26 +343,26 @@ def main(argv: list[str] | None = None) -> int:
     storage_path = Path(storage).expanduser()
     storage_path.mkdir(parents=True, exist_ok=True)
 
-    # 3. Ortam değişkenleri — main.py + config.py + settings router bunları okur.
+    # 3. Environment variables — main.py + config.py + the settings router read these.
     os.environ["BIBEXPY_CONFIG_DIR"] = str(config_dir)
     os.environ["BIBEXPY_FRONTEND_DIST"] = str(_WEB_DIR)
     os.environ["STORAGE_DIR"] = str(storage_path)
 
-    # Paketle gelen örnek veri (ilk kurulumda "Simple Project" olarak yüklenir;
-    # main.py startup'ı boş depoda bir kez kullanır). Kullanıcı önceden set
-    # ettiyse (örn. boş string ile kapatma) dokunma.
+    # Sample data shipped with the package (loaded as "Simple Project" on first
+    # install; main.py startup uses it once on an empty store). If the user has
+    # already set it (e.g. disabled with an empty string), leave it alone.
     _samples = _PKG_DIR / "_samples" / "simple_project"
     if "BIBEXPY_SAMPLES_DIR" not in os.environ and _samples.is_dir():
         os.environ["BIBEXPY_SAMPLES_DIR"] = str(_samples)
 
-    # 4. Flat import'lar (from config import ..., from routers import ...) için
-    #    gömülü sunucu dizinini sys.path başına ekle.
+    # 4. For flat imports (from config import ..., from routers import ...)
+    #    prepend the embedded server directory to sys.path.
     sys.path.insert(0, str(_SERVER_DIR))
 
-    # 5. Uygulamayı import et (env var'lar set edildikten SONRA — _frontend_root()
-    #    BIBEXPY_FRONTEND_DIST'i okuyup statik UI'yi mount eder).
+    # 5. Import the application (AFTER the env vars are set — _frontend_root()
+    #    reads BIBEXPY_FRONTEND_DIST and mounts the static UI).
     try:
-        from main import app  # type: ignore  # noqa: E402  (gömülü _server modülü)
+        from main import app  # type: ignore  # noqa: E402  (embedded _server module)
     except Exception as exc:  # pragma: no cover
         sys.stderr.write(f"ERROR: failed to load the server application: {exc}\n")
         return 1
@@ -377,18 +381,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  -> Settings: {env_file}")
     print(f"  (Press Ctrl+C to stop)\n")
 
-    # Windows: `bibexpy` PATH'te değilse (Store Python / --user kurulum) PATH'e
-    # eklemeyi TEKLİF ET (pipx ensurepath / rustup deseni). Yalnız etkileşimli
-    # terminalde ve BİR KEZ sorulur (marker); otomasyon/CI asla bloklanmaz.
-    # `--add-path` bayrağı sormadan ekler. Eklenmezse kopyala-yapıştır ipucu.
+    # Windows: if `bibexpy` is not on PATH (Store Python / --user install), OFFER to
+    # add it to PATH (pipx ensurepath / rustup pattern). Asked only in an
+    # interactive terminal and ONLY ONCE (marker); automation/CI is never blocked.
+    # The `--add-path` flag adds it without asking. If not added, a copy-paste hint is shown.
     hint_dir = _windows_path_hint()
     if hint_dir:
         added = False
         prompt_marker = config_dir / ".path_setup_offered"
-        # GERÇEKTEN etkileşimli mi? stdin VE stdout'un İKİSİ de TTY olmalı.
-        # Yalnız stdin'e bakmak yetmez: çıktısı dosyaya yönlendirilmiş ama
-        # stdin'i konsola bağlı bir süreçte (servis/zamanlayıcı/otomasyon)
-        # input() cevapsız bekler ve SUNUCU HİÇ BAŞLAMAZDI (2.0.2 hatası).
+        # Is it REALLY interactive? BOTH stdin AND stdout must be a TTY.
+        # Checking only stdin is not enough: in a process whose output is
+        # redirected to a file but whose stdin is attached to a console
+        # (service/scheduler/automation), input() would wait forever unanswered
+        # and the SERVER WOULD NEVER START (the 2.0.2 bug).
         def _tty(stream) -> bool:
             try:
                 return bool(stream and stream.isatty())

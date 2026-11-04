@@ -15,11 +15,11 @@ export function JobProgress({ jobId, onComplete, onClose }: Props) {
   const t = useT();
   const [job, setJob] = useState<JobInfo | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  // Ref pattern: onComplete prop değişimi useEffect'i tetiklemez, böylece
-  // EventSource her render'da kapanıp açılmaz ve "completed" event'i kaçırılmaz.
+  // Ref pattern: a change of the onComplete prop does not trigger the useEffect, so
+  // the EventSource is not closed and reopened on every render and the "completed" event is not missed.
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  // "completed" callback'inin tek seferde tetiklenmesini garanti et
+  // Guarantee that the "completed" callback fires only once
   const firedRef = useRef(false);
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export function JobProgress({ jobId, onComplete, onClose }: Props) {
   async function handleCancel() {
     if (cancelling || !job) return;
     setCancelling(true);
-    try { await api.cancelJob(job.id); } catch { /* yut */ }
+    try { await api.cancelJob(job.id); } catch { /* swallow */ }
     finally { setCancelling(false); }
   }
 
