@@ -25,24 +25,25 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 __codename__ = "Helium"   # v2 release codename (successor to v1 "Hydrogen"; H -> He)
 
 
 # First-run .env template: shows the user where to enter their keys.
 # All keys are optional; it also works without keys (enrichment/LLM are skipped gracefully).
 _ENV_TEMPLATE = """\
-# BibexPy ayarlari — API anahtarlari (hepsi OPSIYONEL).
-# Crossref, OpenAlex ve Unpaywall UCRETSIZdir; yalniz Scopus anahtar ister.
+# BibexPy settings - API keys (all OPTIONAL).
+# Crossref, OpenAlex and Unpaywall are FREE; only Scopus requires a key.
 
-# --- Zenginlestirme kaynaklari (opsiyonel) ---
+# --- Enrichment sources (optional) ---
 SCOPUS_API_KEY=
 CROSSREF_EMAIL=
+OPENALEX_API_KEY=
 UNPAYWALL_EMAIL=
 SEMANTIC_SCHOLAR_API_KEY=
 
-# --- LLM (disambiguation icin, opsiyonel) ---
-# Saglayici: deepseek | openai | openrouter | custom
+# --- LLM (for disambiguation, optional) ---
+# Provider: deepseek | openai | openrouter | custom
 LLM_PROVIDER=deepseek
 LLM_API_KEY=
 LLM_BASE_URL=https://api.deepseek.com
@@ -204,23 +205,23 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Self-hosted bibliometric data preparation tool "
         "(Scopus + Web of Science).",
     )
-    p.add_argument("--host", default="127.0.0.1", help="Bağlanılacak host (varsayılan: 127.0.0.1)")
-    p.add_argument("--port", type=int, default=6060, help="Port (varsayılan: 6060)")
+    p.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+    p.add_argument("--port", type=int, default=6060, help="Port (default: 6060)")
     p.add_argument(
         "--storage",
         default=None,
-        help="Depolama klasörü (varsayılan: ~/.bibexpy/storage veya .env'deki STORAGE_DIR)",
+        help="Storage folder (default: ~/.bibexpy/storage or STORAGE_DIR from .env)",
     )
     p.add_argument(
         "--config-dir",
         default=None,
-        help="Yapılandırma klasörü (.env burada; varsayılan: ~/.bibexpy)",
+        help="Configuration folder (holds .env; default: ~/.bibexpy)",
     )
-    p.add_argument("--no-browser", action="store_true", help="Tarayıcıyı otomatik açma")
+    p.add_argument("--no-browser", action="store_true", help="Do not open the browser automatically")
     p.add_argument(
         "--no-supervisor",
         action="store_true",
-        help="Gözetmen (otomatik yeniden başlatma) olmadan tek süreçte çalıştır (debug)",
+        help="Run in a single process without the supervisor (no automatic restart; for debugging)",
     )
     p.add_argument(
         "--add-path",
