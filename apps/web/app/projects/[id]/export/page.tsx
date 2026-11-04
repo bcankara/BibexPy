@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  api, formatBytes, type ConvertResult, type ExportFormat,
+  api, type ConvertResult, type ExportFormat,
   type Preset, type FilterSpec, type FolderSuggest, translateApiError,
 } from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "@/components/Card";
@@ -12,7 +12,8 @@ import {
   FileSpreadsheet, FileType, BookOpen, FileJson, Database,
   FolderInput, Check, X, AlertCircle, Save,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "@/components/Dialogs";
 import { type ToolKey, ToolBadgeList } from "@/components/ToolBadge";
 import { StepNav } from "@/components/StepNav";
@@ -270,7 +271,9 @@ export default function ExportPage() {
       try {
         await api.addAuditEntry(id, {
           kind: "export",
-          title: t("export.browserCopyTitle", { n: succeeded.length }),
+          title: `${succeeded.length} files copied via browser`,
+          title_key: "export.browserCopyTitle",
+          title_params: { n: succeeded.length },
           details: {
             method: "browser_fsa",
             target_folder_name: dirHandle.name,
@@ -409,9 +412,11 @@ function DuplicateExportDialog({ fmt, existing, onCancel, onReplace, onKeep }: {
   onReplace: () => void;
   onKeep: () => void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const fmtUpper = fmt.toUpperCase();
-  const plural = existing.length === 1 ? "" : "s";
+  // Plural form chosen by the app language's CLDR rules instead of an English "s" suffix.
+  const bodyKey = new Intl.PluralRules(locale).select(existing.length) === "one"
+    ? "export.duplicate.bodyOne" : "export.duplicate.bodyOther";
   return (
     <>
       <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[60]" onClick={onCancel} />
@@ -425,7 +430,7 @@ function DuplicateExportDialog({ fmt, existing, onCancel, onReplace, onKeep }: {
           </div>
           <div className="px-5 py-4 space-y-3">
             <p className="text-sm text-ink">
-              {t("export.duplicate.body", { count: existing.length, format: fmtUpper, plural })}
+              {t(bodyKey, { count: formatNumber(existing.length, locale), format: fmtUpper })}
             </p>
             <ul className="text-[11px] text-muted bg-bg-soft rounded-lg px-3 py-2 max-h-32 overflow-y-auto font-mono">
               {existing.map((f) => (

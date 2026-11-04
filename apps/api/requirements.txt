@@ -8,7 +8,7 @@ sse-starlette>=2.0.0
 reportlab>=4.0
 pyarrow>=15
 
-# bibex_core bağımlılıkları (editable install ile bibex_core kendi requirements'ını getirir)
+# bibex_core dependencies (the editable install brings bibex_core's own requirements)
 -e ../../packages/bibex_core
 
 # Testing

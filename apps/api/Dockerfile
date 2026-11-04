@@ -7,13 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Önce bibex_core (editable install)
+# bibex_core first (editable install)
 COPY packages/bibex_core /opt/bibex_core
 RUN pip install --no-cache-dir -e /opt/bibex_core
 
 # API
 COPY apps/api/requirements.txt /tmp/requirements.txt
-# requirements.txt'deki -e ../../packages/... satırı bizim için zaten yapıldı; geri kalanı kur
+# The -e ../../packages/... line of requirements.txt is already done for us; install the rest
 RUN grep -v "^-e " /tmp/requirements.txt > /tmp/req.txt && \
     pip install --no-cache-dir -r /tmp/req.txt
 

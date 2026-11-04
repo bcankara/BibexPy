@@ -119,7 +119,7 @@ def test_filter_apply_permanent_and_restore(client, project_with_merged):
             chosen = (y, t)
             break
     if chosen is None:
-        pytest.skip("Örnek veride kısmi eşleşen yıl eşiği yok")
+        pytest.skip("The sample data has no year threshold with a partial match")
     y, kept_expect = chosen
 
     # Empty spec → 400 (guard against an accidental no-op call)

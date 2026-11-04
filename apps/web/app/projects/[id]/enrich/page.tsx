@@ -29,7 +29,8 @@ type ToolStatus = "live" | "coming_soon";
 
 type AITool = {
   id: string;
-  fields: string;       // which fields it touches (code, not translated)
+  fields: string;       // which fields it touches (field codes, not translated)
+  fieldsKey?: string;   // i18n key used instead of `fields` when the text contains words
   icon: React.ReactNode;
   status: ToolStatus;
   category: "disambiguation" | "normalization" | "extraction";
@@ -38,8 +39,8 @@ type AITool = {
 const TOOLS: AITool[] = [
   { id: "authors",      fields: "AU",          icon: <Users className="h-5 w-5" />,         status: "live",         category: "disambiguation" },
   { id: "affiliations", fields: "C1, C3",      icon: <Building2 className="h-5 w-5" />,     status: "live",         category: "disambiguation" },
-  { id: "organizations",fields: "C1 → üst kurum", icon: <Landmark className="h-5 w-5" />,    status: "live",         category: "normalization" },
-  { id: "countries",    fields: "C1 (ülke)",   icon: <Globe className="h-5 w-5" />,          status: "live",         category: "normalization" },
+  { id: "organizations",fields: "C1", fieldsKey: "enrich.fields.organizations", icon: <Landmark className="h-5 w-5" />,    status: "live",         category: "normalization" },
+  { id: "countries",    fields: "C1", fieldsKey: "enrich.fields.countries", icon: <Globe className="h-5 w-5" />,          status: "live",         category: "normalization" },
   { id: "keywords",     fields: "DE, ID",      icon: <Tag className="h-5 w-5" />,           status: "coming_soon",  category: "normalization" },
   { id: "journals",     fields: "SO, JI",      icon: <Newspaper className="h-5 w-5" />,     status: "coming_soon",  category: "normalization" },
   { id: "categories",   fields: "WC, SC ← AB", icon: <Layers className="h-5 w-5" />,        status: "coming_soon",  category: "extraction" },
@@ -174,7 +175,7 @@ function ToolListItem({ tool, active, onClick }: { tool: AITool; active: boolean
             {t(`enrich.tools.${tool.id}.title`)}
           </span>
           <p className="text-[11px] text-muted truncate mt-0.5">
-            {tool.fields}
+            {tool.fieldsKey ? t(tool.fieldsKey) : tool.fields}
           </p>
         </div>
         {active && <ArrowRight className="h-3.5 w-3.5 text-brand-500 mt-1" />}
@@ -195,7 +196,7 @@ function ComingSoonPanel({ tool }: { tool: AITool }) {
         </span>
         <div className="flex-1">
           <h2 className="font-semibold text-base">{t(`enrich.tools.${tool.id}.title`)}</h2>
-          <p className="text-xs text-muted">{t("enrich.affectedFields")}: <span className="font-mono">{tool.fields}</span></p>
+          <p className="text-xs text-muted">{t("enrich.affectedFields")}: <span className="font-mono">{tool.fieldsKey ? t(tool.fieldsKey) : tool.fields}</span></p>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-warning-soft text-warning border border-warning/30">
           <Clock className="h-3 w-3 inline mr-1" /> {t("enrich.comingSoon")}

@@ -74,14 +74,18 @@ def create_analysis(project_id: str, method: str, label: Optional[str] = None) -
     target = analysis_dir(project_id, analysis_id)
     target.mkdir(parents=True, exist_ok=False)
 
+    # Auto labels are language-neutral ("Smart — 2026-11-04 14:30"); the UI composes
+    # a localized display label whenever ``label_auto`` is true.
+    label_auto = not label
     if not label:
-        label = f"{method.title()} — {datetime.fromtimestamp(now).strftime('%d.%m.%Y %H:%M')}"
+        label = f"{method.title()} — {datetime.fromtimestamp(now).strftime('%Y-%m-%d %H:%M')}"
 
     meta = {
         "id": analysis_id,
         "created_at": now,
         "method": method,
         "label": label,
+        "label_auto": label_auto,
         "file_count": 0,
         "source": "user_run",
     }
@@ -129,6 +133,9 @@ def list_analyses(project_id: str) -> list[dict[str, Any]]:
                 "file_count": sum(1 for f in p.iterdir() if f.is_file()),
             }
         meta["is_active"] = (meta.get("id") == active_id)
+        # Analyses created before auto labels were flagged are treated as user labels;
+        # the UI also recognizes the legacy auto-label pattern on its own.
+        meta.setdefault("label_auto", False)
         # Size information
         try:
             meta["total_size"] = sum(f.stat().st_size for f in p.iterdir() if f.is_file())
@@ -149,6 +156,7 @@ def get_analysis_meta(project_id: str, analysis_id: str) -> Optional[dict[str, A
     if meta.get("deleted"):
         return None
     meta["is_active"] = (meta.get("id") == get_active_analysis_id(project_id))
+    meta.setdefault("label_auto", False)
     return meta or None
 
 
@@ -181,7 +189,8 @@ def delete_analysis(project_id: str, analysis_id: str) -> bool:
 
     # 1) If the active analysis is being deleted, move the active pointer first
     if active_id == analysis_id:
-        remaining = [a for a in list_analyses(project_id) if a["id"] != analysis_id]
+        remaining = [a for a in list_analyses(project_id)
+                     if a["id"] != analysis_id and not is_unfinished(a)]
         if remaining:
             set_active_analysis(project_id, remaining[0]["id"])
         else:
@@ -285,6 +294,11 @@ def clear_active_analysis(project_id: str) -> None:
         p.unlink()
 
 
+def is_unfinished(meta: dict) -> bool:
+    """An analysis a merge created (`source: user_run`) but never finalized."""
+    return meta.get("source") == "user_run" and not meta.get("completed_at")
+
+
 def get_active_analysis_dir(project_id: str) -> Optional[Path]:
     """Return the folder path of the active analysis.
 
@@ -299,8 +313,9 @@ def get_active_analysis_dir(project_id: str) -> Optional[Path]:
         # The active folder was deleted; clear the pointer
         clear_active_analysis(project_id)
 
-    # If there is no active one, use the newest
-    analyses = list_analyses(project_id)
+    # If there is no active one, use the newest FINISHED one (a merge that is still
+    # running, or was killed mid-way, has no completed_at yet).
+    analyses = [a for a in list_analyses(project_id) if not is_unfinished(a)]
     if analyses:
         latest = analyses[0]["id"]
         set_active_analysis(project_id, latest)
@@ -349,7 +364,7 @@ def _audit_migration(project_id: str):
         audit.write(
             project_id,
             kind="format_migration",
-            title="Dataset Parquet formatına taşındı",
+            title="Dataset migrated to Parquet format (one-time speedup)",
             title_key="audit.titles.parquetMigrated",
             details={"dataset": target.name},
             snapshot=(str(snapshot.relative_to(storage.settings.storage_path))

@@ -127,7 +127,7 @@ def prepare(project_id: str):
             report.scopus_xlsx = out.name
             report.messages.append(f"Scopus: {len(csv_files)} CSV → {out.name}")
         except Exception as e:
-            report.skipped.append(f"Scopus CSV dönüşümü: {e}")
+            report.skipped.append(f"Scopus CSV conversion: {e}")
 
     if txt_files:
         try:
@@ -141,12 +141,12 @@ def prepare(project_id: str):
             report.wos_xlsx = out.name
             report.messages.append(f"WoS: {len(txt_files)} TXT → {out.name}")
         except Exception as e:
-            report.skipped.append(f"WoS TXT dönüşümü: {e}")
+            report.skipped.append(f"WoS TXT conversion: {e}")
 
     audit.write(
         project_id,
         kind="convert",
-        title=f"Otomatik hazırlık — {len(csv_files)} CSV + {len(txt_files)} TXT",
+        title=f"Auto-prepare — {len(csv_files)} CSV + {len(txt_files)} TXT",
         title_key="audit.titles.autoPrepare",
         title_params={"csv": len(csv_files), "txt": len(txt_files)},
         details={
@@ -198,7 +198,7 @@ def reset(project_id: str):
     audit.write(
         project_id,
         kind="upload",
-        title=f"Hazırlık sıfırlandı — {deleted_processed} işlenmiş dosya silindi (ham dosyalar korundu)",
+        title=f"Preparation reset — {deleted_processed} processed files deleted (raw files kept)",
         title_key="audit.titles.prepareReset",
         title_params={"n": deleted_processed},
         details={
@@ -233,7 +233,7 @@ def delete_processed_file(project_id: str, filename: str):
     audit.write(
         project_id,
         kind="upload",
-        title=f"Hazırlanmış dosya silindi: {name}",
+        title=f"Processed file deleted: {name}",
         title_key="audit.titles.processedFileDeleted",
         title_params={"name": name},
         details={"name": name, "size": size, "folder": "processed", "action": "delete"},

@@ -24,7 +24,7 @@ dist/
 .env.local
 .env.*.local
 
-# Storage (kullanıcı dosyaları)
+# Storage (user files)
 apps/api/storage/
 !apps/api/storage/.gitkeep
 
@@ -45,14 +45,14 @@ desktop.ini
 # Temp
 tmp/
 
-# Dev/release scratch — geçici venv'ler, screenshot/seed scriptleri (repoya girmez)
+# Dev/release scratch — temporary venvs, screenshot/seed scripts (kept out of the repo)
 .shotsenv/
 .pkgtest*/
 home*.js
 shot.js
 seed.py
 
-# Paper assets — manuscript ve figürler kod reposunda tutulmaz
+# Paper assets — the manuscript and figures are not kept in the code repo
 manuscript_*.docx
 manuscript_assets/
 

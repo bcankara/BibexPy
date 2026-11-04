@@ -22,7 +22,7 @@ def _project_paths(project_id: str) -> tuple[Path, Path, Path]:
     """(root, raw, processed) — the project's data folders."""
     meta = storage.get_project(project_id)
     if meta is None:
-        raise HTTPException(404, "Proje bulunamadı")
+        raise HTTPException(404, "project_not_found")
     root = storage.project_dir(project_id)
     return root, root / "raw", root / "processed"
 
@@ -118,8 +118,27 @@ async def _run_single_source(
 
     analysis_id, adir = analyses.create_analysis(project_id, "single")
     ctx.log(f"Analysis folder: {analysis_id}")
+    try:
+        return await _finish_single_source(ctx, project_id, analysis_id, adir, df, scp_df, wos_df)
+    except BaseException:
+        # Includes a cancel (CancelledError is a BaseException): never leave an unfinished
+        # analysis folder behind — it has no completed_at and must not become active.
+        meta = analyses.get_analysis_meta(project_id, analysis_id) or {}
+        if not meta.get("completed_at"):
+            try:
+                analyses.delete_analysis(project_id, analysis_id)
+            except Exception:
+                pass
+        raise
+
+
+async def _finish_single_source(
+    ctx: JobContext, project_id: str, analysis_id: str, adir, df: pd.DataFrame,
+    scp_df: pd.DataFrame | None, wos_df: pd.DataFrame | None,
+) -> dict[str, Any]:
+    import asyncio
     output_dataset = adir / "merged.parquet"
-    await asyncio.to_thread(dataset_io.atomic_write_dataset, df, output_dataset)
+    await dataset_io.write_dataset_uncancellable(df, output_dataset)
     ctx.progress(0.7)
 
     scp_count = int(len(scp_df)) if scp_df is not None else 0

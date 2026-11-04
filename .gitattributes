@@ -1,11 +1,11 @@
-# Satır sonu normalizasyonu — repo LF saklar; shell scriptleri DAİMA LF (CI/Linux güvenli),
-# Windows scriptleri CRLF. Bu, scripts/build_wheel.sh'in CI'da \r yüzünden kırılmasını önler.
+# Line-ending normalization — the repo stores LF; shell scripts are ALWAYS LF (safe for CI/Linux),
+# Windows scripts CRLF. This keeps scripts/build_wheel.sh from breaking in CI because of \r.
 * text=auto eol=lf
 *.sh   text eol=lf
 *.ps1  text eol=crlf
 *.bat  text eol=crlf
 
-# İkili varlıklar
+# Binary assets
 *.png  binary
 *.jpg  binary
 *.jpeg binary
@@ -13,6 +13,6 @@
 *.ico  binary
 *.whl  binary
 
-# Örnek veri setleri bayt-bayt korunur — WoS exportu CRLF gelir; eol
-# dönüşümü/normalizasyon YOK (paketlenen kopya orijinaliyle birebir aynı).
+# Sample datasets are kept byte-for-byte — the WoS export comes with CRLF; NO eol
+# conversion/normalization (the packaged copy is identical to the original).
 python_pkg/src/bibexpy/_samples/** -text

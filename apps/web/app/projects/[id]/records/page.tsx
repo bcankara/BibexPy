@@ -11,7 +11,8 @@ import { BulkActionBar } from "@/components/BulkActionBar";
 import { AuditLogPanel } from "@/components/AuditLogPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { ArrowRight, Check, Loader2, Save, X, Star, ChevronRight, Sparkles, FileOutput, SkipForward } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
 import { StepNav } from "@/components/StepNav";
@@ -21,12 +22,14 @@ const PAGE_SIZE = 50;
 
 export default function RecordsPage() {
   const id = useProjectId();
-  const t = useT();
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
   const [spec, setSpec] = useState<FilterSpec>(EMPTY);
   const [data, setData] = useState<FilterResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorText] = useState<string | null>(null);
+  // Machine code of the last API error (e.g. "no_merged_data"), kept next to the translated text.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetName, setPresetName] = useState("");
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -38,6 +41,14 @@ export default function RecordsPage() {
   const debounceRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const retryRef = useRef<number | null>(null);
+
+  /** Stores a translated error message together with its backend error code. */
+  const setError = useCallback((msg: string | null, err?: unknown) => {
+    setErrorText(msg);
+    const raw = err instanceof Error ? err.message : "";
+    const m = raw.replace(/^\d{3}:\s*/, "").match(/^([a-z][a-z0-9_]*)(:|$)/);
+    setErrorCode(msg && m ? m[1] : null);
+  }, []);
 
   const refresh = useCallback(async (off = 0, retryCount = 0) => {
     // Cancel the previous request (race condition protection)
@@ -62,12 +73,12 @@ export default function RecordsPage() {
         retryRef.current = window.setTimeout(() => { refresh(off, retryCount + 1); }, 800);
         return;
       }
-      setError(translateApiError(t, e, "records.queryFailed")); setData(null);
+      setError(translateApiError(t, e, "records.queryFailed"), e); setData(null);
     }
     finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, [id, spec, t]);
+  }, [id, spec, t, setError]);
 
   useEffect(() => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -104,7 +115,9 @@ export default function RecordsPage() {
     await api.savePreset(id, presetName.trim(), spec);
     await api.addAuditEntry(id, {
       kind: "filter_save",
-      title: t("records.presets.savedAuditTitle", { name: presetName.trim() }),
+      title: `Preset saved: ${presetName.trim()}`,
+      title_key: "records.presets.savedAuditTitle",
+      title_params: { name: presetName.trim() },
       details: { filter_count: activeCount, spec },
       user_action: "save_preset",
     }).catch(() => {});
@@ -138,7 +151,7 @@ export default function RecordsPage() {
     const removed = totalAll - data.total;
     if (removed <= 0) return;
     const ok = await confirm({
-      message: t("records.filter.applyConfirm", { kept: data.total, removed }),
+      message: t("records.filter.applyConfirm", { kept: formatNumber(data.total, locale), removed: formatNumber(removed, locale) }),
       detail: t("records.filter.applyDetail"),
       tone: "danger",
     });
@@ -146,11 +159,11 @@ export default function RecordsPage() {
     setApplyingFilter(true);
     try {
       const r = await api.applyFilter(id, spec);
-      toast(t("records.filter.appliedToast", { kept: r.kept, removed: r.removed }), { tone: "success" });
+      toast(t("records.filter.appliedToast", { kept: formatNumber(r.kept, locale), removed: formatNumber(r.removed, locale) }), { tone: "success" });
       setSpec(EMPTY);          // the filter is now the dataset itself — reset the spec
       setActivePreset(null);   // (the spec change refreshes the list via the effect)
     } catch (e) {
-      setError(translateApiError(t, e, "records.queryFailed"));
+      setError(translateApiError(t, e, "records.queryFailed"), e);
     } finally {
       setApplyingFilter(false);
     }
@@ -166,7 +179,7 @@ export default function RecordsPage() {
       setSelectedRows((prev) => { const n = new Set(prev); if (uid) n.delete(uid); return n; });
       refresh(0);
     } catch (e) {
-      setError(translateApiError(t, e, "records.queryFailed"));
+      setError(translateApiError(t, e, "records.queryFailed"), e);
     }
   }
 
@@ -188,7 +201,7 @@ export default function RecordsPage() {
 
         {error && (
           <div className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-red-700">
-            {error}{error.includes("Merge") || error.includes("Birleştir") || error.includes("merge") ? (
+            {error}{errorCode === "no_merged_data" || errorCode === "merged_dataset_unreadable" ? (
               <Link href={`/projects/${id}/merge`} className="ml-2 underline">{t("records.goToMerge")}</Link>
             ) : null}
           </div>
@@ -332,7 +345,7 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying
   onApply: () => void;
   applying?: boolean;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   if (!data) return null;
   const totalAll = data.facets_all?.total ?? data.total;
   const pct = totalAll > 0 ? Math.round((data.total / totalAll) * 100) : 100;
@@ -340,13 +353,13 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying
   return (
     <div className="rounded-xl border border-border bg-bg-card shadow-card px-4 py-3 flex items-center gap-4 flex-wrap">
       <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-ink tabular-nums">{data.total.toLocaleString()}</span>
+        <span className="text-2xl font-bold text-ink tabular-nums">{formatNumber(data.total, locale)}</span>
         <span className="text-xs text-muted">{t("records.matchingRecords")}</span>
       </div>
       <div className="h-8 w-px bg-border" />
       <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold text-muted tabular-nums">{totalAll.toLocaleString()}</span>
-        <span className="text-xs text-muted">{t("common.total").toLowerCase()} · {pct}%</span>
+        <span className="text-sm font-semibold text-muted tabular-nums">{formatNumber(totalAll, locale)}</span>
+        <span className="text-xs text-muted">{t("records.totalWithPct", { pct: formatNumber(pct, locale) })}</span>
       </div>
 
       {/* Progress bar */}
@@ -398,8 +411,8 @@ function ActiveFilterChips({ spec }: { spec: FilterSpec }) {
   if (spec.db_source?.length) chips.push({ label: `${t("records.filter.dbSource")}: ${spec.db_source.length}` });
   if (spec.journal?.length) chips.push({ label: `${t("records.filter.journal")}: ${spec.journal.length}` });
   if (spec.authors?.length) chips.push({ label: `${t("records.filter.authors")}: ${spec.authors.length}` });
-  if (spec.wc_categories?.length) chips.push({ label: `WC: ${spec.wc_categories.length}` });
-  if (spec.sc_categories?.length) chips.push({ label: `SC: ${spec.sc_categories.length}` });
+  if (spec.wc_categories?.length) chips.push({ label: `${t("records.filter.wcCategories")}: ${spec.wc_categories.length}` });
+  if (spec.sc_categories?.length) chips.push({ label: `${t("records.filter.scCategories")}: ${spec.sc_categories.length}` });
   if (spec.fulltext?.query) chips.push({ label: `${t("common.search")}: "${spec.fulltext.query.slice(0, 20)}${spec.fulltext.query.length > 20 ? "…" : ""}"` });
   if (spec.quality?.has?.length) chips.push({ label: `${t("records.filter.qualityHas").toLowerCase()}: ${spec.quality.has.join(",")}` });
   if (spec.quality?.missing?.length) chips.push({ label: `${t("records.filter.qualityMissing").toLowerCase()}: ${spec.quality.missing.join(",")}` });

@@ -349,7 +349,7 @@ def test_concurrent_migration_reads_legacy_exactly_once(tmp_path, monkeypatch):
 
     target = tmp_path / "merged.parquet"
     assert results[0] == target and results[1] == target
-    assert calls["n"] == 1, "migrasyon kilidi ikinci okumayı engellemeli"
+    assert calls["n"] == 1, "the migration lock must block the second read"
     assert len(real_read(target)) == 2
     assert not list(tmp_path.glob("*.tmp~"))
 
@@ -371,7 +371,7 @@ def test_leftover_legacy_xlsx_is_healed_on_later_resolution(tmp_path):
 
     out = dataset_io.ensure_parquet(src)
     assert out == target
-    assert not src.exists(), "zombi xlsx snapshots/ altına taşınmalıydı"
+    assert not src.exists(), "the zombie xlsx should have been moved under snapshots/"
     moved = list((tmp_path / "snapshots").glob("pre_parquet_migration_*.xlsx"))
     assert len(moved) == 1 and len(pd.read_excel(moved[0])) == 1
     # The parquet contents must be untouched (the move writes no data)

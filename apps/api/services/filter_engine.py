@@ -61,7 +61,7 @@ def _ensure_uid_column(df: pd.DataFrame) -> bool:
 def load_merged(project_id: str) -> pd.DataFrame:
     p = merger.merged_dataset_path(project_id)
     if p is None:
-        raise FileNotFoundError("Birleştirilmiş veri yok — önce Merge çalıştırın")
+        raise FileNotFoundError("no_merged_data")
     st = p.stat()
     # The size is part of the key as well: since a parquet write takes milliseconds,
     # two consecutive mutations can fall into the same mtime tick.
@@ -77,7 +77,7 @@ def load_merged(project_id: str) -> pd.DataFrame:
             # leftover of a hard interruption) → a clean 409 instead of a 500; the
             # user can restore a snapshot from History.
             raise FileNotFoundError(
-                "merged_dataset_unreadable: dosya bozuk görünüyor — Geçmiş'ten bir snapshot geri yükleyin"
+                "merged_dataset_unreadable"
             )
         # Assign a UID to every row (if missing) and persist it to disk
         if _ensure_uid_column(df):

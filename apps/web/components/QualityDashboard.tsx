@@ -1,28 +1,49 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type QualityStats, type JobInfo, type FillReport } from "@/lib/api-client";
+import { api, translateApiError, translateTitle, type QualityStats, type FillReport } from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "./Card";
 import {
   Heart, BarChart3, Sparkles, AlertCircle, CheckCircle2, Loader2, Play, X, FileText,
-  Table2, Download,
+  Table2, Download, Server,
 } from "lucide-react";
+import Link from "next/link";
 import { toPng } from "html-to-image";
-import { useT } from "@/lib/i18n";
-import { useConfirm } from "./Dialogs";
+import { useI18n, useT, type Locale } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
+import { useConfirm, useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
+import {
+  cancelJob, isBusyError, jobErrorText, jobOwnerHref, jobStatusLine, refreshProjectJobs,
+  start as startTrackedJob, useJobFinished, useProjectJobs, getProjectJobs, type StoreJob,
+} from "@/lib/job-store";
 
 type Props = {
   projectId: string;
   onChanged?: () => void;          // refresh the outside (the table) when filling finishes
 };
 
-type CombinedJob = {
-  jobId: string;
-  progress: number;
-  status: string;
-  log_tail: string[];
-  result?: any;
+/**
+ * DOI-lookup part of the fill report. The report type in api-client.ts may not list the
+ * newer provenance fields yet, so they are declared here (all optional, defensive).
+ */
+type DoiReport = {
+  scanned?: number;
+  filled?: number;
+  skipped?: Record<string, number>;
+  sources_exhausted?: string[];
+  provenance?: string | null;
 };
+
+/** Percent of a 0..1 ratio in the app language ("42%" / "%42"). */
+function fmtPct(ratio: number, locale: Locale): string {
+  return formatNumber(ratio, locale, { style: "percent", maximumFractionDigits: 0 });
+}
+
+/** URL of the DOI lookup log CSV, if the api client provides it (added by the DOI work package). */
+function doiLogUrl(projectId: string): string | null {
+  const fn = (api as unknown as { doiLogUrl?: (id: string) => string }).doiLogUrl;
+  return typeof fn === "function" ? fn(projectId) : null;
+}
 
 /**
  * Data Quality & Filling panel (Harmonization step).
@@ -33,19 +54,33 @@ type CombinedJob = {
  */
 export function QualityDashboard({ projectId, onChanged }: Props) {
   const t = useT();
+  const { locale } = useI18n();
   const confirm = useConfirm();
+  const toast = useToast();
   const [stats, setStats] = useState<QualityStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
-  const [job, setJob] = useState<CombinedJob | null>(null);
   // Past 'Fill all' report (from the audit) — survives a page refresh.
   const [savedReport, setSavedReport] = useState<FillReport | null>(null);
-  const esRef = useRef<EventSource | null>(null);
   // Separate in-flight states for the job start request (until job_id returns) and
   // the cancel request — covers the short network delay before the 'running' state
   // arrives over SSE.
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  // The last fill that ended badly (failed / server restarted); shown until the next start.
+  const [failedJob, setFailedJob] = useState<StoreJob | null>(null);
+
+  // Job tracking lives in the shared store: it survives navigation, owns the EventSource
+  // and reconnects on its own. A fill-all job that is already running when this card
+  // mounts (user left the page and came back, or reloaded) is simply found here.
+  const { active: activeJobs, ready: jobsReady } = useProjectJobs(projectId);
+  // Prefer the "Fill all" job; /enrich/api shares the kind but has another title_key.
+  const job: StoreJob | null =
+    activeJobs.find((j) => j.kind === "enrich_api" && j.title_key === "audit.titles.fillAll")
+    ?? activeJobs.find((j) => j.kind === "enrich_api")
+    ?? null;
+  // Any OTHER exclusive job of the project (e.g. a disambiguation scan) blocks a new fill.
+  const blockingJob = activeJobs.find((j) => j.exclusive && j.id !== job?.id) ?? null;
 
   const refreshStats = useCallback(async () => {
     try {
@@ -63,64 +98,65 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
     api.lastFillReport(projectId)
       .then((r) => { if (alive) setSavedReport(r.report); })
       .catch(() => {});
-    return () => {
-      alive = false;
-      if (esRef.current) { esRef.current.close(); esRef.current = null; }
-    };
+    return () => { alive = false; };
   }, [projectId]);
 
-  const running = !!job && (job.status === "running" || job.status === "queued");
+  // React to the end of an enrichment job (also one that finished while another page was
+  // open: the store announces it and this card re-reads stats and the saved report).
+  useJobFinished((e) => {
+    if (e.job.project_id !== projectId || e.job.kind !== "enrich_api") return;
+    void refreshStats();
+    onChanged?.();
+    if (e.outcome === "completed") {
+      setFailedJob(null);
+      // The persistent report comes from the audit log.
+      api.lastFillReport(projectId).then((r) => setSavedReport(r.report)).catch(() => {});
+    } else if (e.outcome === "failed" || e.outcome === "lost") {
+      setFailedJob(e.job);
+    } else if (e.outcome === "cancelled") {
+      // The worker still flushes its partial result after the status flips to cancelled,
+      // so read the stats again a little later as well.
+      setTimeout(() => { void refreshStats(); }, 2000);
+      setTimeout(() => {
+        void refreshStats();
+        api.lastFillReport(projectId).then((r) => setSavedReport(r.report)).catch(() => {});
+      }, 6000);
+    }
+  });
+
+  const running = !!job;
 
   async function startFillAll() {
-    if (running || !stats || starting) return;
+    if (running || !stats || starting || blockingJob) return;
     const ok = await confirm({
       title: t("records.quality.startAllTitle"),
-      message: t("records.quality.startAllConfirm", { n: fillableCount }),
+      message: t("records.quality.startAllConfirm", { n: formatNumber(fillableCount, locale) }),
       detail: t("records.quality.startAllFreeNote"),
       confirmLabel: t("records.quality.startAll"),
     });
     if (!ok) return;
     setStarting(true);
+    setFailedJob(null);
     try {
-      const { job_id } = await api.startFillAll(projectId);
-      setJob({ jobId: job_id, progress: 0, status: "queued", log_tail: [] });
-      const es = new EventSource(api.jobStreamUrl(job_id));
-      esRef.current = es;
-      es.addEventListener("update", (ev) => {
-        const e = ev as MessageEvent;
-        if (!e.data) return;
-        try {
-          const info: JobInfo = JSON.parse(e.data);
-          setJob({ jobId: job_id, progress: info.progress, status: info.status, log_tail: info.log_tail, result: info.result });
-          if (info.status === "completed" || info.status === "failed" || info.status === "cancelled") {
-            es.close(); esRef.current = null;
-            refreshStats();
-            onChanged?.();
-            if (info.status === "completed") {
-              // Refresh the persistent report from the audit; close the live job card (the report is shown from savedReport).
-              api.lastFillReport(projectId).then((r) => setSavedReport(r.report)).catch(() => {});
-              setJob(null);
-            } else {
-              setTimeout(() => setJob(null), 4000);
-            }
-          }
-        } catch { /* swallow */ }
-      });
-      es.addEventListener("done", () => { es.close(); esRef.current = null; });
-      es.onerror = () => {
-        es.close(); esRef.current = null;
-        // If the connection dropped (before a terminal 'update' arrived), mark the job 'failed' so the UI does not hang.
-        setJob((j) => (j && (j.status === "running" || j.status === "queued")) ? { ...j, status: "failed" } : j);
-        refreshStats();
-      };
-    } catch { /* silent */ }
-    finally { setStarting(false); }
+      await startTrackedJob(projectId, api.startFillAll(projectId));
+    } catch (e) {
+      if (isBusyError(e)) {
+        // Another job holds the project (often this very fill, forgotten by the UI): look it up.
+        await refreshProjectJobs(projectId);
+        const existing = getProjectJobs(projectId).active.find((j) => j.kind === "enrich_api");
+        if (existing) toast(t("records.quality.alreadyRunningAttached"), { tone: "info" });
+        else toast(translateApiError(t, e, "records.quality.startFailed"), { tone: "danger" });
+      } else {
+        toast(translateApiError(t, e, "records.quality.startFailed"), { tone: "danger" });
+      }
+    } finally { setStarting(false); }
   }
 
   async function cancelFillAll() {
     if (!job || cancelling) return;
     setCancelling(true);
-    try { await api.cancelJob(job.jobId); } catch { /* swallow */ }
+    try { await cancelJob(job.id); }
+    catch (e) { toast(translateApiError(t, e), { tone: "danger" }); }
     finally { setCancelling(false); }
   }
 
@@ -140,8 +176,29 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   const filledMid = stats.fields.filter((f) => f.available && f.fill_rate >= 0.5 && f.fill_rate < 0.9);
   const filledLow = stats.fields.filter((f) => f.available && f.fill_rate < 0.5);
   const fillableCount = stats.fields.filter((f) => f.available && f.missing > 0).length;
-  const jobPct = Math.round((job?.progress ?? 0) * 100);
-  const lastLog = job && job.log_tail.length > 0 ? job.log_tail[job.log_tail.length - 1] : "";
+  const jobPct = fmtPct(job?.progress ?? 0, locale);
+  const jobBar = Math.round((job?.progress ?? 0) * 100);
+  // Translated one-line status from the backend (status_key); fallback = last log line.
+  const statusLine = job ? (jobStatusLine(t, job, locale) ?? t("records.quality.starting")) : "";
+  const failedText = failedJob ? jobErrorText(t, failedJob) : null;
+  const doiReport = (savedReport?.doi ?? null) as DoiReport | null;
+  const blockingHref = blockingJob ? jobOwnerHref(blockingJob, projectId) : null;
+  // DOI lookup outcome: candidates that were found but NOT written (ambiguous, preprint only,
+  // duplicate, ...). "no_match" is the normal outcome for most records and stays out of the headline.
+  const skippedEntries = Object.entries(doiReport?.skipped ?? {})
+    .filter(([reason, n]) => reason !== "no_match" && Number(n) > 0);
+  const skippedTotal = skippedEntries.reduce((s, [, n]) => s + Number(n), 0);
+  const skippedBreakdown = skippedEntries
+    .map(([reason, n]) => {
+      const key = `records.quality.skip.${reason}`;
+      const label = t(key);
+      return `${label === key ? reason : label}: ${formatNumber(Number(n), locale)}`;
+    })
+    .join(" · ");
+  const provenanceUrl = doiReport?.provenance ? doiLogUrl(projectId) : null;
+  const openalexExhausted = (doiReport?.sources_exhausted ?? []).includes("openalex");
+  // Do not offer a new run before the first job lookup finished or while a job holds the project.
+  const startDisabled = fillableCount === 0 || starting || !!blockingJob || !jobsReady;
 
   return (
     <Card>
@@ -150,7 +207,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
         <h2 className="font-semibold text-sm flex-1">{t("records.quality.title")}</h2>
         <div className="flex items-center gap-2">
           <span className={cn("text-xs font-semibold tabular-nums", healthColor)} title={t("records.quality.healthScoreHint")}>
-            {t("records.quality.healthScore")} {healthPct}%
+            {t("records.quality.healthScore")} {fmtPct(stats.health_score, locale)}
           </span>
           <button onClick={() => setExpanded(!expanded)} className="text-xs text-white/70 hover:text-white">
             {expanded ? t("common.close").toLowerCase() : t("common.open").toLowerCase()}
@@ -162,31 +219,30 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
           {/* Data health scan — a prominent fill CTA. Shown while running (running) or
               when there is no report yet (no savedReport). If a past report exists,
               the persistent report below is shown instead of the banner. */}
-          {(running || !savedReport) && (
+          {(running || !savedReport || !!failedJob) && (
           <div className={cn(
             "rounded-xl p-4 text-white shadow-lg ring-1 transition",
-            job?.status === "failed" ? "bg-gradient-to-r from-rose-500 to-red-600 ring-red-300/40"
+            failedJob && !running ? "bg-gradient-to-r from-rose-500 to-red-600 ring-red-300/40"
               : "bg-gradient-to-r from-cyan-500 to-brand-600 ring-cyan-300/40",
           )}>
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
                 {running ? <Loader2 className="h-6 w-6 animate-spin" />
-                  : job?.status === "completed" ? <CheckCircle2 className="h-6 w-6" />
-                  : job?.status === "failed" ? <AlertCircle className="h-6 w-6" />
+                  : failedJob ? <AlertCircle className="h-6 w-6" />
                   : <Sparkles className="h-6 w-6" />}
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-base font-extrabold leading-tight">{t("records.quality.scanTitle")}</h3>
-                <p className="text-xs text-white/85 mt-0.5 truncate">
-                  {running ? (lastLog || t("records.quality.starting"))
-                    : (job?.status === "completed" || job?.status === "failed") ? (lastLog || t("records.quality.scanTitle"))
-                    : fillableCount > 0 ? t("records.quality.scanDesc", { n: fillableCount })
+                <p className="text-xs text-white/85 mt-0.5 truncate" title={running ? statusLine : failedText ?? undefined}>
+                  {running ? statusLine
+                    : failedText ? failedText
+                    : fillableCount > 0 ? t("records.quality.scanDesc", { n: formatNumber(fillableCount, locale) })
                     : t("records.quality.scanAllGood")}
                 </p>
               </div>
               {running ? (
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="text-2xl font-extrabold tabular-nums">%{jobPct}</span>
+                  <span className="text-2xl font-extrabold tabular-nums">{jobPct}</span>
                   <button
                     onClick={cancelFillAll}
                     disabled={cancelling}
@@ -199,22 +255,43 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
               ) : (
                 <button
                   onClick={startFillAll}
-                  disabled={fillableCount === 0 || starting}
+                  disabled={startDisabled}
                   title={t("records.quality.startAllHint")}
                   className="group flex items-center gap-2.5 rounded-xl bg-white px-5 py-3 text-cyan-700 font-extrabold shadow-md ring-1 ring-white/60 transition hover:scale-[1.03] hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 flex-shrink-0"
                 >
                   {starting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5 fill-current" />}
                   <span>{t("records.quality.startAll")}</span>
-                  {fillableCount > 0 && <span className="ml-1 rounded-lg bg-cyan-100 px-2 py-0.5 text-sm tabular-nums">{fillableCount}</span>}
+                  {fillableCount > 0 && <span className="ml-1 rounded-lg bg-cyan-100 px-2 py-0.5 text-sm tabular-nums">{formatNumber(fillableCount, locale)}</span>}
                 </button>
               )}
             </div>
             {running && (
-              <div className="h-1.5 mt-3 rounded-full bg-white/20 overflow-hidden">
-                <div className="h-full bg-white transition-all" style={{ width: `${jobPct}%` }} />
-              </div>
+              <>
+                <div className="h-1.5 mt-3 rounded-full bg-white/20 overflow-hidden">
+                  <div className="h-full bg-white transition-all" style={{ width: `${jobBar}%` }} />
+                </div>
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-white/80">
+                  <Server className="h-3 w-3 flex-shrink-0" />
+                  {t("records.quality.backgroundNote")}
+                </p>
+              </>
             )}
           </div>
+          )}
+
+          {/* Another exclusive job (e.g. a disambiguation scan) holds the project: say which. */}
+          {blockingJob && (
+            <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs text-cyan-900 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+              <span className="flex-1">
+                {t("records.quality.blockedBy", { title: translateTitle(t, blockingJob) || t("jobs.running") })}
+              </span>
+              {blockingHref && (
+                <Link href={blockingHref} className="font-semibold underline whitespace-nowrap">
+                  {t("jobs.banner.open")}
+                </Link>
+              )}
+            </div>
           )}
 
           {/* Persistent enrichment report — if 'Fill all' was run in the past (savedReport),
@@ -229,21 +306,48 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                   <h3 className="font-bold text-sm text-ink">{t("records.quality.reportTitle")}</h3>
                   <p className="text-xs text-muted mt-0.5">
                     {savedReport.api?.total != null
-                      ? t("records.quality.reportSummary", { enriched: savedReport.enriched ?? 0, scanned: savedReport.api.total })
-                      : t("records.quality.reportSummaryShort", { enriched: savedReport.enriched ?? 0 })}
+                      ? t("records.quality.reportSummary", {
+                          enriched: formatNumber(savedReport.enriched ?? 0, locale),
+                          scanned: formatNumber(savedReport.api.total, locale),
+                        })
+                      : t("records.quality.reportSummaryShort", { enriched: formatNumber(savedReport.enriched ?? 0, locale) })}
                   </p>
-                  {(savedReport.doi?.filled ?? 0) > 0 && (
+                  {(doiReport?.filled ?? 0) > 0 && (
                     <p className="text-xs font-medium text-emerald-700 mt-0.5">
-                      {t("records.quality.reportDois", { n: savedReport.doi!.filled! })}
+                      {t("records.quality.reportDois", { n: formatNumber(doiReport!.filled!, locale) })}
+                    </p>
+                  )}
+                  {skippedTotal > 0 && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      {t("records.quality.doiSkipped", {
+                        n: formatNumber(skippedTotal, locale),
+                        reasons: skippedBreakdown,
+                      })}
+                      {provenanceUrl && (
+                        <>
+                          {" "}
+                          <a href={provenanceUrl} rel="noopener" className="font-semibold underline">
+                            {t("records.quality.doiLogDownload")}
+                          </a>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  {openalexExhausted && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      {t("records.quality.openalexExhausted")}{" "}
+                      <Link href="/settings" className="font-semibold underline">
+                        {t("records.quality.openSettings")}
+                      </Link>
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={startFillAll} disabled={fillableCount === 0 || starting}
+                  <button onClick={startFillAll} disabled={startDisabled}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 disabled:opacity-50 flex items-center gap-1.5">
                     {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
                     {t("records.quality.runAgain")}
-                    {fillableCount > 0 && <span className="rounded bg-white/20 px-1 tabular-nums">{fillableCount}</span>}
+                    {fillableCount > 0 && <span className="rounded bg-white/20 px-1 tabular-nums">{formatNumber(fillableCount, locale)}</span>}
                   </button>
                 </div>
               </div>
@@ -257,7 +361,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                       <div key={f} className={cn("rounded-md border bg-white px-2 py-1 text-[11px] flex items-center gap-1.5", gained ? "border-success/60" : "border-border")}>
                         <span className="font-mono text-[10px] text-muted">{f}</span>
                         <span className="ml-auto tabular-nums text-ink">
-                          {b}% → <span className={gained ? "font-bold text-emerald-700" : "text-muted"}>{a}%</span>
+                          {fmtPct(b / 100, locale)} → <span className={gained ? "font-bold text-emerald-700" : "text-muted"}>{fmtPct(a / 100, locale)}</span>
                           {gained && <span className="ml-1 font-bold text-emerald-700">+{a - b}</span>}
                         </span>
                       </div>
@@ -266,7 +370,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                 </div>
               )}
               <p className="text-[10px] text-muted mt-2">
-                {t("records.quality.reportOverall", { before: Math.round((savedReport.fill_rate_before ?? 0) * 100), after: Math.round((savedReport.fill_rate_after ?? 0) * 100) })}
+                {t("records.quality.reportOverall", { before: fmtPct(savedReport.fill_rate_before ?? 0, locale), after: fmtPct(savedReport.fill_rate_after ?? 0, locale) })}
                 {savedReport.snapshot ? ` · ${t("disambiguate.snapshot")}: ${String(savedReport.snapshot).split(/[\\/]/).pop()}` : ""}
               </p>
             </div>
@@ -275,13 +379,13 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={<FileText className="h-4 w-4" />} label={t("records.quality.totalRecords")}
-              value={stats.total_records.toLocaleString()} accent="brand" />
+              value={formatNumber(stats.total_records, locale)} accent="brand" />
             <StatCard icon={<CheckCircle2 className="h-4 w-4" />} label={t("records.quality.highFill")}
-              value={`${filledHigh.length}`} hint="≥90%" accent="success" />
+              value={formatNumber(filledHigh.length, locale)} hint="≥90%" accent="success" />
             <StatCard icon={<AlertCircle className="h-4 w-4" />} label={t("records.quality.midFill")}
-              value={`${filledMid.length}`} hint="50–90%" accent="warning" />
+              value={formatNumber(filledMid.length, locale)} hint="50–90%" accent="warning" />
             <StatCard icon={<AlertCircle className="h-4 w-4" />} label={t("records.quality.lowFill")}
-              value={`${filledLow.length}`} hint="<50%" accent="danger" />
+              value={formatNumber(filledLow.length, locale)} hint="<50%" accent="danger" />
           </div>
 
           {/* Per-field fill rate — a single bar: each field gets an equal slice; filled=green (left), missing=field color (right) */}
@@ -301,10 +405,10 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                   <div
                     className="h-full bg-emerald-500 flex items-center justify-center"
                     style={{ width: `${greenPct}%` }}
-                    title={`${Math.round(greenPct)}% ${t("records.quality.filledShort")}`}
+                    title={`${fmtPct(greenPct / 100, locale)} ${t("records.quality.filledShort")}`}
                   >
                     <span className="font-mono text-[10px] font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]">
-                      {Math.round(greenPct)}%
+                      {fmtPct(greenPct / 100, locale)}
                     </span>
                   </div>
                   {/* Right: each field's missing share — stacked by field color */}
@@ -313,7 +417,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                       key={f.field}
                       className="h-full border-l border-white/70"
                       style={{ width: `${w * (1 - f.fill_rate)}%`, backgroundColor: fieldColor(f.field) }}
-                      title={`${f.field} · ${fieldLabel(t, f.field, f.label)} — ${Math.round((1 - f.fill_rate) * 100)}% ${t("records.quality.missingShort")}`}
+                      title={`${f.field} · ${fieldLabel(t, f.field, f.label)} — ${fmtPct(1 - f.fill_rate, locale)} ${t("records.quality.missingShort")}`}
                     />
                   ))}
                 </div>
@@ -342,6 +446,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
 /** Overview — per-field summary table + download (CSV/XLSX from the backend, PNG client-side). */
 function QualityOverview({ projectId, stats }: { projectId: string; stats: QualityStats }) {
   const t = useT();
+  const { locale } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const fields = stats.fields.filter((f) => f.available);
 
@@ -400,10 +505,10 @@ function QualityOverview({ projectId, stats }: { projectId: string; stats: Quali
                 <tr key={f.field} className="border-t border-border">
                   <td className="px-2 py-1 font-mono text-[10px] text-muted">{f.field}</td>
                   <td className="px-2 py-1 text-ink">{fieldLabel(t, f.field, f.label)}</td>
-                  <td className="px-2 py-1 text-right tabular-nums">{f.total.toLocaleString()}</td>
-                  <td className="px-2 py-1 text-right tabular-nums text-emerald-700">{f.filled.toLocaleString()}</td>
-                  <td className="px-2 py-1 text-right tabular-nums text-muted">{f.missing.toLocaleString()}</td>
-                  <td className={cn("px-2 py-1 text-right tabular-nums font-semibold", pctColor)}>{pct}%</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{formatNumber(f.total, locale)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-emerald-700">{formatNumber(f.filled, locale)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-muted">{formatNumber(f.missing, locale)}</td>
+                  <td className={cn("px-2 py-1 text-right tabular-nums font-semibold", pctColor)}>{fmtPct(f.fill_rate, locale)}</td>
                 </tr>
               );
             })}
@@ -461,18 +566,19 @@ function FieldChip({ field }: {
   field: { field: string; label: string; hint: string; total: number; filled: number; missing: number; fill_rate: number };
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const pct = Math.round(field.fill_rate * 100);
   const pctColor = pct >= 90 ? "text-emerald-700" : pct >= 50 ? "text-amber-700" : "text-red-600";
   const label = fieldLabel(t, field.field, field.label);
   return (
     <div
-      title={`${label} · ${field.filled.toLocaleString()} ${t("records.quality.filledShort")} · ${field.missing.toLocaleString()} ${t("records.quality.missingShort")}`}
+      title={`${label} · ${formatNumber(field.filled, locale)} ${t("records.quality.filledShort")} · ${formatNumber(field.missing, locale)} ${t("records.quality.missingShort")}`}
       className="flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-md bg-white border border-border border-l-[3px]"
       style={{ borderLeftColor: fieldColor(field.field) }}
     >
       <span className="font-mono text-[10px] text-muted">{field.field}</span>
       <span className="text-[11px] text-ink truncate max-w-[8rem]">{label}</span>
-      <span className={cn("ml-1 text-[11px] font-semibold tabular-nums", pctColor)}>{pct}%</span>
+      <span className={cn("ml-1 text-[11px] font-semibold tabular-nums", pctColor)}>{fmtPct(field.fill_rate, locale)}</span>
     </div>
   );
 }

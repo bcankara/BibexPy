@@ -65,7 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     separates it from the menu. */}
                 <Link
                   href="/"
-                  aria-label="BibexPy — ana sayfa"
+                  aria-label={`BibexPy — ${t("nav.home")}`}
                   className="group flex shrink-0 items-center border-r border-slate-200 px-4 py-2 transition hover:bg-slate-50/70"
                 >
                   <img

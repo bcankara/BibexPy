@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/lib/i18n";
 
 /**
  * Full-screen brand loader — an animated GIF of the BibexPy logo mark.
@@ -13,6 +14,7 @@
  * label is an optional sub-text; if omitted, only the logo spins.
  */
 export function FullScreenLoader({ label }: { label?: string }) {
+  const t = useT();
   return (
     <div
       role="status"
@@ -35,7 +37,7 @@ export function FullScreenLoader({ label }: { label?: string }) {
           <p className="text-sm font-semibold tracking-wide text-slate-500">{label}</p>
         )}
       </div>
-      <span className="sr-only">Loading…</span>
+      <span className="sr-only">{t("common.loading")}</span>
     </div>
   );
 }

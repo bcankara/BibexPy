@@ -185,6 +185,16 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
+    # Startup: hand the configured OpenAlex API key to bibex_core, whose OpenAlex calls
+    # (DOI lookup, enrichment, ORCID/affiliation lookups) read it from a module setting.
+    @app.on_event("startup")
+    def _apply_openalex_key_on_startup() -> None:
+        try:
+            from bibex_core.modules import api_utils
+            api_utils.set_openalex_api_key(settings.openalex_api_key or None)
+        except Exception:
+            pass
+
     # Startup: physically purge soft-deleted analysis folders.
     @app.on_event("startup")
     def _purge_soft_deleted_on_startup() -> None:
@@ -258,7 +268,7 @@ def create_app() -> FastAPI:
                 "docs": "/docs",
                 "redoc": "/redoc",
                 "health": "/health",
-                "frontend_hint": "Frontend bundled değil. Geliştirme için: cd apps/web && npm run dev → http://localhost:3000",
+                "frontend_hint": "Frontend is not bundled. For development: cd apps/web && npm run dev -> http://localhost:3000",
             }
 
     return app

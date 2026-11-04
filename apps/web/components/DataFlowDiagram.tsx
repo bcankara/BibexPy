@@ -5,6 +5,7 @@ import { Card, CardBody, CardHeader } from "./Card";
 import { Download, GitBranch } from "lucide-react";
 import { useI18n, useT } from "@/lib/i18n";
 import { formatNumber } from "@/lib/i18n/format";
+import { filterCriterionLabel, stageLabel } from "@/lib/i18n/labels";
 
 /**
  * Data flow diagram — generated automatically from the audit log (api.reportFlow).
@@ -154,7 +155,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
     ],
   });
 
-  const stageParts = Object.entries(flow.stages).map(([k, v]) => `${k}: ${n(v)}`);
+  const stageParts = Object.entries(flow.stages).map(([k, v]) => `${stageLabel(t, k)}: ${n(v)}`);
   const dedupSide = [t("report.flow.removed", { n: n(flow.matched_pairs + flow.intra_removed) })];
   if (flow.intra_removed > 0) dedupSide.push(t("report.flow.intraRemoved", { n: n(flow.intra_removed) }));
   boxes.push({
@@ -175,7 +176,7 @@ export function DataFlowDiagram({ projectId }: { projectId: string }) {
     running = s.after ?? Math.max(0, running - s.removed);
     const label =
       s.kind === "filter_apply"
-        ? t("report.flow.stepFilter", { keys: s.criteria.join(", ") || "—" })
+        ? t("report.flow.stepFilter", { keys: s.criteria.map((c) => filterCriterionLabel(t, c)).join(", ") || "—" })
         : s.kind === "records_delete"
           ? t("report.flow.stepDelete")
           : t("report.flow.stepBorderline");

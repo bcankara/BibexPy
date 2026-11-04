@@ -230,23 +230,23 @@ def open_folder(payload: OpenFolderPayload):
 def _shortcuts(home: Path) -> list[dict[str, str]]:
     """Quick-access shortcuts on the left — adapted per OS."""
     items: list[dict[str, str]] = [
-        {"label": "Ev", "path": str(home), "icon": "home"},
-        {"label": "Belgeler", "path": str(home / "Documents"), "icon": "documents"},
-        {"label": "İndirilenler", "path": str(home / "Downloads"), "icon": "downloads"},
-        {"label": "Masaüstü", "path": str(home / "Desktop"), "icon": "desktop"},
+        {"id": "home", "label": "Home", "path": str(home), "icon": "home"},
+        {"id": "documents", "label": "Documents", "path": str(home / "Documents"), "icon": "documents"},
+        {"id": "downloads", "label": "Downloads", "path": str(home / "Downloads"), "icon": "downloads"},
+        {"id": "desktop", "label": "Desktop", "path": str(home / "Desktop"), "icon": "desktop"},
     ]
     if _is_windows():
-        items.append({"label": "Bilgisayar", "path": "", "icon": "computer"})
+        items.append({"id": "computer", "label": "Computer", "path": "", "icon": "computer"})
     elif sys.platform == "darwin":
         # macOS — mounted drives are under /Volumes
-        items.append({"label": "Uygulamalar", "path": "/Applications", "icon": "computer"})
+        items.append({"id": "applications", "label": "Applications", "path": "/Applications", "icon": "computer"})
         if Path("/Volumes").exists():
-            items.append({"label": "Sürücüler", "path": "/Volumes", "icon": "computer"})
+            items.append({"id": "volumes", "label": "Volumes", "path": "/Volumes", "icon": "computer"})
     else:
         # Linux
         if Path("/mnt").exists():
-            items.append({"label": "Mount", "path": "/mnt", "icon": "computer"})
+            items.append({"id": "mount", "label": "Mount", "path": "/mnt", "icon": "computer"})
         if Path("/media").exists():
-            items.append({"label": "Media", "path": "/media", "icon": "computer"})
+            items.append({"id": "media", "label": "Media", "path": "/media", "icon": "computer"})
     # Return only the directories that actually exist
     return [it for it in items if not it["path"] or Path(it["path"]).exists()]

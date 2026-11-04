@@ -56,12 +56,16 @@ export function I18nProvider({ children, initialLocale }: { children: React.Reac
     }
   }, []);
 
+  // Keep <html lang> in step with the app language (also after the stored locale is
+  // restored on load): CSS text-transform uses it, e.g. Turkish "aktif" -> "AKTİF".
+  useEffect(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = locale;
+  }, [locale]);
+
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(STORAGE_KEY, l);
-      // Update <html lang="..."> as well
-      document.documentElement.lang = l;
     }
   }, []);
 

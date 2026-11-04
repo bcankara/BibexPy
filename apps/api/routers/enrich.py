@@ -21,7 +21,7 @@ async def start_fill_all(project_id: str):
         return await enricher.run_fill_all(ctx, project_id)
 
     job = job_runner.submit(
-        project_id, "enrich_api", "Eksik alanları doldur (API)", worker,
+        project_id, "enrich_api", "Fill missing fields (API)", worker,
         title_key="audit.titles.fillAll", exclusive=True,
     )
     return {"job_id": job.id}
@@ -36,7 +36,7 @@ async def start_api_enrichment(project_id: str, payload: ApiEnrichRequest):
         return await enricher.run_api_enrichment(ctx, project_id, payload.sources)
 
     job = job_runner.submit(
-        project_id, "enrich_api", "API ile zenginleştirme", worker,
+        project_id, "enrich_api", "API enrichment", worker,
         title_key="audit.titles.apiEnrichment", exclusive=True,
     )
     return {"job_id": job.id}

@@ -28,7 +28,7 @@ def test_orcid_not_called_directly_on_event_loop(pipeline):
     for fn in (pipeline.run_author_disambiguation, pipeline._compute_author_splits):
         src = inspect.getsource(fn)
         assert "orcids_for_candidate" not in src, (
-            f"{fn.__name__} orcids_for_candidate'i doğrudan çağırıyor → event loop bloklanır (#7)"
+            f"{fn.__name__} calls orcids_for_candidate directly → the event loop gets blocked (#7)"
         )
 
 

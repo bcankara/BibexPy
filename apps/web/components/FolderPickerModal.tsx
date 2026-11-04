@@ -217,12 +217,12 @@ export function FolderPickerModal({ open, initialPath, onClose, onSelect }: Prop
               </p>
               {(data?.shortcuts ?? []).map((s) => (
                 <button
-                  key={s.label}
+                  key={s.id ?? s.label}
                   onClick={() => browse(s.path)}
                   className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-white text-ink"
                 >
                   <span className="text-muted">{ICON_MAP[s.icon] ?? <Folder className="h-3.5 w-3.5" />}</span>
-                  <span className="truncate">{s.label}</span>
+                  <span className="truncate">{shortcutLabel(t, s)}</span>
                 </button>
               ))}
             </aside>
@@ -302,6 +302,14 @@ function FolderItem({ entry, onOpen }: { entry: BrowseEntry; onOpen: () => void 
       <ChevronRight className="h-3 w-3 text-muted/40 opacity-0 group-hover:opacity-100 transition" />
     </button>
   );
+}
+
+/** Quick-access label in the app language; falls back to the backend's English label. */
+function shortcutLabel(t: (k: string) => string, s: { id?: string; label: string }): string {
+  if (!s.id) return s.label;
+  const key = `folderPicker.shortcuts.${s.id}`;
+  const v = t(key);
+  return v === key ? s.label : v;
 }
 
 function makeBreadcrumbs(currentPath: string, platform: string): { label: string; path: string }[] {

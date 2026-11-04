@@ -6,7 +6,8 @@ import {
   Tag, Layers, Type, ShieldCheck, Filter as FilterIcon,
 } from "lucide-react";
 import type { FilterSpec, Facets, Range } from "@/lib/api-client";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
 import { cn } from "@/lib/cn";
 
 type Props = {
@@ -17,7 +18,7 @@ type Props = {
 };
 
 export function FilterPanel({ spec, facetsAll, onChange, onReset }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   // Number of active filters
   const activeCount = useMemo(() => countActive(spec), [spec]);
 
@@ -58,7 +59,7 @@ export function FilterPanel({ spec, facetsAll, onChange, onReset }: Props) {
           min={facetsAll?.citation_count?.min}
           max={facetsAll?.citation_count?.max}
           onChange={(v) => onChange({ ...spec, citation_count: v })}
-          hint={facetsAll?.citation_count ? t("records.filter.citationHint", { mean: Math.round(facetsAll.citation_count.mean), max: facetsAll.citation_count.max }) : undefined}
+          hint={facetsAll?.citation_count ? t("records.filter.citationHint", { mean: formatNumber(Math.round(facetsAll.citation_count.mean), locale), max: formatNumber(facetsAll.citation_count.max, locale) }) : undefined}
         />
       </Section>
 
@@ -293,7 +294,7 @@ function RangeWithHistogram({
     onChange(isFull ? undefined : { min: cLo, max: cHi });
   }
 
-  const t = useT();
+  const { t, locale } = useI18n();
   // Percentage for the slider
   const loPct = ((lo - actualMin) / span) * 100;
   const hiPct = ((hi - actualMin) / span) * 100;
@@ -309,7 +310,7 @@ function RangeWithHistogram({
               <div
                 key={h.key}
                 className="flex-1 h-full flex items-end group relative cursor-help"
-                aria-label={t("records.filter.yearCount", { year: h.key, count: h.count })}
+                aria-label={t("records.filter.yearCount", { year: h.key, count: formatNumber(h.count, locale) })}
               >
                 <div
                   className={cn(
@@ -319,7 +320,7 @@ function RangeWithHistogram({
                   style={{ height: `${(h.count / maxCount) * 100}%`, minHeight: 2 }}
                 />
                 <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-20 hidden whitespace-nowrap rounded bg-ink px-1.5 py-0.5 text-[10px] font-medium text-white shadow-soft group-hover:block">
-                  {t("records.filter.yearCount", { year: h.key, count: h.count })}
+                  {t("records.filter.yearCount", { year: h.key, count: formatNumber(h.count, locale) })}
                 </div>
               </div>
             );
@@ -395,12 +396,13 @@ function RangeInput({ value, min, max, onChange, hint }: {
   onChange: (v: Range | undefined) => void;
   hint?: string;
 }) {
+  const t = useT();
   const v = value ?? {};
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
         <input
-          type="number" placeholder={String(min ?? "min")} value={v.min ?? ""}
+          type="number" placeholder={String(min ?? t("common.min"))} value={v.min ?? ""}
           onChange={(e) => {
             const n = e.target.value === "" ? undefined : Number(e.target.value);
             const out = { ...v, min: n };
@@ -410,7 +412,7 @@ function RangeInput({ value, min, max, onChange, hint }: {
         />
         <span className="text-muted text-xs">—</span>
         <input
-          type="number" placeholder={String(max ?? "max")} value={v.max ?? ""}
+          type="number" placeholder={String(max ?? t("common.max"))} value={v.max ?? ""}
           onChange={(e) => {
             const n = e.target.value === "" ? undefined : Number(e.target.value);
             const out = { ...v, max: n };
@@ -434,10 +436,11 @@ function SearchableMulti({
   selected: string[];
   onChange: (v: string[]) => void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
+  // Hook must run before the early return below (hook order has to stay stable).
+  const [search, setSearch] = useState("");
   if (options.length === 0) return <p className="text-xs text-muted py-1">{t("common.noData")}</p>;
   const set = new Set(selected);
-  const [search, setSearch] = useState("");
 
   function toggle(val: string) {
     const next = new Set(selected);
@@ -496,7 +499,7 @@ function SearchableMulti({
                 className="accent-brand-500 h-3.5 w-3.5"
               />
               <span className="flex-1 truncate" title={o.value}>{o.value}</span>
-              <span className="text-[10px] text-muted tabular-nums">{o.count}</span>
+              <span className="text-[10px] text-muted tabular-nums">{formatNumber(o.count, locale)}</span>
             </label>
           );
         })}

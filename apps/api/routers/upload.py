@@ -72,7 +72,7 @@ async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
     audit.write(
         project_id,
         kind="upload",
-        title=f"{len(saved)} dosya yüklendi",
+        title=f"{len(saved)} files uploaded",
         title_key="audit.titles.filesUploaded",
         title_params={"n": len(saved)},
         analysis_id=None,  # project-level: appears as "setup" in all analyses
@@ -100,7 +100,7 @@ def delete_file(project_id: str, filename: str):
     audit.write(
         project_id,
         kind="upload",
-        title=f"Dosya silindi: {name}",
+        title=f"File deleted: {name}",
         title_key="audit.titles.fileDeleted",
         title_params={"name": name},
         analysis_id=None,

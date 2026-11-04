@@ -11,9 +11,9 @@ from __future__ import annotations
 import datetime as dt
 import io
 import re
-from typing import Any
+from typing import Any, Optional
 
-from services import audit, storage
+from services import audit, doc_i18n, report_flow, storage
 
 # ─────────────────────────────────────────────────────────────────────────
 #  Text cleaning
@@ -37,16 +37,19 @@ def _strip_emoji(s: str) -> str:
     return _EMOJI.sub("", str(s)).strip()
 
 
-def _esc_inline(s: str) -> str:
+def _esc_inline(s: str, *, code_font: str = "Courier", ascii_fold: bool = False) -> str:
     """Safe escaping + limited markdown for reportlab Paragraph mini-HTML.
 
     XML special characters are escaped first, then **bold** and `code` markers
-    are converted into controlled tags.
+    are converted into controlled tags. `ascii_fold` converts Turkish letters to
+    ASCII (used only when no Unicode TTF is available).
     """
     s = _strip_emoji(s)
+    if ascii_fold:
+        s = s.translate(report_flow._ASCII_MAP)
     s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
-    s = re.sub(r"`(.+?)`", r'<font face="Courier">\1</font>', s)
+    s = re.sub(r"`(.+?)`", lambda m: f'<font face="{code_font}">{m.group(1)}</font>', s)
     return s
 
 
@@ -54,11 +57,13 @@ def _esc_inline(s: str) -> str:
 #  PDF generation (markdown-like text → PDF)
 # ─────────────────────────────────────────────────────────────────────────
 
-def render_pdf(title: str, md_text: str) -> bytes:
+def render_pdf(title: str, md_text: str, lang: str = "en") -> bytes:
     """Convert a title + markdown-like body into a clean PDF.
 
     Supported: # / ## / ### headings, - / * bullets, | a | b | tables,
-    **bold**, `code`, blank line = spacing. Emojis are dropped.
+    **bold**, `code`, blank line = spacing. Emojis are dropped. A Unicode TTF is
+    registered (same discovery as the flow PDF) so Turkish letters render; only
+    when none exists are they folded to ASCII. `lang` localises the date stamp.
     """
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT
@@ -69,23 +74,40 @@ def render_pdf(title: str, md_text: str) -> bytes:
         ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
     )
 
+    from reportlab.pdfbase import pdfmetrics
+
+    lang = doc_i18n.norm_lang(lang)
+    font_reg, font_bold, unicode_ok = report_flow._fonts()
+    if unicode_ok:
+        pdfmetrics.registerFontFamily(
+            font_reg, normal=font_reg, bold=font_bold, italic=font_reg, boldItalic=font_bold)
+
+    def esc(text: str) -> str:
+        return _esc_inline(text, code_font=font_reg if unicode_ok else "Courier",
+                           ascii_fold=not unicode_ok)
+
+    doc_title = _strip_emoji(title) or doc_i18n.tr_(lang, "doc.fallbackTitle")
+    if not unicode_ok:
+        doc_title = doc_title.translate(report_flow._ASCII_MAP)
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=2 * cm, rightMargin=2 * cm, topMargin=2 * cm, bottomMargin=2 * cm,
-        title=_strip_emoji(title) or "Report", author="BibexPy v2",
+        title=doc_title, author="BibexPy v2",
     )
     base = getSampleStyleSheet()
     brand = colors.HexColor("#3F32B5")
-    st_body = ParagraphStyle("body", parent=base["Normal"], fontSize=10, leading=14, alignment=TA_LEFT)
-    st_h1 = ParagraphStyle("h1", parent=base["Heading1"], fontSize=17, spaceAfter=8, textColor=brand)
-    st_h2 = ParagraphStyle("h2", parent=base["Heading2"], fontSize=13, spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#1F2A44"))
-    st_h3 = ParagraphStyle("h3", parent=base["Heading3"], fontSize=11, spaceBefore=8, spaceAfter=3)
-    st_meta = ParagraphStyle("meta", parent=base["Normal"], fontSize=8.5, textColor=colors.HexColor("#64748B"))
+    st_body = ParagraphStyle("body", parent=base["Normal"], fontName=font_reg, fontSize=10, leading=14, alignment=TA_LEFT)
+    st_head = ParagraphStyle("thead", parent=st_body, fontName=font_bold, textColor=colors.white)
+    st_h1 = ParagraphStyle("h1", parent=base["Heading1"], fontName=font_bold, fontSize=17, spaceAfter=8, textColor=brand)
+    st_h2 = ParagraphStyle("h2", parent=base["Heading2"], fontName=font_bold, fontSize=13, spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#1F2A44"))
+    st_h3 = ParagraphStyle("h3", parent=base["Heading3"], fontName=font_bold, fontSize=11, spaceBefore=8, spaceAfter=3)
+    st_meta = ParagraphStyle("meta", parent=base["Normal"], fontName=font_reg, fontSize=8.5, textColor=colors.HexColor("#64748B"))
 
     flow: list[Any] = []
-    flow.append(Paragraph(_esc_inline(title), st_h1))
-    flow.append(Paragraph(dt.datetime.now().strftime("%Y-%m-%d %H:%M"), st_meta))
+    flow.append(Paragraph(esc(title), st_h1))
+    flow.append(Paragraph(doc_i18n.fmt_datetime(dt.datetime.now(), lang), st_meta))
     flow.append(Spacer(1, 10))
 
     lines = (md_text or "").split("\n")
@@ -96,7 +118,7 @@ def render_pdf(title: str, md_text: str) -> bytes:
         if bullets:
             flow.append(ListFlowable(
                 [ListItem(Paragraph(b, st_body), leftIndent=12) for b in bullets],
-                bulletType="bullet", start="•", leftIndent=10,
+                bulletType="bullet", start="•", leftIndent=10, bulletFontName=font_reg,
             ))
             flow.append(Spacer(1, 4))
             bullets = []
@@ -120,7 +142,10 @@ def render_pdf(title: str, md_text: str) -> bytes:
                 rows.append(cells)
             if rows:
                 ncol = max(len(r) for r in rows)
-                data = [[Paragraph(_esc_inline(c), st_body) for c in (r + [""] * (ncol - len(r)))] for r in rows]
+                data = [
+                    [Paragraph(esc(c), st_head if ri == 0 else st_body) for c in (r + [""] * (ncol - len(r)))]
+                    for ri, r in enumerate(rows)
+                ]
                 tbl = Table(data, hAlign="LEFT")
                 tbl.setStyle(TableStyle([
                     ("BACKGROUND", (0, 0), (-1, 0), brand),
@@ -143,16 +168,16 @@ def render_pdf(title: str, md_text: str) -> bytes:
             i += 1
             continue
         if stripped.startswith("### "):
-            flush_bullets(); flow.append(Paragraph(_esc_inline(stripped[4:]), st_h3)); i += 1; continue
+            flush_bullets(); flow.append(Paragraph(esc(stripped[4:]), st_h3)); i += 1; continue
         if stripped.startswith("## "):
-            flush_bullets(); flow.append(Paragraph(_esc_inline(stripped[3:]), st_h2)); i += 1; continue
+            flush_bullets(); flow.append(Paragraph(esc(stripped[3:]), st_h2)); i += 1; continue
         if stripped.startswith("# "):
-            flush_bullets(); flow.append(Paragraph(_esc_inline(stripped[2:]), st_h1)); i += 1; continue
+            flush_bullets(); flow.append(Paragraph(esc(stripped[2:]), st_h1)); i += 1; continue
         if stripped.startswith(("- ", "* ")):
-            bullets.append(_esc_inline(stripped[2:])); i += 1; continue
+            bullets.append(esc(stripped[2:])); i += 1; continue
 
         flush_bullets()
-        flow.append(Paragraph(_esc_inline(stripped), st_body))
+        flow.append(Paragraph(esc(stripped), st_body))
         i += 1
 
     flush_bullets()
@@ -164,53 +189,63 @@ def render_pdf(title: str, md_text: str) -> bytes:
 #  Raw log → plain text
 # ─────────────────────────────────────────────────────────────────────────
 
-def format_text_report(project_id: str) -> str:
-    """Clean plain-text version of the operation log, without markdown or emoji."""
+def format_text_report(
+    project_id: str,
+    lang: str = "en",
+    analysis_id: Optional[str] = audit._ALL,
+) -> str:
+    """Clean plain-text version of the operation log, without markdown or emoji.
+
+    `analysis_id` scopes the entries exactly like `audit.read` (default: the whole project).
+    """
+    lang = doc_i18n.norm_lang(lang)
+    t = lambda key, **p: doc_i18n.tr_(lang, key, **p)  # noqa: E731
     meta = storage.get_project(project_id)
-    entries = audit.read(project_id)
+    entries = audit.read(project_id, analysis_id=analysis_id)
     name = meta.name if meta else project_id
 
     out: list[str] = []
-    out.append("BibexPy v2 - Operation Report")
+    out.append(f"BibexPy v2 - {t('doc.title')}")
     out.append("=" * 40)
-    out.append(f"Project        : {name} ({project_id})")
-    out.append(f"Generated      : {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    out.append(f"Total operations: {len(entries)}")
+    out.append(f"{t('doc.project') + ':':<20}{name} ({project_id})")
+    out.append(f"{t('doc.generated') + ':':<20}{doc_i18n.fmt_datetime(dt.datetime.now(), lang)}")
+    out.append(f"{t('doc.totalOps') + ':':<20}{doc_i18n.fmt_int(len(entries), lang)}")
     out.append("")
 
     if not entries:
-        out.append("No operations recorded yet.")
+        out.append(t("doc.noOps"))
         return "\n".join(out)
 
-    s = audit.summary(project_id)
-    out.append("Summary")
+    by_kind: dict[str, int] = {}
+    for e in entries:
+        by_kind[e.get("kind", "?")] = by_kind.get(e.get("kind", "?"), 0) + 1
+    out.append(t("doc.summary"))
     out.append("-" * 40)
-    for k, c in sorted(s.get("by_kind", {}).items(), key=lambda x: -x[1]):
-        label = _strip_emoji(audit.KIND_LABELS.get(k, k))
-        out.append(f"  {label:<28} {c}")
+    for k, c in sorted(by_kind.items(), key=lambda x: -x[1]):
+        label = _strip_emoji(doc_i18n.kind_label(lang, k))
+        out.append(f"  {label:<28} {doc_i18n.fmt_int(c, lang)}")
     out.append("")
 
-    out.append("Chronology")
+    out.append(t("doc.chronology"))
     out.append("-" * 40)
     for idx, e in enumerate(entries, 1):
-        ts = e.get("ts")
-        ts_str = dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "-"
-        label = _strip_emoji(audit.KIND_LABELS.get(e.get("kind", ""), e.get("kind", "?")))
-        title = _strip_emoji(e.get("title", ""))
+        ts_str = doc_i18n.fmt_dt(e.get("ts"), lang, seconds=True)
+        label = _strip_emoji(doc_i18n.kind_label(lang, e.get("kind", "?")))
+        title = _strip_emoji(doc_i18n.resolve_title(lang, e))
         out.append(f"{idx}. [{label}] {title}")
         out.append(f"   {ts_str}")
-        details = e.get("details") or {}
+        details = e.get("details")
+        if not isinstance(details, dict):
+            details = {}
         for k, v in details.items():
             if v is None or v == "":
                 continue
-            if isinstance(v, (list, dict)):
-                v = str(v)
-            v = str(v)
-            if len(v) > 160:
-                v = v[:160] + "..."
-            out.append(f"   - {k}: {v}")
+            text = audit.render_detail_value(lang, k, v, max_len=160)
+            out.append(f"   - {doc_i18n.detail_label(lang, k)}: {text}")
         if e.get("snapshot"):
-            out.append(f"   - snapshot: {str(e['snapshot']).split('/')[-1].split(chr(92))[-1]}")
+            out.append(f"   - {t('doc.snapshot')}: {str(e['snapshot']).split('/')[-1].split(chr(92))[-1]}")
+        if e.get("user_action"):
+            out.append(f"   - {t('doc.user')}: {doc_i18n.user_action_label(lang, e['user_action'])}")
         out.append("")
     return "\n".join(out)
 
@@ -243,25 +278,47 @@ _ACTION_EN = {
 }
 
 
+# Identifier-like token: ASCII letters/digits and a few separators, no free text
+_TOKEN = re.compile(r"^[A-Za-z0-9_.+/:\- ]{1,40}$")
+
+
+def _clean_value(v: Any, depth: int = 0) -> Any:
+    """Digest-safe form of one metric value, or ``None`` when nothing safe remains.
+
+    Numbers and bools pass; strings pass only as short identifier-like tokens (free
+    text, e.g. localised or user-typed values, never reaches the LLM); small lists
+    and dicts are cleaned recursively.
+    """
+    if isinstance(v, bool) or isinstance(v, (int, float)):
+        return v
+    if isinstance(v, str):
+        return v if _TOKEN.match(v) else None
+    if isinstance(v, list):
+        if len(v) <= 12 and all(isinstance(x, (str, int, float)) for x in v):
+            short = [x for x in v if not isinstance(x, str) or _TOKEN.match(x)]
+            return short or None
+        return None
+    if isinstance(v, dict):
+        if len(v) > 12 or depth >= 2:
+            return None
+        cleaned = {}
+        for k, x in v.items():
+            cx = _clean_value(x, depth + 1)
+            if cx is not None and cx != "" and _TOKEN.match(str(k)):
+                cleaned[str(k)] = cx
+        return cleaned or None
+    return None
+
+
 def _clean_metrics(details: dict) -> dict:
-    """Noise-free subset of metrics for the digest — numbers + short values + small lists."""
+    """Noise-free subset of metrics for the digest — numbers + short tokens + small lists/dicts."""
     out: dict[str, Any] = {}
     for k, v in (details or {}).items():
         if v is None or v == "":
             continue
-        if isinstance(v, bool) or isinstance(v, (int, float)):
-            out[k] = v
-        elif isinstance(v, str):
-            if len(v) <= 120:
-                out[k] = v
-        elif isinstance(v, list):
-            if len(v) <= 12 and all(isinstance(x, (str, int, float)) for x in v):
-                short = [x for x in v if not (isinstance(x, str) and len(x) > 80)]
-                if short:
-                    out[k] = short
-        elif isinstance(v, dict):
-            if len(v) <= 12:
-                out[k] = v
+        cv = _clean_value(v)
+        if cv is not None:
+            out[k] = cv
     return out
 
 

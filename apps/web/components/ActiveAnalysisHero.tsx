@@ -8,9 +8,10 @@ import {
 import { Card, CardBody } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useToast } from "@/components/Dialogs";
-import { api, formatBytes, type MergeSummary, type AnalysisItem, translateApiError} from "@/lib/api-client";
+import { api, type MergeSummary, type AnalysisItem, translateApiError} from "@/lib/api-client";
 import { useI18n, type Locale } from "@/lib/i18n";
-import { formatDate, formatDateTime, formatNumber } from "@/lib/i18n/format";
+import { formatBytes, formatDate, formatDateTime, formatNumber, formatPercent } from "@/lib/i18n/format";
+import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
 
 type Props = {
@@ -30,6 +31,7 @@ const METHOD_META: Record<string, { label: string; icon: typeof Combine; tone: s
   simple: { label: "Simple", icon: Combine, tone: "text-slate-700", iconBg: "bg-slate-100", ring: "ring-slate-200" },
   enhanced: { label: "Enhanced", icon: Sparkles, tone: "text-brand-700", iconBg: "bg-brand-50", ring: "ring-brand-200" },
   smart: { label: "Smart", icon: Brain, tone: "text-brand-700", iconBg: "bg-brand-100", ring: "ring-brand-200" },
+  single: { label: "Single", icon: Combine, tone: "text-slate-700", iconBg: "bg-slate-100", ring: "ring-slate-200" },
   unknown: { label: "Legacy", icon: Folder, tone: "text-slate-500", iconBg: "bg-slate-50", ring: "ring-slate-200" },
 };
 
@@ -50,6 +52,7 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
   const Icon = meta.icon;
 
   const stats = summary.general;
+  const displayLabel = analysisDisplayLabel(t, locale, analysis);
 
   async function handleDelete() {
     setDeleting(true);
@@ -90,11 +93,11 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
                 {t(`analyses.method.${methodKey}`)}
               </span>
             </div>
-            <h2 className="text-lg font-bold text-ink mt-1.5 truncate" title={analysis.label}>
-              {analysis.label}
+            <h2 className="text-lg font-bold text-ink mt-1.5 truncate" title={displayLabel}>
+              {displayLabel}
             </h2>
             <div className="text-[11px] text-muted mt-0.5 font-mono truncate" title={analysis.id}>
-              {analysis.id} · {fmtDate(analysis.created_at, locale)} · {analysis.file_count} {t("common.files")} · {formatBytes(analysis.total_size)}
+              {analysis.id} · {fmtDate(analysis.created_at, locale)} · {analysis.file_count} {t("common.files")} · {formatBytes(analysis.total_size, locale)}
             </div>
           </div>
 
@@ -121,7 +124,7 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
             <MiniStat label="Scopus" value={formatNumber(stats.scopus_records, locale)} />
             <MiniStat
               label={t("analyses.statDedup")}
-              value={`${formatNumber(stats.dedup_rate * 100, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+              value={formatPercent(stats.dedup_rate * 100, locale, 1)}
               sub={`${formatNumber(stats.duplicates_removed, locale)} ${t("analyses.statDuplicates")}`}
             />
           </div>

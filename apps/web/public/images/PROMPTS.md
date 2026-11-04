@@ -1,9 +1,9 @@
 # Image Prompts — BibexPy v2 Landing Page
 
-Bu klasördeki görseller, anasayfanın daha genel ve özgün SaaS landing
-tasarımına göre ImageGen ile üretilmiştir.
+The images in this folder were generated with ImageGen to fit the homepage's
+more general, original SaaS landing design.
 
-## Yerleşim haritası
+## Layout map
 
 ```text
 apps/web/public/images/
@@ -80,4 +80,4 @@ Constraints: exact spelling and capitalization, include V2, minimalist, premium 
 
 ## 5. Author portraits — `authors/*.jpg`
 
-Gerçek yüklenen fotoğraflar kullanılmıştır; AI portre üretilmemiştir.
+Real uploaded photos are used; no AI portraits were generated.

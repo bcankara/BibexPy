@@ -12,7 +12,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from typing import Any, Optional
 
-from services import analyses, audit, storage
+from services import analyses, audit, doc_i18n, storage
 
 
 router = APIRouter(prefix="/projects/{project_id}/audit", tags=["audit"])
@@ -21,6 +21,8 @@ router = APIRouter(prefix="/projects/{project_id}/audit", tags=["audit"])
 class AuditEntry(BaseModel):
     kind: str
     title: str
+    title_key: Optional[str] = None
+    title_params: Optional[dict[str, Any]] = None
     details: Optional[dict[str, Any]] = None
     user_action: Optional[str] = None
 
@@ -49,6 +51,8 @@ def add_entry(project_id: str, payload: AuditEntry):
         project_id,
         kind=payload.kind,
         title=payload.title,
+        title_key=payload.title_key,
+        title_params=payload.title_params,
         details=payload.details,
         user_action=payload.user_action,
     )
@@ -63,8 +67,9 @@ def clear_entries(project_id: str):
 
 
 @router.get("/report.md", response_class=PlainTextResponse)
-def markdown_report(project_id: str):
+def markdown_report(project_id: str, lang: str = "en"):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
     active = analyses.get_active_analysis_id(project_id)
-    return audit.format_markdown_report(project_id, analysis_id=active)
+    return audit.format_markdown_report(
+        project_id, analysis_id=active, lang=doc_i18n.norm_lang(lang))

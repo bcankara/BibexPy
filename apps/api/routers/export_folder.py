@@ -55,7 +55,7 @@ def copy_to_folder(project_id: str, payload: CopyRequest):
         name = Path(name).name  # safety
         src = exports / name
         if not src.exists():
-            skipped.append({"name": name, "reason": "Kaynak dosya bulunamadı"})
+            skipped.append({"name": name, "reason": "Source file not found"})
             continue
         dst = target / name
         try:
@@ -67,7 +67,7 @@ def copy_to_folder(project_id: str, payload: CopyRequest):
     audit.write(
         project_id,
         kind="export",
-        title=f"{len(copied)} dosya lokal klasöre kopyalandı",
+        title=f"{len(copied)} files copied to local folder",
         title_key="audit.titles.filesCopiedToFolder",
         title_params={"n": len(copied)},
         details={
@@ -89,10 +89,10 @@ def suggest_folders():
     out = {
         "home": str(home),
         "suggestions": [
-            {"label": "İndirilenler", "path": str(home / "Downloads")},
-            {"label": "Belgeler", "path": str(home / "Documents")},
-            {"label": "Masaüstü", "path": str(home / "Desktop")},
-            {"label": "BibexPy çıktı", "path": str(home / "Documents" / "BibexPy")},
+            {"id": "downloads", "label": "Downloads", "path": str(home / "Downloads")},
+            {"id": "documents", "label": "Documents", "path": str(home / "Documents")},
+            {"id": "desktop", "label": "Desktop", "path": str(home / "Desktop")},
+            {"id": "bibexpy_output", "label": "BibexPy output", "path": str(home / "Documents" / "BibexPy")},
         ],
     }
     return out

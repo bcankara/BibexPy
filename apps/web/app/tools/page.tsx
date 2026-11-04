@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { api, formatBytes, translateApiError} from "@/lib/api-client";
+import { api, translateApiError} from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
@@ -9,7 +9,8 @@ import {
   Wrench, Upload, Loader2, CheckCircle2, FileText, Download, X,
   FileSpreadsheet, FileType, BookOpen, FileJson, Database, AlertCircle,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
+import { formatBytes, formatNumber } from "@/lib/i18n/format";
 import { cn } from "@/lib/cn";
 
 const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -83,7 +84,7 @@ function guessSource(filename: string): SourceId | null {
 }
 
 export default function ToolsPage() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<SourceId | null>(null);
   const [target, setTarget] = useState<TargetId>("wos");
@@ -138,7 +139,7 @@ export default function ToolsPage() {
       <PageHeader
         title={t("tools.title")}
         subtitle={t("tools.subtitle")}
-        badges={[{ label: "Beta", tone: "neutral" }]}
+        badges={[{ label: t("common.beta"), tone: "neutral" }]}
       />
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
 
@@ -186,7 +187,7 @@ export default function ToolsPage() {
                   <>
                     <CheckCircle2 className="h-7 w-7 text-success" />
                     <p className="text-sm font-medium text-ink">
-                      {t("tools.fileSelected", { name: file.name, size: formatBytes(file.size) })}
+                      {t("tools.fileSelected", { name: file.name, size: formatBytes(file.size, locale) })}
                     </p>
                     <button
                       onClick={(e) => { e.stopPropagation(); reset(); }}
@@ -306,7 +307,7 @@ export default function ToolsPage() {
                 <CheckCircle2 className="h-5 w-5 text-success mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-emerald-800">
-                    {t("tools.successMsg", { records: result.records, columns: result.columns })}
+                    {t("tools.successMsg", { records: formatNumber(result.records, locale), columns: formatNumber(result.columns, locale) })}
                   </div>
                   <div className="text-xs text-emerald-700/80 mt-0.5 font-mono truncate">{result.filename}</div>
                 </div>

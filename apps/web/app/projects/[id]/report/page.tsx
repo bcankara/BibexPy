@@ -13,26 +13,38 @@ import {
   History, Download, FileText, Camera, RotateCcw, Upload, Combine, Sparkles,
   Brain, Trash2, Star, FolderPlus, ScrollText, Loader2, AlertTriangle, Wand2,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatDate, formatDateTime, formatNumber, formatPercent } from "@/lib/i18n/format";
+import { auditKindLabel, userActionLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
 import { useConfirm, useToast } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
 
-const KIND_ICONS: Record<string, { icon: React.ReactNode; tone: string; labelKey: string }> = {
-  project_create:          { icon: <FolderPlus className="h-4 w-4" />, tone: "info",    labelKey: "audit.kinds.project_create" },
-  upload:                  { icon: <Upload className="h-4 w-4" />,   tone: "info",     labelKey: "audit.kinds.upload" },
-  convert:                 { icon: <FileText className="h-4 w-4" />, tone: "info",     labelKey: "audit.kinds.convert" },
-  merge:                   { icon: <Combine className="h-4 w-4" />,  tone: "brand",    labelKey: "audit.kinds.merge" },
-  filter_save:             { icon: <Star className="h-4 w-4" />,     tone: "warning",  labelKey: "audit.kinds.filter_save" },
-  records_delete:          { icon: <Trash2 className="h-4 w-4" />,   tone: "danger",   labelKey: "audit.kinds.records_delete" },
-  enrich_api:              { icon: <Sparkles className="h-4 w-4" />, tone: "brand",    labelKey: "audit.kinds.enrich_api" },
-  enrich_ml:               { icon: <Brain className="h-4 w-4" />,    tone: "brand",    labelKey: "audit.kinds.enrich_ml" },
-  enrich_selected_requested:{ icon: <Sparkles className="h-4 w-4" />, tone: "brand",   labelKey: "audit.kinds.enrich_selected" },
-  disambiguate:            { icon: <Sparkles className="h-4 w-4" />, tone: "accent",   labelKey: "audit.kinds.disambiguate" },
-  snapshot:                { icon: <Camera className="h-4 w-4" />,   tone: "neutral",  labelKey: "audit.kinds.snapshot" },
-  snapshot_restore:        { icon: <RotateCcw className="h-4 w-4" />, tone: "warning", labelKey: "audit.kinds.snapshot_restore" },
-  export:                  { icon: <Download className="h-4 w-4" />, tone: "success",  labelKey: "audit.kinds.export" },
-  report:                  { icon: <ScrollText className="h-4 w-4" />, tone: "neutral", labelKey: "audit.kinds.report" },
+const KIND_ICONS: Record<string, { icon: React.ReactNode; tone: string }> = {
+  project_create:          { icon: <FolderPlus className="h-4 w-4" />, tone: "info" },
+  upload:                  { icon: <Upload className="h-4 w-4" />,   tone: "info" },
+  convert:                 { icon: <FileText className="h-4 w-4" />, tone: "info" },
+  merge:                   { icon: <Combine className="h-4 w-4" />,  tone: "brand" },
+  filter_save:             { icon: <Star className="h-4 w-4" />,     tone: "warning" },
+  records_delete:          { icon: <Trash2 className="h-4 w-4" />,   tone: "danger" },
+  enrich_api:              { icon: <Sparkles className="h-4 w-4" />, tone: "brand" },
+  enrich_ml:               { icon: <Brain className="h-4 w-4" />,    tone: "brand" },
+  enrich_selected_requested:{ icon: <Sparkles className="h-4 w-4" />, tone: "brand" },
+  disambiguate:            { icon: <Sparkles className="h-4 w-4" />, tone: "accent" },
+  snapshot:                { icon: <Camera className="h-4 w-4" />,   tone: "neutral" },
+  snapshot_restore:        { icon: <RotateCcw className="h-4 w-4" />, tone: "warning" },
+  export:                  { icon: <Download className="h-4 w-4" />, tone: "success" },
+  report:                  { icon: <ScrollText className="h-4 w-4" />, tone: "neutral" },
+  enrich_selected:         { icon: <Sparkles className="h-4 w-4" />, tone: "brand" },
+  enrich_field:            { icon: <Sparkles className="h-4 w-4" />, tone: "brand" },
+  records_edit:            { icon: <Wand2 className="h-4 w-4" />,    tone: "warning" },
+  filter_apply:            { icon: <Star className="h-4 w-4" />,     tone: "warning" },
+  format_migration:        { icon: <Camera className="h-4 w-4" />,   tone: "neutral" },
+  disambiguate_authors:    { icon: <Sparkles className="h-4 w-4" />, tone: "accent" },
+  disambiguate_affiliations:{ icon: <Sparkles className="h-4 w-4" />, tone: "accent" },
+  merge_borderline:        { icon: <Combine className="h-4 w-4" />, tone: "warning" },
+  analysis_activate:       { icon: <Combine className="h-4 w-4" />, tone: "brand" },
+  analysis_delete:         { icon: <Trash2 className="h-4 w-4" />,   tone: "danger" },
 };
 
 const TONE_BG: Record<string, string> = {
@@ -47,7 +59,7 @@ const TONE_BG: Record<string, string> = {
 
 export default function ReportPage() {
   const id = useProjectId();
-  const t = useT();
+  const { t, locale } = useI18n();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [stats, setStats] = useState<QualityStats | null>(null);
@@ -128,14 +140,14 @@ export default function ReportPage() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <SummaryCard icon={<History className="h-4 w-4" />} label={t("report.totalOperations")}
-            value={summary?.total.toLocaleString() ?? "0"} />
+            value={summary ? formatNumber(summary.total, locale) : "0"} />
           <SummaryCard icon={<FileText className="h-4 w-4" />} label={t("report.recordCount")}
-            value={stats?.total_records.toLocaleString() ?? "—"} />
+            value={stats ? formatNumber(stats.total_records, locale) : "—"} />
           <SummaryCard icon={<Sparkles className="h-4 w-4" />} label={t("records.quality.healthScore")}
-            value={stats ? `${Math.round(stats.health_score * 100)}%` : "—"}
+            value={stats ? formatPercent(Math.round(stats.health_score * 100), locale, 0) : "—"}
             tone={stats && stats.health_score >= 0.9 ? "success" : stats && stats.health_score >= 0.7 ? "warning" : "danger"} />
           <SummaryCard icon={<Camera className="h-4 w-4" />} label={t("report.firstLast")}
-            value={firstDate && lastDate ? `${firstDate.toLocaleDateString()} → ${lastDate.toLocaleDateString()}` : "—"} small />
+            value={firstDate && lastDate ? `${formatDate(firstDate, locale)} → ${formatDate(lastDate, locale)}` : "—"} small />
         </div>
 
         {/* Category distribution */}
@@ -145,14 +157,14 @@ export default function ReportPage() {
             <CardBody>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {Object.entries(summary.by_kind).sort((a, b) => b[1] - a[1]).map(([kind, count]) => {
-                  const meta = KIND_ICONS[kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral", labelKey: "" };
-                  const label = meta.labelKey ? t(meta.labelKey) : kind;
+                  const meta = KIND_ICONS[kind === "enrich_selected_requested" ? "enrich_selected" : kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral" };
+                  const label = auditKindLabel(t, kind);
                   return (
                     <div key={kind} className={cn("border rounded-lg px-3 py-2.5", TONE_BG[meta.tone])}>
                       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-80">
                         {meta.icon} {label}
                       </div>
-                      <div className="text-xl font-bold mt-1 tabular-nums">{count}</div>
+                      <div className="text-xl font-bold mt-1 tabular-nums">{formatNumber(count, locale)}</div>
                     </div>
                   );
                 })}
@@ -174,7 +186,7 @@ export default function ReportPage() {
         <Card>
           <CardHeader>
             <h2 className="font-semibold text-sm flex-1">{t("report.chronological")}</h2>
-            <span className="text-xs text-muted">{entries.length} {t("audit.operations")}</span>
+            <span className="text-xs text-muted">{formatNumber(entries.length, locale)} {t("audit.operations")}</span>
           </CardHeader>
           <CardBody>
             {entries.length === 0 ? (
@@ -206,7 +218,7 @@ export default function ReportPage() {
 
 /** Raw change log card — prominent MD / TXT / PDF download. */
 function RawLogsCard({ id }: { id: string }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const fmts: Array<"md" | "txt" | "pdf"> = ["md", "txt", "pdf"];
   return (
     <Card>
@@ -218,7 +230,7 @@ function RawLogsCard({ id }: { id: string }) {
         <p className="text-xs text-muted">{t("report.rawLogs.desc")}</p>
         <div className="flex items-center gap-2 flex-wrap">
           {fmts.map((f) => (
-            <a key={f} href={api.reportLogUrl(id, f)} target="_blank" rel="noreferrer"
+            <a key={f} href={api.reportLogUrl(id, f, locale)} target="_blank" rel="noreferrer"
               className="text-sm font-semibold px-3.5 py-2 rounded-lg border border-border bg-white hover:border-brand-400 hover:bg-brand-50 text-ink hover:text-brand-700 flex items-center gap-2 transition shadow-soft">
               <Download className="h-4 w-4" /> {f.toUpperCase()}
             </a>
@@ -244,7 +256,7 @@ Author name variants were normalized and homonymous names were separated. Data p
 
 /** LLM-based manuscript report card (English). */
 function MethodologyCard({ projectId, hasOps }: { projectId: string; hasOps: boolean }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [report, setReport] = useState<MethodologyReport | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [model, setModel] = useState<string>("");
@@ -336,7 +348,7 @@ function MethodologyCard({ projectId, hasOps }: { projectId: string; hasOps: boo
               {t("report.methodology.draftNote")}
               {report?.generated_at && (
                 <span className="ml-auto">
-                  {t("report.methodology.generatedAt")}: {new Date(report.generated_at * 1000).toLocaleString()}
+                  {t("report.methodology.generatedAt")}: {formatDateTime(new Date(report.generated_at * 1000), locale)}
                 </span>
               )}
             </p>
@@ -362,11 +374,10 @@ function SummaryCard({ icon, label, value, tone = "brand", small }: {
 }
 
 function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; idx: number; onRestore: (snapshot: string) => void; restoring?: boolean }) {
-  const t = useT();
-  const meta = KIND_ICONS[entry.kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral", labelKey: "" };
-  const label = meta.labelKey ? t(meta.labelKey) : entry.kind;
-  const date = new Date(entry.ts * 1000);
-  const dateStr = date.toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
+  const { t, locale } = useI18n();
+  const meta = KIND_ICONS[entry.kind === "enrich_selected_requested" ? "enrich_selected" : entry.kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral" };
+  const label = auditKindLabel(t, entry.kind);
+  const dateStr = formatDateTime(new Date(entry.ts * 1000), locale);
 
   return (
     <li className="relative pl-10 py-3">
@@ -376,7 +387,7 @@ function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; 
       <div className="bg-bg-soft/50 rounded-lg px-3 py-2.5">
         <div className="flex items-baseline gap-2">
           <span className={cn("text-[10px] font-semibold uppercase tracking-wide", TONE_BG[meta.tone].split(" ")[1])}>
-            #{idx} · {label}
+            #{formatNumber(idx, locale)} · {label}
           </span>
           <span className="text-[10px] text-muted ml-auto">{dateStr}</span>
         </div>
@@ -407,7 +418,7 @@ function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; 
             </>
           )}
           {entry.user_action && (
-            <span className="text-[10px] text-muted italic">{entry.user_action}</span>
+            <span className="text-[10px] text-muted italic">{userActionLabel(t, entry.user_action)}</span>
           )}
         </div>
       </div>

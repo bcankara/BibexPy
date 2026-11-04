@@ -133,8 +133,14 @@ On macOS/Linux the `bibexpy` command is normally on PATH right after `pip instal
 - **Address harmonization** — organization roll-up to a canonical parent institution +
   country standardization.
 - **Multi-source enrichment** — fetch-once-fill-all across CrossRef, OpenAlex, Scopus,
-  DataCite, Unpaywall, Europe PMC and Semantic Scholar; reverse-DOI recovery; identity
-  fields (ORCID/ROR). Verifiable sources only — no ML-inferred metadata.
+  DataCite, Unpaywall, Europe PMC and Semantic Scholar; identity fields (ORCID/ROR).
+  Verifiable sources only — no ML-inferred metadata.
+- **Precision-first reverse-DOI recovery** — a missing DOI is written only when title, year,
+  authors and journal/ISSN agree. Preprint, peer-review-report, supplementary-file and
+  repository (Zenodo, figshare…) DOIs are never written as the paper's DOI; a DOI already held
+  by another record is not reused; ties are left blank. Every decision, including the DOIs that
+  were not written and why, is saved to a downloadable log. OpenAlex is used only as a fallback;
+  an optional free OpenAlex API key (Settings) lifts its shared keyless daily limit.
 - **Reproducible filtering** — multi-facet inclusion/exclusion criteria, saved as reusable
   presets.
 - **Quality dashboard** — a bibliometrically weighted health score + an exportable General
@@ -143,6 +149,12 @@ On macOS/Linux the `bibexpy` command is normally on PATH right after `pip instal
   auto-generated methodology narrative for your paper's data-preparation section.
 - **Structured export** — WoS plain text, VOSviewer TSV, BibTeX, RIS, CSV, TSV, XLSX
   (interoperable with VOSviewer & Biblioshiny).
+- **Long jobs keep running** — merges, enrichment and disambiguation run on the local server;
+  you can leave the page or reload it and the progress is still shown on every page of the
+  project. While a job writes the dataset, edits to it are refused instead of being lost.
+- **English and Turkish** — the whole interface, the downloadable operation logs and the PDF
+  diagrams follow the language you choose; generated data files (Excel/CSV outputs) use
+  English column names and values.
 
 ## Workflow
 

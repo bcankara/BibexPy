@@ -7,10 +7,12 @@ Serves two output types in Markdown, plain text, and PDF formats:
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 
-from services import audit, methodology, report_export, report_flow, storage
+from services import analyses, audit, doc_i18n, methodology, report_export, report_flow, storage
 
 router = APIRouter(prefix="/projects/{project_id}/report", tags=["report"])
 
@@ -37,26 +39,41 @@ def _attach_text(text: str, filename: str, media: str) -> Response:
 
 
 # ───────────────────────── Raw log ─────────────────────────
+#
+# The log documents follow the UI language (`lang`: en|tr, default en) and are
+# scoped like the History drawer and /audit/report.md: the active analysis's
+# entries plus project-level setup entries.
+
+def _log_scope(project_id: str) -> Optional[str]:
+    return analyses.get_active_analysis_id(project_id)
+
 
 @router.get("/log.md")
-def log_markdown(project_id: str):
+def log_markdown(project_id: str, lang: str = "en"):
     _require(project_id)
-    return _attach_text(audit.format_markdown_report(project_id), "operation_log.md", "text/markdown")
+    lang = doc_i18n.norm_lang(lang)
+    return _attach_text(
+        audit.format_markdown_report(project_id, analysis_id=_log_scope(project_id), lang=lang),
+        "operation_log.md", "text/markdown")
 
 
 @router.get("/log.txt")
-def log_text(project_id: str):
+def log_text(project_id: str, lang: str = "en"):
     _require(project_id)
-    return _attach_text(report_export.format_text_report(project_id), "operation_log.txt", "text/plain")
+    lang = doc_i18n.norm_lang(lang)
+    return _attach_text(
+        report_export.format_text_report(project_id, lang=lang, analysis_id=_log_scope(project_id)),
+        "operation_log.txt", "text/plain")
 
 
 @router.get("/log.pdf")
-def log_pdf(project_id: str):
+def log_pdf(project_id: str, lang: str = "en"):
     _require(project_id)
+    lang = doc_i18n.norm_lang(lang)
     meta = storage.get_project(project_id)
-    title = f"Operation Report — {meta.name if meta else project_id}"
-    pdf = report_export.render_pdf(title, audit.format_markdown_report(project_id))
-    return _pdf(pdf, "operation_log.pdf")
+    title = doc_i18n.tr_(lang, "doc.pdfTitle", name=meta.name if meta else project_id)
+    md = audit.format_markdown_report(project_id, analysis_id=_log_scope(project_id), lang=lang)
+    return _pdf(report_export.render_pdf(title, md, lang=lang), "operation_log.pdf")
 
 
 # ───────────────────────── Data flow diagram ─────────────────
@@ -95,7 +112,7 @@ def methodology_generate(project_id: str):
     audit.write(
         project_id,
         kind="report",
-        title="Metodoloji raporu üretildi (LLM)",
+        title="Methodology report generated (LLM)",
         title_key="audit.titles.methodologyGenerated",
         details={"model": report.get("model"), "step_count": report.get("step_count"), "lang": "en"},
         user_action="generate_methodology",

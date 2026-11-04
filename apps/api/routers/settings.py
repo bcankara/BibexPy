@@ -55,7 +55,7 @@ LLM_PROVIDERS = {
         "key_url": "https://openrouter.ai/keys",
     },
     "custom": {
-        "label": "Özel (OpenAI-uyumlu)",
+        "label": "Custom (OpenAI-compatible)",
         "base_url": "",
         "models": [],
         "key_url": "",
@@ -66,42 +66,44 @@ LLM_PROVIDERS = {
 # Which fields can be managed from the UI
 EDITABLE_KEYS = {
     # Storage
-    "STORAGE_DIR":              {"label": "Proje Depolama Klasörü",    "secret": False, "group": "storage",
+    "STORAGE_DIR":              {"label": "Project Storage Folder",     "secret": False, "group": "storage",
                                  "type": "path",
                                  "default": "./storage",
-                                 "hint": "Tüm projeler burada saklanır. Klasör seçilince anında aktif olur — Kaydet ve yeniden başlatma gerekmez. Mevcut projeler otomatik taşınmaz; elle taşıyın."},
+                                 "hint": "All projects are stored here. Picking a folder activates it immediately - no Save and no restart. Existing projects are not moved automatically; move them manually."},
     # API keys / emails — enrichment sources.
     # Important: Crossref, OpenAlex and Unpaywall are FREE; only Scopus requires a key.
     "SCOPUS_API_KEY":           {"label": "Scopus API Key",            "secret": True,  "group": "api",
-                                 "hint": "Yalnızca Scopus zenginleştirmesi için gerekli (Elsevier, kurumsal/ücretli). Diğer tüm kaynaklar ücretsizdir."},
+                                 "hint": "Needed only for Scopus enrichment (Elsevier, institutional/paid). All other sources are free."},
     "SEMANTIC_SCHOLAR_API_KEY": {"label": "Semantic Scholar API Key",  "secret": True,  "group": "api",
-                                 "hint": "Opsiyonel. Anahtarsız da çalışır; anahtar yalnızca hız limitini yükseltir (ücretsiz)."},
+                                 "hint": "Optional. Works without a key; a key only raises the rate limit (free)."},
     "UNPAYWALL_EMAIL":          {"label": "Unpaywall Email",           "secret": False, "group": "api",
-                                 "hint": "Opsiyonel. Açık erişim PDF bağlantıları için; Unpaywall yalnızca bir e-posta ister (ücretsiz)."},
-    "CROSSREF_EMAIL":           {"label": "CrossRef Email (önerilir)", "secret": False, "group": "api",
-                                 "hint": "Opsiyonel ama önerilir. CrossRef 'polite pool' ile daha yüksek hız sağlar (ücretsiz)."},
+                                 "hint": "Optional. Used for open-access PDF links; Unpaywall only asks for an email (free)."},
+    "CROSSREF_EMAIL":           {"label": "CrossRef Email (recommended)", "secret": False, "group": "api",
+                                 "hint": "Optional but recommended. Gives higher throughput via CrossRef's polite pool (free)."},
+    "OPENALEX_API_KEY":         {"label": "OpenAlex API key (optional)", "secret": True, "group": "api",
+                                 "hint": "Optional. OpenAlex limits keyless searches to a small free daily budget shared per IP address; a free key gives this installation its own budget."},
     # LLM (new unified fields)
-    "LLM_PROVIDER":             {"label": "LLM Sağlayıcısı",            "secret": False, "group": "llm",
+    "LLM_PROVIDER":             {"label": "LLM Provider",                "secret": False, "group": "llm",
                                  "type": "provider",
                                  "default": "deepseek",
-                                 "hint": "Disambiguation modülü için kullanılır. OpenAI-uyumlu herhangi bir API kullanılabilir."},
+                                 "hint": "Used by the disambiguation module. Any OpenAI-compatible API works."},
     "LLM_API_KEY":              {"label": "LLM API Key",                "secret": True,  "group": "llm"},
     "LLM_BASE_URL":             {"label": "LLM Base URL",               "secret": False, "group": "llm",
                                  "default": "https://api.deepseek.com",
-                                 "hint": "Sağlayıcı 'Özel' seçilirse buraya tam endpoint URL'i (ör. https://api.together.ai/v1)"},
+                                 "hint": "If the provider is Custom, enter the full endpoint URL here (e.g. https://api.together.ai/v1)"},
     "LLM_MODEL":                {"label": "Model",                      "secret": False, "group": "llm",
                                  "type": "model",
                                  "default": "deepseek-v4-flash"},
     # Disambiguation thresholds
-    "DISAMBIGUATION_ENABLED":   {"label": "Disambiguation Aktif",      "secret": False, "group": "llm", "type": "bool"},
-    "DISAMBIGUATION_BLOCKING_THRESHOLD":    {"label": "Blocking eşiği",       "secret": False, "group": "llm", "type": "float"},
-    "DISAMBIGUATION_AUTO_APPROVE_THRESHOLD":{"label": "Auto-approve eşiği",   "secret": False, "group": "llm", "type": "float"},
+    "DISAMBIGUATION_ENABLED":   {"label": "Disambiguation Enabled",     "secret": False, "group": "llm", "type": "bool"},
+    "DISAMBIGUATION_BLOCKING_THRESHOLD":    {"label": "Blocking threshold",    "secret": False, "group": "llm", "type": "float"},
+    "DISAMBIGUATION_AUTO_APPROVE_THRESHOLD":{"label": "Auto-approve threshold","secret": False, "group": "llm", "type": "float"},
 }
 
 
 GROUP_LABELS = {
-    "storage": "Depolama",
-    "api": "Veri Zenginleştirme API'leri",
+    "storage": "Storage",
+    "api": "Data Enrichment APIs",
     "llm": "LLM (Disambiguation)",
 }
 
@@ -291,9 +293,9 @@ def get_settings():
         fields=fields,
         env_file=str(_env_path()),
         notes=[
-            "Ayarlar .env dosyasına yazılır ve kaydedilince anında uygulanır (depolama klasörü dahil).",
-            "Depolama klasörü değişince mevcut projeler otomatik taşınmaz — elle taşıyın.",
-            "API anahtarları maskelenmiş gösterilir; aynı değer kalsın istiyorsanız alanı dokunmayın.",
+            "Settings are written to the .env file and applied immediately on save (including the storage folder).",
+            "When the storage folder changes, existing projects are not moved automatically - move them manually.",
+            "API keys are shown masked; leave a field untouched to keep its value.",
         ],
         llm_providers=providers,
     )
@@ -313,11 +315,11 @@ def validate_path(payload: ValidatePathPayload):
     raw = payload.path.strip()
     if not raw:
         return {"valid": False, "exists": False, "writable": False, "is_dir": False,
-                "absolute": False, "resolved": "", "message": "Path boş"}
+                "absolute": False, "resolved": "", "message": "Path is empty"}
     try:
         p = Path(raw).expanduser()
     except Exception as e:
-        return {"valid": False, "message": f"Path okunamadı: {e}", "exists": False,
+        return {"valid": False, "message": f"Path could not be read: {e}", "exists": False,
                 "writable": False, "is_dir": False, "absolute": False, "resolved": raw}
 
     info: dict[str, Any] = {
@@ -333,11 +335,11 @@ def validate_path(payload: ValidatePathPayload):
                         **info, "message": f"folder_create_failed: {e}"}
         else:
             return {"valid": False, "exists": False, "writable": False, "is_dir": False,
-                    **info, "message": "Klasör mevcut değil (create_if_missing=true gönderebilirsiniz)"}
+                    **info, "message": "Folder does not exist (you can send create_if_missing=true)"}
 
     if not p.is_dir():
         return {"valid": False, "exists": True, "writable": False, "is_dir": False,
-                **info, "message": "Mevcut ama dizin değil (dosya?)"}
+                **info, "message": "Exists but is not a directory (a file?)"}
 
     # Writability test — create/delete a small tmp file
     test = p / ".bibex_writable_check"
@@ -364,7 +366,7 @@ def validate_path(payload: ValidatePathPayload):
         "is_dir": True,
         **info,
         "project_count": project_count,
-        "message": "Hazır" if writable else "Yazılamıyor — yetki sorunu olabilir",
+        "message": "Ready" if writable else "Not writable - possible permission issue",
     }
 
 
@@ -426,6 +428,12 @@ def update_settings(payload: UpdatePayload):
     # `settings` object read at module load time stayed stale, keys appeared as
     # "saved but not working".)
     reload_settings()
+    # bibex_core keeps the OpenAlex key in a module setting; refresh it as well.
+    try:
+        from bibex_core.modules import api_utils
+        api_utils.set_openalex_api_key(settings.openalex_api_key or None)
+    except Exception:
+        pass
 
     if "STORAGE_DIR" in clean:
         # So the dataset cache from the old storage does not get mixed with the new one

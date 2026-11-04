@@ -27,6 +27,8 @@ function isValid(d: Date): boolean {
 
 /** Format a number with the app language's digit grouping and decimal separator. */
 export function formatNumber(n: number, locale: Locale, options?: Intl.NumberFormatOptions): string {
+  // A missing/NaN value from the API renders as a dash instead of "NaN" or a thrown TypeError.
+  if (typeof n !== "number" || Number.isNaN(n)) return EMPTY;
   return n.toLocaleString(NUMBER_LOCALE[locale], options);
 }
 
@@ -43,4 +45,32 @@ export function formatDateTime(d: Date, locale: Locale): string {
     day: "numeric", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+/** File size with the app language's decimal separator, e.g. "1.5 MB" / "1,5 MB". */
+export function formatBytes(n: number, locale: Locale): string {
+  if (!Number.isFinite(n) || n < 0) return EMPTY;
+  const one = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+  if (n < 1024) return `${formatNumber(n, locale)} B`;
+  if (n < 1024 ** 2) return `${formatNumber(n / 1024, locale, one)} KB`;
+  if (n < 1024 ** 3) return `${formatNumber(n / 1024 ** 2, locale, one)} MB`;
+  return `${formatNumber(n / 1024 ** 3, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GB`;
+}
+
+/**
+ * Percentage from a 0..100 value in the app language's own notation:
+ * en "45.5%", tr "%45,5" (Intl places the sign per locale).
+ */
+export function formatPercent(pct: number, locale: Locale, fractionDigits = 1): string {
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return EMPTY;
+  return (pct / 100).toLocaleString(NUMBER_LOCALE[locale], {
+    style: "percent",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
+}
+
+/** Epoch seconds (backend timestamps) -> Date. */
+export function fromEpochSeconds(ts: number): Date {
+  return new Date(ts * 1000);
 }

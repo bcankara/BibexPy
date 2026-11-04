@@ -7,7 +7,8 @@ import {
   AlertTriangle, Check, X, SkipForward, CheckSquare, RefreshCw, Loader2,
   Sparkles, ExternalLink, ListChecks,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber, formatPercent } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "./Dialogs";
 import { InfoTip } from "./InfoTip";
 import { cn } from "@/lib/cn";
@@ -314,12 +315,55 @@ export function BorderlineReviewPanel({
 }
 
 
+/**
+ * Builds the "why was this pair uncertain" sentence from the structured fields of the pair
+ * (title similarity, year, surname, DOIs) in the app language. The backend's English
+ * `reason` string is deliberately not shown (it stays available as a tooltip).
+ */
+function explainPair(
+  t: (k: string, v?: Record<string, string | number>) => string,
+  locale: "en" | "tr",
+  pair: BorderlinePair,
+): string {
+  const parts: string[] = [];
+  parts.push(t("borderline.reason.titleSimilarity", {
+    value: formatNumber(pair.jw_title, locale, { minimumFractionDigits: 3, maximumFractionDigits: 3 }),
+  }));
+
+  // Prefer the backend's structured verdicts (same normalisation as the matcher); derive
+  // them from the raw fields only for queues/responses that do not carry them.
+  const wy = pair.wos.year, sy = pair.scopus.year;
+  const diff = pair.year_diff != null
+    ? Math.abs(pair.year_diff)
+    : wy != null && sy != null ? Math.abs(Number(wy) - Number(sy)) : null;
+  if (diff != null && Number.isFinite(diff)) {
+    parts.push(diff === 0
+      ? t("borderline.reason.yearSame")
+      : t("borderline.reason.yearDiff", { n: formatNumber(diff, locale) }));
+  }
+
+  const ws = (pair.wos.surname ?? "").trim().toLowerCase();
+  const ss = (pair.scopus.surname ?? "").trim().toLowerCase();
+  const surnameMatch = pair.surname_match != null ? pair.surname_match : ws && ss ? ws === ss : null;
+  if (surnameMatch != null) {
+    parts.push(surnameMatch ? t("borderline.reason.surnameSame") : t("borderline.reason.surnameDiff"));
+  }
+
+  const wd = (pair.wos.doi ?? "").trim();
+  const sd = (pair.scopus.doi ?? "").trim();
+  const doiVariant = pair.doi_variant ?? (!!wd && !!sd && wd.toLowerCase() !== sd.toLowerCase());
+  if (doiVariant && wd && sd) {
+    parts.push(t("borderline.reason.doiVariant", { a: wd, b: sd }));
+  }
+  return parts.join(" · ");
+}
+
 function BorderlineCard({ pair, decision, onDecision }: {
   pair: BorderlinePair;
   decision?: Decision;
   onDecision: (d: Decision) => void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const jwColor = pair.jw_title >= 0.88
     ? "bg-success-soft text-emerald-700 border-success/40"
     : pair.jw_title >= 0.82
@@ -342,13 +386,13 @@ function BorderlineCard({ pair, decision, onDecision }: {
           {pair.pair_id}
         </span>
         <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border", jwColor)}>
-          JW {pair.jw_title.toFixed(3)}
+          JW {formatNumber(pair.jw_title, locale, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
         </span>
         <span className="text-[10px] text-muted">
-          {t("borderline.confShort")} {pair.confidence.toFixed(2)}
+          {t("borderline.confShort")} {formatNumber(pair.confidence, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
         <span className="text-[10px] text-muted truncate flex-1" title={pair.reason}>
-          {pair.reason}
+          {explainPair(t, locale, pair)}
         </span>
         {pair.llm_suggestion && (
           <span className={cn(
@@ -358,7 +402,7 @@ function BorderlineCard({ pair, decision, onDecision }: {
             : "bg-bg-soft text-muted",
           )}>
             <Sparkles className="h-2.5 w-2.5" />
-            LLM: {pair.llm_suggestion.verdict.toUpperCase()} ({(pair.llm_suggestion.confidence * 100).toFixed(0)}%)
+            {t("borderline.llmLabel")}: {t(`borderline.verdict.${pair.llm_suggestion.verdict}`).toLocaleUpperCase(locale)} ({formatPercent(pair.llm_suggestion.confidence * 100, locale, 0)})
           </span>
         )}
       </div>

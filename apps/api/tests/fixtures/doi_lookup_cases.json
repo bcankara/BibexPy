@@ -1,0 +1,2205 @@
+{
+ "_comment": "Hand-picked from recorded Crossref responses (query.bibliographic=<title>, rows=10). Only the fields the lookup reads were kept. rec = the dataset row (WoS/Scopus export, titles upper-case); truth = the DOI that was hidden from the record.",
+ "cases": {
+  "exact": {
+   "rec": {
+    "TI": "ENHANCING EFL SPEAKING FEEDBACK WITH CHATGPT’S VOICE PROMPTS",
+    "AU": "HUANG J",
+    "PY": "2024",
+    "SO": "International Journal of TESOL Studies",
+    "DT": "Article"
+   },
+   "truth": "10.58304/ijts.20240302",
+   "items": [
+    {
+     "DOI": "10.58304/ijts.20240302",
+     "title": [
+      "Enhancing EFL Speaking Feedback with ChatGPT's Voice Prompts"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        4,
+        30
+       ]
+      ]
+     },
+     "container-title": [
+      "International Journal of TESOL Studies"
+     ],
+     "author": []
+    },
+    {
+     "DOI": "10.22460/eltin.v14i1.p167-180",
+     "title": [
+      "THE ROLE OF CHATGPT’S VOICE CONVERSATION FEATURE IN ENHANCING EFL STUDENTS’ SPEAKING CONFIDENCE",
+      "PERAN FITUR PERCAKAPAN SUARA CHATGPT DALAM MENINGKATKAN KEPERCAYAAN DIRI BERBICARA MAHASISWA EFL (Bahasa Inggris sebagai Bahasa Asing)"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        4,
+        1
+       ]
+      ]
+     },
+     "container-title": [
+      "Eltin: Journal of English Language Teaching in Indonesia"
+     ],
+     "author": [
+      {
+       "family": "Ningrum",
+       "given": "Ainan"
+      },
+      {
+       "family": "Kembaren",
+       "given": "Farida Repelita Waty"
+      },
+      {
+       "family": "Dalimunte",
+       "given": "Muhammad"
+      }
+     ]
+    },
+    {
+     "DOI": "10.2139/ssrn.5277587",
+     "title": [
+      "From Silence to Voice: Enhancing Speaking Confidence and Identity in Saudi Female Efl Learners Through Digital Intervention"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Alahmadi",
+       "given": "Shatha"
+      },
+      {
+       "family": "Rawa",
+       "given": "Omnia"
+      }
+     ]
+    },
+    {
+     "DOI": "10.51582/interconf.19-20.08.2026.004",
+     "title": [
+      "Digital Gamification and AI-driven Feedback Mechanisms in Enhancing EFL Speaking Skills"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        8,
+        20
+       ]
+      ]
+     },
+     "container-title": [
+      "InterConf"
+     ],
+     "author": [
+      {
+       "family": "Huseynli",
+       "given": "Chinara"
+      }
+     ]
+    },
+    {
+     "DOI": "10.15575/jis.v6i1.54377",
+     "title": [
+      "Enhancing EFL Speaking Fluency and Confidence through ChatGPT Voice in Contextual Learning at Madrasah Aliyah"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        2,
+        3
+       ]
+      ]
+     },
+     "container-title": [
+      "Jurnal Iman dan Spiritualitas"
+     ],
+     "author": [
+      {
+       "family": "Yuliantini",
+       "given": "Nunung"
+      }
+     ]
+    },
+    {
+     "DOI": "10.21203/rs.3.rs-5989702/v1",
+     "title": [
+      "Beyond Voice Recognition: Integrating Alexa’s Emotional Intelligence and ChatGPT’s Language Processing for EFL Learners’ Development and Anxiety Reduction - A Comparative Analysis"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        2,
+        11
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Tajik",
+       "given": "Aliakbar"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5539/elt.v18n7p82",
+     "title": [
+      "Exploring ChatGPT’s Application of Effective Writing Feedback in EFL Context: Teachers’ Perceptions"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        6,
+        30
+       ]
+      ]
+     },
+     "container-title": [
+      "English Language Teaching"
+     ],
+     "author": [
+      {
+       "family": "Shousha",
+       "given": "Amal"
+      },
+      {
+       "family": "Oraby",
+       "given": "Hanan"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1080/2331186x.2025.2504228",
+     "title": [
+      "A systematic review of mobile-assisted peer feedback in enhancing speaking proficiency for EFL learners"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        5,
+        27
+       ]
+      ]
+     },
+     "container-title": [
+      "Cogent Education"
+     ],
+     "author": [
+      {
+       "family": "Weng",
+       "given": "Jiayang"
+      },
+      {
+       "family": "Noordin",
+       "given": "Nooreen"
+      },
+      {
+       "family": "Ahmad",
+       "given": "Norhakimah Khaiessa"
+      },
+      {
+       "family": "Chen",
+       "given": "Liuying"
+      }
+     ]
+    }
+   ]
+  },
+  "preprint_first": {
+   "rec": {
+    "TI": "UNRAVELING THE MYSTERIES OF AI CHATBOTS",
+    "AU": "BRIDGELALL R",
+    "PY": "2024",
+    "SO": "Artificial Intelligence Review",
+    "DT": "Article"
+   },
+   "truth": "10.1007/s10462-024-10720-7",
+   "items": [
+    {
+     "DOI": "10.20944/preprints202305.0900.v1",
+     "title": [
+      "Unraveling the Mysteries of AI Chatbots"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2023,
+        5,
+        12
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Bridgelall",
+       "given": "Raj"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1007/s10462-024-10720-7",
+     "title": [
+      "Unraveling the mysteries of AI chatbots"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        3,
+        13
+       ]
+      ]
+     },
+     "container-title": [
+      "Artificial Intelligence Review"
+     ],
+     "author": [
+      {
+       "family": "Bridgelall",
+       "given": "Raj"
+      }
+     ]
+    },
+    {
+     "DOI": "10.21203/rs.3.rs-106661/v1",
+     "title": [
+      "Unraveling the mysteries of calcineurin"
+     ],
+     "type": "component",
+     "issued": {
+      "date-parts": [
+       [
+        null
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.5149/northcarolina/9781469636184.003.0011",
+     "title": [
+      "Unraveling the Mysteries of God’s Providence and Progress"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2018,
+        2,
+        14
+       ]
+      ]
+     },
+     "container-title": [
+      "Frederick Douglass"
+     ],
+     "author": [
+      {
+       "family": "Dilbeck",
+       "given": "D. H."
+      }
+     ]
+    },
+    {
+     "DOI": "10.62311/nesx9788196847265",
+     "title": [
+      "Advances in Bioinformatics: Decoding Genomes with AI and Machine Learning"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        3,
+        5
+       ]
+      ]
+     },
+     "container-title": [
+      "Next-Gen Bioinformatics: Unraveling Genomic Mysteries"
+     ],
+     "author": [
+      {
+       "name": "National Education Services"
+      },
+      {
+       "family": "Pasupuleti",
+       "given": "Murali Krishna"
+      }
+     ]
+    },
+    {
+     "DOI": "10.4016/48422.01",
+     "title": [
+      "Science Nation - Unraveling the Mysteries of Tornadoes"
+     ],
+     "type": "dataset",
+     "issued": {
+      "date-parts": [
+       [
+        2012,
+        6,
+        4
+       ]
+      ]
+     },
+     "container-title": [
+      "SciVee"
+     ],
+     "author": []
+    },
+    {
+     "DOI": "10.1515/9780691258942-012",
+     "title": [
+      "Chapter Nine.The Frontier: Major Mysteries That Remain"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2013,
+        12,
+        31
+       ]
+      ]
+     },
+     "container-title": [
+      "Heart of Darkness"
+     ],
+     "author": []
+    },
+    {
+     "DOI": "10.62311/nesx/rb-978-81-971242-1-1",
+     "title": [
+      "Next-Gen Bioinformatics: Unraveling Genomic Mysteries"
+     ],
+     "type": "reference-book",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        3,
+        30
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Pasupuleti",
+       "given": "Murali Krishna"
+      }
+     ]
+    }
+   ]
+  },
+  "peer_review_first": {
+   "rec": {
+    "TI": "EXPLORING THE ACCEPTANCE OF GENERATIVE ARTIFICIAL INTELLIGENCE FOR LANGUAGE LEARNING AMONG EFL POSTGRADUATE STUDENTS: AN EXTENDED TAM APPROACH",
+    "AU": "MA  MQ",
+    "PY": "2024",
+    "SO": "INTERNATIONAL JOURNAL OF APPLIED LINGUISTICS",
+    "DT": "Article; Early Access"
+   },
+   "truth": "10.1111/ijal.12603",
+   "items": [
+    {
+     "DOI": "10.1111/ijal.12603/v1/review2",
+     "title": [
+      "Review for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        5,
+        16
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v1/review1",
+     "title": [
+      "Review for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        4,
+        21
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v2/review1",
+     "title": [
+      "Review for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        6,
+        25
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v2/review2",
+     "title": [
+      "Review for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        7,
+        2
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v2/response1",
+     "title": [
+      "Author response for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        6,
+        1
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Muqing Ma"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v1/decision1",
+     "title": [
+      "Decision letter for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        5,
+        19
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603/v2/decision1",
+     "title": [
+      "Decision letter for \"Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach\""
+     ],
+     "type": "peer-review",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        7,
+        18
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1111/ijal.12603",
+     "title": [
+      "Exploring the acceptance of generative artificial intelligence for language learning among EFL postgraduate students: An extended TAM approach"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        8,
+        9
+       ]
+      ]
+     },
+     "container-title": [
+      "International Journal of Applied Linguistics"
+     ],
+     "author": [
+      {
+       "family": "Ma",
+       "given": "Muqing"
+      }
+     ]
+    }
+   ]
+  },
+  "component_first": {
+   "rec": {
+    "TI": "APPLICATION OF GENERATIVE ARTIFICIAL INTELLIGENCE IN PREDICTING MEMBRANE PARTITIONING OF DRUGS: COMBINING DENOISING DIFFUSION PROBABILISTIC MODELS AND MD SIMULATIONS REDUCES THE COMPUTATIONAL COST TO ONE-THIRD",
+    "AU": "OBI P; GC JB; MARIASOOSAI C; DIYAOLU A; NATESAN S",
+    "PY": "2024",
+    "SO": "Journal of Chemical Theory and Computation",
+    "DT": "Article"
+   },
+   "truth": "10.1021/acs.jctc.4c00315",
+   "items": [
+    {
+     "DOI": "10.1021/acs.jctc.4c00315.s001",
+     "title": [
+      "Application of Generative Artificial Intelligence in Predicting Membrane Partitioning of Drugs: Combining Denoising Diffusion Probabilistic Models and MD Simulations Reduces the Computational Cost to One-Third"
+     ],
+     "type": "component",
+     "issued": {
+      "date-parts": [
+       [
+        null
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.1021/acs.jctc.4c00315",
+     "title": [
+      "Application of Generative Artificial Intelligence in Predicting Membrane Partitioning of Drugs: Combining Denoising Diffusion Probabilistic Models and MD Simulations Reduces the Computational Cost to One-Third"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        6,
+        28
+       ]
+      ]
+     },
+     "container-title": [
+      "Journal of Chemical Theory and Computation"
+     ],
+     "author": [
+      {
+       "family": "Obi",
+       "given": "Peter"
+      },
+      {
+       "family": "Gc",
+       "given": "Jeevan B."
+      },
+      {
+       "family": "Mariasoosai",
+       "given": "Charles"
+      },
+      {
+       "family": "Diyaolu",
+       "given": "Ayobami"
+      },
+      {
+       "family": "Natesan",
+       "given": "Senthil"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1145/3690407.3690499",
+     "title": [
+      "Application of Denoising Diffusion Probabilistic Models in the Minecraft Environment"
+     ],
+     "type": "proceedings-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        6,
+        21
+       ]
+      ]
+     },
+     "container-title": [
+      "Proceedings of the 2024 4th International Conference on Artificial Intelligence, Big Data and Algorithms"
+     ],
+     "author": [
+      {
+       "family": "REN",
+       "given": "LIUBO"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1016/j.engappai.2025.112143",
+     "title": [
+      "Inverse structural design with generative and probabilistic autoencoders and diffusion models"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        12
+       ]
+      ]
+     },
+     "container-title": [
+      "Engineering Applications of Artificial Intelligence"
+     ],
+     "author": [
+      {
+       "family": "Zhuang",
+       "given": "Bozhou"
+      },
+      {
+       "family": "Gallet",
+       "given": "Adrien"
+      },
+      {
+       "family": "Smyl",
+       "given": "Danny"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1109/icairc64177.2024.10900007",
+     "title": [
+      "Research on Minecraft Image Generation Method Based on Denoising Diffusion Probabilistic Models"
+     ],
+     "type": "proceedings-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        12,
+        27
+       ]
+      ]
+     },
+     "container-title": [
+      "2024 4th International Conference on Artificial Intelligence, Robotics, and Communication (ICAIRC)"
+     ],
+     "author": [
+      {
+       "family": "Fu",
+       "given": "Zheng"
+      }
+     ]
+    },
+    {
+     "DOI": "10.2139/ssrn.4698278",
+     "title": [
+      "Denoising Diffusion Probabilistic Models for Generative Alloy Design"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Fernandez Zelaia",
+       "given": "Patxi"
+      },
+      {
+       "family": "Thapliyal",
+       "given": "Saket"
+      },
+      {
+       "family": "Kannan",
+       "given": "Rangasayee"
+      },
+      {
+       "family": "Nandwana",
+       "given": "Peeyush"
+      },
+      {
+       "family": "Yamamoto",
+       "given": "Yukinori"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1101/2024.05.21.595094",
+     "title": [
+      "SpatialDiffusion: Predicting Spatial Transcriptomics with Denoising Diffusion Probabilistic Models"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        5,
+        21
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Khan",
+       "given": "Sumeer Ahmad"
+      },
+      {
+       "family": "Lagani",
+       "given": "Vincenzo"
+      },
+      {
+       "family": "Lehmann",
+       "given": "Robert"
+      },
+      {
+       "family": "Kiani",
+       "given": "Narsis A."
+      },
+      {
+       "family": "Gomez-Cabrero",
+       "given": "David"
+      }
+     ]
+    },
+    {
+     "DOI": "10.2514/1.j063440",
+     "title": [
+      "Uncertainty-Aware Surrogate Models for Airfoil Flow Simulations with Denoising Diffusion Probabilistic Models"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        8
+       ]
+      ]
+     },
+     "container-title": [
+      "AIAA Journal"
+     ],
+     "author": [
+      {
+       "family": "Liu",
+       "given": "Qiang"
+      },
+      {
+       "family": "Thuerey",
+       "given": "Nils"
+      }
+     ]
+    }
+   ]
+  },
+  "book_chapter_first": {
+   "rec": {
+    "TI": "THE CONSEQUENCES OF GENERATIVE AI FOR DEMOCRACY, GOVERNANCE AND WAR",
+    "AU": "FELDSTEIN S",
+    "PY": "2023",
+    "SO": "Survival",
+    "DT": "Article"
+   },
+   "truth": "10.1080/00396338.2023.2261260",
+   "items": [
+    {
+     "DOI": "10.4324/9781003429388-13",
+     "title": [
+      "The Consequences of Generative AI for Democracy, Governance and War"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2023,
+        10,
+        11
+       ]
+      ]
+     },
+     "container-title": [
+      "Survival: October – November 2023"
+     ],
+     "author": [
+      {
+       "family": "Feldstein",
+       "given": "Steven"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1080/00396338.2023.2261260",
+     "title": [
+      "The Consequences of Generative AI for Democracy, Governance and War"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2023,
+        9,
+        3
+       ]
+      ]
+     },
+     "container-title": [
+      "Survival"
+     ],
+     "author": [
+      {
+       "family": "Feldstein",
+       "given": "Steven"
+      }
+     ]
+    },
+    {
+     "DOI": "10.23943/princeton/9780691151021.003.0003",
+     "title": [
+      "Democracy, Consequences, and Social Knowledge"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2012,
+        12,
+        30
+       ]
+      ]
+     },
+     "container-title": [
+      "Accelerating Democracy"
+     ],
+     "author": [
+      {
+       "family": "McGinnis",
+       "given": "John O."
+      }
+     ]
+    },
+    {
+     "DOI": "10.2139/ssrn.7088100",
+     "title": [
+      "Experimentalist Intensification Governance: Managing Worker Negative Consequences Associated with Generative AI Experimentalist Work"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2026
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Karunakaran",
+       "given": "Arvind"
+      },
+      {
+       "family": "Kellogg",
+       "given": "Katherine"
+      },
+      {
+       "family": "Wiesenfeld",
+       "given": "Batia Mishan"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1080/17419166.2026.2617651",
+     "title": [
+      "Exponential Threats, Linear Responses U.S. Homeland Security Governance in the Age of Generative AI"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        1,
+        23
+       ]
+      ]
+     },
+     "container-title": [
+      "Democracy and Security"
+     ],
+     "author": [
+      {
+       "family": "Sofi",
+       "given": "Javaid Iqbal"
+      }
+     ]
+    },
+    {
+     "DOI": "10.2139/ssrn.5649410",
+     "title": [
+      "AI Slop and Data Pollution in the Age of Generative AI: Strategic Risks, Economic Consequences, and Governance Pathways for Business, Management, and the Creative Industries"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Ansari",
+       "given": "Mohammad Samar"
+      }
+     ]
+    },
+    {
+     "DOI": "10.2307/j.ctt1r2g54.5",
+     "title": [
+      "Democracy, Consequences, and Social Knowledge"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        null
+       ]
+      ]
+     },
+     "container-title": [
+      "Accelerating Democracy"
+     ],
+     "author": []
+    },
+    {
+     "DOI": "10.23943/princeton/9780691151021.003.0007",
+     "title": [
+      "Accelerating AI"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2012,
+        12,
+        30
+       ]
+      ]
+     },
+     "container-title": [
+      "Accelerating Democracy"
+     ],
+     "author": [
+      {
+       "family": "McGinnis",
+       "given": "John O."
+      }
+     ]
+    }
+   ]
+  },
+  "preprint_only": {
+   "rec": {
+    "UID": "r_bba58b6917",
+    "TI": "DATA GOVERNANCE REDEFINED: THE EVOLUTION OF EU DATA REGULATIONS FROM THE GDPR TO THE DMA, DSA, DGA, DATA ACT AND AI ACT",
+    "AU": "PATHAK M",
+    "AF": "PATHAK, MAITRAYEE (59155623900)",
+    "PY": "2024",
+    "SO": "EUROPEAN DATA PROTECTION LAW REVIEW",
+    "JI": "EUROPEAN DATA PROT. LAW REV.",
+    "J9": "EUROPEAN DATA PROT LAW REV",
+    "VL": "10",
+    "DT": "ARTICLE"
+   },
+   "truth": "10.21552/edpl/2024/1/8",
+   "items": [
+    {
+     "DOI": "10.2139/ssrn.4718891",
+     "title": [
+      "Data Governance Redefined: The Evolution of EU Data Regulations from the GDPR to the DMA, DSA, DGA, Data Act and AI Act."
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Pathak",
+       "given": "Maitrayee"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5771/9783748929468-543",
+     "title": [
+      "§ 19 Platform-specific requirements of the Data Governance Act"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "container-title": [
+      "EU Platform Law"
+     ],
+     "page": "543-566",
+     "author": [
+      {
+       "family": "Savary",
+       "given": "Fiona"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5771/9783748929468-567",
+     "title": [
+      "§ 20 Platform-specific requirements of the Data Act"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "container-title": [
+      "EU Platform Law"
+     ],
+     "page": "567-584",
+     "author": [
+      {
+       "family": "Mendelsohn",
+       "given": "Juliane"
+      },
+      {
+       "family": "Richter",
+       "given": "Philipp"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5771/9783748929468",
+     "title": [
+      "EU Platform Law"
+     ],
+     "subtitle": [
+      "DSA | DMA | P2B Regulation | EMFA | DGA | DA | AI Act | DSM Directive | PAR"
+     ],
+     "type": "edited-book",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "author": []
+    },
+    {
+     "DOI": "10.5771/9783748929468-585",
+     "title": [
+      "§ 21 Platform-specific requirements of the AI Act"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "container-title": [
+      "EU Platform Law"
+     ],
+     "page": "585-635",
+     "author": [
+      {
+       "family": "Bastians",
+       "given": "Hannes"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5771/9783748929468-515",
+     "title": [
+      "§ 18 The European Media Freedom Act"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "container-title": [
+      "EU Platform Law"
+     ],
+     "page": "515-540",
+     "author": [
+      {
+       "family": "Dregelies",
+       "given": "Max"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5771/9783748929468-673",
+     "title": [
+      "Index"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025
+       ]
+      ]
+     },
+     "container-title": [
+      "EU Platform Law"
+     ],
+     "page": "673-694",
+     "author": []
+    },
+    {
+     "DOI": "10.21428/9885764c.d17ee622",
+     "title": [
+      "Post GDPR EU laws and their GDPR mimesis. DGA, DSA, DMA and the EU regulation of AI"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2021,
+        4,
+        1
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2021,
+        4,
+        1
+       ]
+      ]
+     },
+     "container-title": [
+      "European Law Blog"
+     ],
+     "author": [
+      {
+       "family": "Papakonstantinou",
+       "given": "Vagelis"
+      },
+      {
+       "family": "Hert",
+       "given": "Paul de"
+      }
+     ]
+    }
+   ]
+  },
+  "ambiguous_two_journal_dois": {
+   "rec": {
+    "UID": "r_3c99b01d94",
+    "TI": "INVESTIGATING THE ROLE OF ARTIFICIAL INTELLIGENCE IN DEVELOPING FREE WRITING AND SELF-AUTHORSHIP SKILLS FOR FEMALE KINDERGARTEN TEACHERS: CHATGPT AS A MODEL",
+    "AU": "ELMORSY GN; AL-MUOAEWEED O; AL YAHYA HT; ZAHER AMN",
+    "AF": "ELMORSY, GHADA NASR (57211457911); AL-MUOAEWEED, OHAUD (59373340400); AL YAHYA, HIND TARISH (59380340700); ZAHER, ASHRAF MAHROUS NOUR (58297432400)",
+    "PY": "2025",
+    "SO": "PAKISTAN JOURNAL OF LIFE AND SOCIAL SCIENCES",
+    "JI": "PAK. J. LIFE SOC. SCI.",
+    "J9": "PAK J LIFE SOC SCI",
+    "VL": "23",
+    "DT": "ARTICLE"
+   },
+   "truth": "10.57239/pjlss-2025-23.1.0018",
+   "items": [
+    {
+     "DOI": "10.57239/pjlss-2025-23.1.0018",
+     "title": [
+      "Investigating the Role of Artificial Intelligence in Developing Free Writing and Self-Authorship Skills for Female Kindergarten Teachers: ChatGPT as a Model"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "container-title": [
+      "Pakistan Journal of Life and Social Sciences (PJLSS)"
+     ],
+     "short-container-title": [
+      "Pak.j.life.soc.sci."
+     ],
+     "ISSN": [
+      "1727-4915",
+      "2221-7630"
+     ],
+     "volume": "22",
+     "author": [
+      {
+       "family": "Elmorsy",
+       "given": "Ghada Nasr"
+      }
+     ]
+    },
+    {
+     "DOI": "10.57239/pjlss-2024-22.2.00540",
+     "title": [
+      "Investigating the Role of Artificial Intelligence in Developing Free Writing and Self-Authorship Skills for Female Kindergarten Teachers: ChatGPT as a Model"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2024
+       ]
+      ]
+     },
+     "container-title": [
+      "Pakistan Journal of Life and Social Sciences (PJLSS)"
+     ],
+     "short-container-title": [
+      "Pak.j.life.soc.sci."
+     ],
+     "ISSN": [
+      "1727-4915",
+      "2221-7630"
+     ],
+     "volume": "22",
+     "author": [
+      {
+       "family": "Elmorsy",
+       "given": "Ghada Nasr"
+      },
+      {
+       "family": "Al-Muoaeweed",
+       "given": "Ohaud"
+      },
+      {
+       "family": "Al Yahya",
+       "given": "Hind Tarish"
+      },
+      {
+       "family": "Nour Zaher",
+       "given": "Ashraf Mahrous"
+      }
+     ]
+    },
+    {
+     "DOI": "10.37547/ijp/volume05issue11-96",
+     "title": [
+      "The Role Of Artificial Intelligence In Developing Students’ Writing Skills In Efl Classrooms"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        11,
+        23
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025,
+        11,
+        23
+       ]
+      ]
+     },
+     "container-title": [
+      "International Journal of Pedagogics"
+     ],
+     "short-container-title": [
+      "ijp"
+     ],
+     "ISSN": [
+      "2771-2281"
+     ],
+     "volume": "5",
+     "page": "404-406",
+     "author": [
+      {
+       "name": "PhD, Associate professor of the Department of English Language, Faculty of English Language, Samarkand State Institute of Foreign Languages, Uzbekistan"
+      },
+      {
+       "family": "Uktamovna",
+       "given": "Buranova Madina"
+      }
+     ]
+    },
+    {
+     "DOI": "10.35192/jjoas-h.v43i2.1052",
+     "title": [
+      "The Role of Kindergarten Curriculum in Developing Soft Skills among Children from the Perspective of Kindergarten Teachers"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        4,
+        1
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025,
+        4,
+        1
+       ]
+      ]
+     },
+     "container-title": [
+      "Jordan Journal of Applied Science-Humanities Series"
+     ],
+     "ISSN": [
+      "2708-9126"
+     ],
+     "author": [
+      {
+       "family": "Horani",
+       "given": "Najat"
+      }
+     ]
+    },
+    {
+     "DOI": "10.47191/rajar/v11i8.12",
+     "title": [
+      "The Role of Educational Administration in Developing Kindergarten Teachers' Performance in Enhancing Children's Language Skills in Iraq"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        8,
+        30
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025,
+        8,
+        30
+       ]
+      ]
+     },
+     "container-title": [
+      "RA JOURNAL OF APPLIED RESEARCH"
+     ],
+     "short-container-title": [
+      "RAJAR"
+     ],
+     "ISSN": [
+      "2394-6709"
+     ],
+     "volume": "11",
+     "author": [
+      {
+       "name": "Engineering Affairs Department of the Sunni Endowment Diwan"
+      },
+      {
+       "family": "Zaki",
+       "given": "Marwah Hikmat"
+      }
+     ]
+    },
+    {
+     "DOI": "10.18130/v3t64b",
+     "title": [
+      "Kindergarten Teachers' Use of Writing Scaffolds to Support Children's Developing Orthographic Knowledge"
+     ],
+     "type": "dissertation",
+     "issued": {
+      "date-parts": [
+       [
+        null
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Copp",
+       "given": "Stefanie"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1177/07356331251365187",
+     "title": [
+      "Integration of Artificial Intelligence (AI) into Primary School Students’ Writing Skills: The Impact of ChatGPT on Creative Writing and Writing Self-Efficacy"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        8,
+        5
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025,
+        8,
+        5
+       ]
+      ]
+     },
+     "container-title": [
+      "Journal of Educational Computing Research"
+     ],
+     "short-container-title": [
+      "Journal of Educational Computing Research"
+     ],
+     "ISSN": [
+      "0735-6331",
+      "1541-4140"
+     ],
+     "volume": "63",
+     "page": "1717-1747",
+     "author": [
+      {
+       "family": "Kızıltaş",
+       "given": "Yusuf"
+      }
+     ]
+    },
+    {
+     "DOI": "10.37965/jait.2024.0496",
+     "title": [
+      "Developing Soft Skills in the Artificial Intelligence Era: Communication, Business Writing, and Composition Skills"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        4,
+        16
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2024,
+        4,
+        16
+       ]
+      ]
+     },
+     "container-title": [
+      "Journal of Artificial Intelligence and Technology"
+     ],
+     "short-container-title": [
+      "JAIT"
+     ],
+     "ISSN": [
+      "2766-8649",
+      "2766-8649"
+     ],
+     "author": [
+      {
+       "family": "AlAfnan",
+       "given": "Mohammad Awad"
+      },
+      {
+       "family": "Dishari",
+       "given": "Samira"
+      },
+      {
+       "family": "Siti Fatimah MohdZuki"
+      }
+     ]
+    }
+   ]
+  },
+  "subtitle_in_crossref_field": {
+   "rec": {
+    "TI": "SIMULATING PATIENT ENCOUNTERS WITH GENERATIVE ARTIFICIAL INTELLIGENCE: EFFECTIVE PROMPT ENGINEERING TECHNIQUES",
+    "AU": "HICKMAN C; JENNINGS M; SMITH TS",
+    "PY": "2024",
+    "SO": "Nurse Educator",
+    "DT": "Article"
+   },
+   "truth": "10.1097/nne.0000000000001721",
+   "items": [
+    {
+     "DOI": "10.1097/nne.0000000000001721",
+     "title": [
+      "Simulating Patient Encounters With Generative Artificial Intelligence"
+     ],
+     "subtitle": [
+      "Effective Prompt Engineering Techniques"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        8,
+        5
+       ]
+      ]
+     },
+     "container-title": [
+      "Nurse Educator"
+     ],
+     "author": [
+      {
+       "family": "Hickman",
+       "given": "Christopher"
+      },
+      {
+       "family": "Jennings",
+       "given": "Matthew"
+      },
+      {
+       "family": "Smith",
+       "given": "Tedra S."
+      }
+     ]
+    },
+    {
+     "DOI": "10.3389/frai.2026.1745928",
+     "title": [
+      "A structured framework for effective and responsible generative artificial intelligence chatbot prompt engineering throughout the scientific process: a comprehensive guide for the health and medical researcher"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        4,
+        16
+       ]
+      ]
+     },
+     "container-title": [
+      "Frontiers in Artificial Intelligence"
+     ],
+     "author": [
+      {
+       "family": "Ng",
+       "given": "Jeremy Y."
+      }
+     ]
+    },
+    {
+     "DOI": "10.1016/j.eng.2023.04.004",
+     "title": [
+      "Surprising Advances in Generative Artificial Intelligence Prompt Amazement—and Worries"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2023,
+        6
+       ]
+      ]
+     },
+     "container-title": [
+      "Engineering"
+     ],
+     "author": [
+      {
+       "family": "Mackenzie",
+       "given": "Dana"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5703/1288284318397",
+     "title": [
+      "Prompt Engineering: A Key Factor in Interacting with Generative Artificial Intelligence Systems"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        6,
+        1
+       ]
+      ]
+     },
+     "container-title": [
+      "KAUPA Letters"
+     ],
+     "author": [
+      {
+       "family": "Choi",
+       "given": "Young"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1515/9781501521355-007",
+     "title": [
+      "Chapter 6: Advanced Prompt Engineering Techniques"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        1,
+        16
+       ]
+      ]
+     },
+     "container-title": [
+      "Optimizing Prompt Engineering for Generative AI"
+     ],
+     "author": []
+    },
+    {
+     "DOI": "10.14264/40a1708",
+     "title": [
+      "Effective Use of Generative Artificial Intelligence (GenAI)"
+     ],
+     "type": "dissertation",
+     "issued": {
+      "date-parts": [
+       [
+        null
+       ]
+      ]
+     },
+     "author": [
+      {
+       "family": "Deng",
+       "given": "Kainan"
+      }
+     ]
+    },
+    {
+     "DOI": "10.4018/979-8-3693-7332-3.ch006",
+     "title": [
+      "Transforming Education"
+     ],
+     "subtitle": [
+      "Enhancing Interactive Learning Through Advanced Prompt Engineering Techniques"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        3,
+        13
+       ]
+      ]
+     },
+     "container-title": [
+      "Advances in Computational Intelligence and Robotics",
+      "Prompt Engineering and Generative AI Applications for Teaching and Learning"
+     ],
+     "author": [
+      {
+       "family": "ElSayary",
+       "given": "Areej"
+      }
+     ]
+    },
+    {
+     "DOI": "10.61718/mon202612.01",
+     "title": [
+      "Prompt literacy in english language teaching: rethinking communicative competence in the age of generative artificial intelligence"
+     ],
+     "type": "book-chapter",
+     "issued": {
+      "date-parts": [
+       [
+        2026
+       ]
+      ]
+     },
+     "container-title": [
+      "Концептуальні виміри сучасної науки"
+     ],
+     "author": [
+      {
+       "family": "Мудрик",
+       "given": "Дарина"
+      }
+     ]
+    }
+   ]
+  },
+  "preprint_follows_to_published": {
+   "rec": {
+    "UID": "r_8141487047",
+    "TI": "COMPARING THE QUALITY OF HUMAN AND CHATGPT FEEDBACK OF STUDENTS’ WRITING",
+    "AU": "STEISS J; TATE T; GRAHAM S; CRUZ J; HEBERT M; WANG J; MOON Y; TSENG W; WARSCHAUER M; OLSON CB",
+    "AF": "STEISS, JACOB (57210701951); TATE, TAMARA (56727937300); GRAHAM, STEVE (7401977681); CRUZ, JAZMIN (58933913000); HEBERT, MICHAEL (57914375200); WANG, JIALI (57932992200); MOON, YOUNGSUN (57224708176); TSENG, WAVERLY (58688519000); WARSCHAUER, MARK (6603955476); OLSON, CAROL BOOTH (16203425800)",
+    "PY": "2024",
+    "SO": "LEARNING AND INSTRUCTION",
+    "JI": "LEARN. INSTR.",
+    "J9": "LEARN INSTR",
+    "VL": "91",
+    "DT": "ARTICLE"
+   },
+   "truth": "10.1016/j.learninstruc.2024.101894",
+   "items": [
+    {
+     "DOI": "10.35542/osf.io/ty3em",
+     "title": [
+      "Comparing the Quality of Human and ChatGPT Feedback on Students’ Writing"
+     ],
+     "type": "posted-content",
+     "issued": {
+      "date-parts": [
+       [
+        2023,
+        9,
+        7
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2023,
+        9,
+        7
+       ]
+      ]
+     },
+     "relation": {
+      "is-preprint-of": [
+       {
+        "id-type": "doi",
+        "id": "10.1016/j.learninstruc.2024.101894",
+        "asserted-by": "subject"
+       }
+      ]
+     },
+     "author": [
+      {
+       "family": "Steiss",
+       "given": "Jacob"
+      },
+      {
+       "family": "Tate",
+       "given": "Tamara Powell"
+      },
+      {
+       "family": "Graham",
+       "given": "Steve"
+      },
+      {
+       "family": "Cruz",
+       "given": "Jazmin"
+      },
+      {
+       "family": "Hebert",
+       "given": "Michael"
+      }
+     ]
+    },
+    {
+     "DOI": "10.31332/alg.v6i1.11552",
+     "title": [
+      "The  Use of ChatGPT Feedback on Writing Quality: A Content Analysis of Students’ Writing Assignment"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2025,
+        6,
+        11
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2025,
+        6,
+        11
+       ]
+      ]
+     },
+     "container-title": [
+      "AL LUGHAWIYAAT"
+     ],
+     "short-container-title": [
+      "ALG"
+     ],
+     "ISSN": [
+      "2746-6035"
+     ],
+     "volume": "6",
+     "author": [
+      {
+       "family": "Elviani",
+       "given": "Mutia"
+      },
+      {
+       "family": "Liani",
+       "given": "Ghustiva"
+      }
+     ]
+    },
+    {
+     "DOI": "10.29140/tltl.v6n3.1482",
+     "title": [
+      "Comparing peer, ChatGPT, and teacher corrective feedback in EFL writing: Students' perceptions and preferences"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2024,
+        7,
+        25
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2024,
+        7,
+        25
+       ]
+      ]
+     },
+     "container-title": [
+      "Technology in Language Teaching &amp; Learning"
+     ],
+     "short-container-title": [
+      "TLTL"
+     ],
+     "ISSN": [
+      "2652-1687"
+     ],
+     "volume": "6",
+     "page": "1482",
+     "author": [
+      {
+       "family": "Zeevy-Solovey",
+       "given": "Orit"
+      }
+     ]
+    },
+    {
+     "DOI": "10.21608/sec.2026.467067.1602",
+     "title": [
+      "Comparing peer feedback and ChatGPT-generated feedback on Saudi EFL students engagement in Academic Writing"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        4,
+        1
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2026,
+        4,
+        1
+       ]
+      ]
+     },
+     "container-title": [
+      "دراسات تربوية ونفسية. مجلة کلية التربية بالزقازيق"
+     ],
+     "short-container-title": [
+      "دراسات تربوية ونفسية. مجلة کلية التربية بالزقازيق"
+     ],
+     "ISSN": [
+      "2682-3772"
+     ],
+     "volume": "41",
+     "page": "459-494",
+     "author": [
+      {
+       "family": "Obiad",
+       "given": "Lamyaa Bin"
+      }
+     ]
+    },
+    {
+     "DOI": "10.1007/s44217-026-02329-5",
+     "title": [
+      "Comparing ChatGPT and teacher feedback for EFL writing development"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        10,
+        22
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2026,
+        10,
+        22
+       ]
+      ]
+     },
+     "container-title": [
+      "Discover Education"
+     ],
+     "short-container-title": [
+      "Discov Educ"
+     ],
+     "ISSN": [
+      "2731-5525"
+     ],
+     "volume": "5",
+     "author": [
+      {
+       "family": "Babaee",
+       "given": "Neda Naqdi"
+      }
+     ]
+    },
+    {
+     "DOI": "10.5539/hes.v16n2p430",
+     "title": [
+      "Synergizing AI and Human Feedback: Effects of ChatGPT-generated and Teacher Corrective Feedback on Thai EFL Students’ Cause-and-Effect Writing"
+     ],
+     "type": "journal-article",
+     "issued": {
+      "date-parts": [
+       [
+        2026,
+        5,
+        7
+       ]
+      ]
+     },
+     "published": {
+      "date-parts": [
+       [
+        2026,
+        5,
+        7
+       ]
+      ]
+     },
+     "container-title": [
+      "Higher Education Studies"
+     ],
+     "short-container-title": [
+      "HES"
+     ],
+     "ISSN": [
+      "1925-475X",
+      "1925-4741"
+     ],
+     "volume": "16",
+     "page": "430",
+     "author": [
+      {
+       "family": "Sripradith",
+       "given": "Raweewat"
+      }
+     ]
+    }
+   ],
+   "published_version": {
+    "DOI": "10.1016/j.learninstruc.2024.101894",
+    "title": [
+     "Comparing the quality of human and ChatGPT feedback of students’ writing"
+    ],
+    "type": "journal-article",
+    "issued": {
+     "date-parts": [
+      [
+       2024,
+       6
+      ]
+     ]
+    },
+    "published": {
+     "date-parts": [
+      [
+       2024,
+       6
+      ]
+     ]
+    },
+    "container-title": [
+     "Learning and Instruction"
+    ],
+    "short-container-title": [
+     "Learning and Instruction"
+    ],
+    "ISSN": [
+     "0959-4752"
+    ],
+    "volume": "91",
+    "page": "101894",
+    "relation": {
+     "has-preprint": [
+      {
+       "id-type": "doi",
+       "id": "10.35542/osf.io/ty3em",
+       "asserted-by": "object"
+      }
+     ]
+    },
+    "author": [
+     {
+      "family": "Steiss",
+      "given": "Jacob"
+     },
+     {
+      "family": "Tate",
+      "given": "Tamara"
+     },
+     {
+      "family": "Graham",
+      "given": "Steve"
+     },
+     {
+      "family": "Cruz",
+      "given": "Jazmin"
+     },
+     {
+      "family": "Hebert",
+      "given": "Michael"
+     }
+    ]
+   }
+  }
+ }
+}

@@ -14,8 +14,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col bg-bg">
-        <InitialLoadGate />
         <I18nProvider>
+          {/* Inside the provider so the loader's screen-reader text follows the app language. */}
+          <InitialLoadGate />
           <DialogProvider>
             <AppShell>{children}</AppShell>
           </DialogProvider>

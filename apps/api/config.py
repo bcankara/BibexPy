@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     semantic_scholar_api_key: str = ""
     unpaywall_email: str = ""
     crossref_email: str = ""
+    # OpenAlex API key (free). Without a key, search calls draw on a small daily budget
+    # shared by everyone behind the same IP; singleton /works/doi:X lookups are free.
+    openalex_api_key: str = ""
 
     # LLM configuration — new unified fields
     llm_provider: str = "deepseek"                  # "deepseek" | "openai" | "custom"

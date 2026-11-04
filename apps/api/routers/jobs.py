@@ -11,8 +11,9 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("")
-def list_jobs(project_id: Optional[str] = None):
-    return [j.to_dict() for j in job_runner.list(project_id)]
+def list_jobs(project_id: Optional[str] = None, active: bool = False):
+    """List jobs newest first. `active=true` returns only queued/running ones."""
+    return [j.to_dict() for j in job_runner.list(project_id, active=active)]
 
 
 @router.get("/{job_id}")

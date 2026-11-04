@@ -1,7 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type MergeSummary, type AnalysisItem, type UploadedFile, translateApiError} from "@/lib/api-client";
+import {
+  api, type MergeSummary, type AnalysisItem, type UploadedFile, translateApiError, translateTitle,
+} from "@/lib/api-client";
+import {
+  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectJobs,
+} from "@/lib/job-store";
+import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { Button } from "@/components/Button";
 import { JobProgress } from "@/components/JobProgress";
 import { PageHeader } from "@/components/PageHeader";
@@ -23,8 +29,17 @@ import { StepNav } from "@/components/StepNav";
 export default function MergePage() {
   const id = useProjectId();
   const t = useT();
-  const { tArr, tObjArr } = useI18n();
-  const [jobId, setJobId] = useState<string | null>(null);
+  const { tArr, tObjArr, locale } = useI18n();
+  // Merge job started from this page instance (kept so a failed run's card stays visible).
+  const [startedJobId, setJobId] = useState<string | null>(null);
+  // A merge that is already running (started before a navigation, a reload or in another tab)
+  // is found through the shared job store, so returning here shows its progress instead of a
+  // second Start button.
+  const { active: activeJobs } = useProjectJobs(id);
+  const runningMerge = activeJobs.find((j) => j.kind === "merge");
+  const jobId = startedJobId ?? runningMerge?.id ?? null;
+  // Another exclusive job (enrichment, disambiguation) holds the project: merging must wait.
+  const blockingJob = activeJobs.find((j) => j.exclusive && j.kind !== "merge") ?? null;
   const [summary, setSummary] = useState<MergeSummary | null>(null);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisItem[]>([]);
@@ -67,12 +82,15 @@ export default function MergePage() {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function start() {
+    if (busy || jobId || blockingJob) return;
     setBusy(true); setError(null);
     try {
-      const { job_id } = await api.startMerge(id);
-      setJobId(job_id);
+      setJobId(await startTrackedJob(id, api.startMerge(id)));
     } catch (e) {
+      // 409 (dataset_busy_job_running / job_already_running) is shown translated; also look
+      // the running job up so its progress appears here.
       setError(translateApiError(t, e));
+      if (isBusyError(e)) void refreshProjectJobs(id);
     } finally { setBusy(false); }
   }
 
@@ -83,6 +101,12 @@ export default function MergePage() {
     // Update the pipeline stepper (ProjectNav) immediately — so the Export/Report lock opens
     try { window.dispatchEvent(new Event("bibexpy:status")); } catch { /* ignore */ }
   }, [refresh]);
+
+  // The store announces the end of every job exactly once, including a merge this page only
+  // re-attached to (its progress card unmounts as soon as the job is no longer active).
+  useJobFinished((e) => {
+    if (e.job.project_id === id && e.job.kind === "merge" && e.outcome !== "lost") handleJobComplete();
+  });
 
   /** After an analysis is deleted/activated — refresh + refresh the stepper/Next-Prev gating
    * (if the last analysis was deleted the steps get locked; when the active one changes, the
@@ -145,9 +169,17 @@ export default function MergePage() {
         {jobId && (
           <JobProgress
             jobId={jobId}
-            onComplete={handleJobComplete}
             onClose={() => setJobId(null)}
           />
+        )}
+
+        {/* Another exclusive job holds the project: a merge (or any dataset change) would be
+            refused with HTTP 409, so say what is running instead. */}
+        {blockingJob && (
+          <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs text-cyan-900 flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+            {t("jobs.busyNotice", { title: translateTitle(t, blockingJob) || t("jobs.running") })}
+          </div>
         )}
 
         {/* The job reached 100% but the summary/analysis/file refresh (reading the xlsx
@@ -183,7 +215,7 @@ export default function MergePage() {
               files={files}
               variant={stale ? "stale" : "ready"}
               onStartMerge={start}
-              starting={busy || !!jobId}
+              starting={busy || !!jobId || !!blockingJob}
               onChanged={refresh}
             />
           </div>
@@ -192,7 +224,7 @@ export default function MergePage() {
           <div className="flex items-center gap-3 rounded-xl border border-border bg-bg-soft/50 px-4 py-3">
             <Brain className="h-5 w-5 flex-shrink-0 text-muted" />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-ink">{activeAnalysis.label}</div>
+              <div className="truncate text-sm font-medium text-ink">{analysisDisplayLabel(t, locale, activeAnalysis)}</div>
               <div className="text-[11px] text-muted">
                 {stale ? t("merge.oldMerge") : t("merge.currentMerge")} · {activeAnalysis.file_count} {t("common.files")}
               </div>
@@ -237,7 +269,7 @@ export default function MergePage() {
           <OtherAnalysesCollapse
             projectId={id}
             items={otherAnalyses}
-            busy={busy || !!jobId}
+            busy={busy || !!jobId || !!blockingJob}
             onChanged={handleChanged}
           />
         )}
@@ -277,7 +309,7 @@ export default function MergePage() {
               files={files}
               variant={hasRaw ? "ready" : "empty"}
               onStartMerge={start}
-              starting={busy}
+              starting={busy || !!blockingJob}
               onChanged={refresh}
             />
           </div>

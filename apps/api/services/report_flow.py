@@ -18,7 +18,7 @@ import io
 import os
 from typing import Any, Optional
 
-from services import analyses, audit
+from services import analyses, audit, doc_i18n
 
 
 def build_flow(project_id: str) -> dict[str, Any]:
@@ -138,39 +138,7 @@ _OK_BG = "#e8f6f1"
 _OK_BR = "#4a9e97"
 _OK_INK = "#0b433f"
 
-# Server-side counterpart of the frontend i18n keys (report.flow.*)
-_LABELS: dict[str, dict[str, str]] = {
-    "en": {
-        "identification": "Identification (raw input)",
-        "sources": "WoS {wos} + Scopus {scopus}",
-        "records": "{n} records",
-        "dedup": "Deduplication — Smart Merge",
-        "pairsMerged": "{n} pairs merged",
-        "intraRemoved": "intra-source duplicates: {n}",
-        "removed": "−{n} records removed",
-        "unique": "Unique record set",
-        "borderlineKept": "{n} uncertain pairs kept separate",
-        "stepFilter": "Filter applied: {keys}",
-        "stepDelete": "Manual record deletion",
-        "stepBorderline": "Uncertain pairs accepted (merged)",
-        "final": "Final dataset",
-    },
-    "tr": {
-        "identification": "Tanımlama (ham girdi)",
-        "sources": "WoS {wos} + Scopus {scopus}",
-        "records": "{n} kayıt",
-        "dedup": "Tekilleştirme — Smart Merge",
-        "pairsMerged": "{n} çift birleştirildi",
-        "intraRemoved": "kaynak-içi kopya: {n}",
-        "removed": "−{n} kayıt çıkarıldı",
-        "unique": "Benzersiz kayıt kümesi",
-        "borderlineKept": "{n} belirsiz çift ayrı tutuldu",
-        "stepFilter": "Filtre uygulandı: {keys}",
-        "stepDelete": "Elle kayıt silme",
-        "stepBorderline": "Belirsiz çift onayı (birleştirildi)",
-        "final": "Nihai veri seti",
-    },
-}
+# Box texts live in services/doc_i18n.py (flow.* keys, mirroring the frontend report.flow.*)
 
 # Unicode TTF candidates (regular, bold) — the first one found wins
 _FONT_CANDIDATES: list[tuple[str, str]] = [
@@ -227,12 +195,7 @@ def _fonts() -> tuple[str, str, bool]:
 
 def _fmt_n(value: Any, lang: str) -> str:
     """Number with a thousands separator — en: 1,972 / tr: 1.972."""
-    try:
-        n = int(value or 0)
-    except Exception:
-        n = 0
-    s = f"{n:,}"
-    return s.replace(",", ".") if lang == "tr" else s
+    return doc_i18n.fmt_int(value, lang)
 
 
 def _box_h(lines: list[str]) -> float:
@@ -241,33 +204,35 @@ def _box_h(lines: list[str]) -> float:
 
 def _build_boxes(flow: dict[str, Any], lang: str) -> list[dict[str, Any]]:
     """One-to-one counterpart of the box model in DataFlowDiagram.tsx."""
-    L = _LABELS.get(lang, _LABELS["en"])
+    def L(key: str, **params: Any) -> str:
+        return doc_i18n.tr_(lang, "flow." + key, **params)
+
     inputs = flow.get("inputs") or {}
     boxes: list[dict[str, Any]] = []
 
     boxes.append({"lines": [
-        L["identification"],
-        L["sources"].format(wos=_fmt_n(inputs.get("wos"), lang),
+        L("identification"),
+        L("sources", wos=_fmt_n(inputs.get("wos"), lang),
                             scopus=_fmt_n(inputs.get("scopus"), lang)),
-        L["records"].format(n=_fmt_n(inputs.get("total"), lang)),
+        L("records", n=_fmt_n(inputs.get("total"), lang)),
     ], "side": [], "final": False})
 
     stages = flow.get("stages") or {}
-    stage_parts = [f"{k}: {_fmt_n(v, lang)}" for k, v in stages.items()]
+    stage_parts = [f"{doc_i18n.stage_label(lang, k)}: {_fmt_n(v, lang)}" for k, v in stages.items()]
     matched = int(flow.get("matched_pairs") or 0)
     intra = int(flow.get("intra_removed") or 0)
-    dedup_side = [L["removed"].format(n=_fmt_n(matched + intra, lang))]
+    dedup_side = [L("removed", n=_fmt_n(matched + intra, lang))]
     if intra > 0:
-        dedup_side.append(L["intraRemoved"].format(n=_fmt_n(intra, lang)))
-    dedup_lines = [L["dedup"], L["pairsMerged"].format(n=_fmt_n(matched, lang))]
+        dedup_side.append(L("intraRemoved", n=_fmt_n(intra, lang)))
+    dedup_lines = [L("dedup"), L("pairsMerged", n=_fmt_n(matched, lang))]
     if stage_parts:
         dedup_lines.append("  ·  ".join(stage_parts))
     boxes.append({"lines": dedup_lines, "side": dedup_side, "final": False})
 
     after_merge = flow.get("after_merge") or 0
-    unique_lines = [L["unique"], L["records"].format(n=_fmt_n(after_merge, lang))]
+    unique_lines = [L("unique"), L("records", n=_fmt_n(after_merge, lang))]
     if int(flow.get("borderline_total") or 0) > 0:
-        unique_lines.append(L["borderlineKept"].format(n=_fmt_n(flow["borderline_total"], lang)))
+        unique_lines.append(L("borderlineKept", n=_fmt_n(flow["borderline_total"], lang)))
     boxes.append({"lines": unique_lines, "side": [], "final": False})
 
     running = int(after_merge)
@@ -277,21 +242,21 @@ def _build_boxes(flow: dict[str, Any], lang: str) -> list[dict[str, Any]]:
         running = int(after) if after is not None else max(0, running - removed)
         kind = s.get("kind")
         if kind == "filter_apply":
-            label = L["stepFilter"].format(keys=", ".join(s.get("criteria") or []) or "—")
+            label = L("stepFilter", keys=", ".join(doc_i18n.filter_label(lang, str(c)) for c in (s.get("criteria") or [])) or "—")
         elif kind == "records_delete":
-            label = L["stepDelete"]
+            label = L("stepDelete")
         else:
-            label = L["stepBorderline"]
+            label = L("stepBorderline")
         boxes.append({
-            "lines": [L["records"].format(n=_fmt_n(running, lang))],
-            "side": [L["removed"].format(n=_fmt_n(removed, lang)), label],
+            "lines": [L("records", n=_fmt_n(running, lang))],
+            "side": [L("removed", n=_fmt_n(removed, lang)), label],
             "final": False,
         })
 
     final_total = flow.get("final_total")
     boxes.append({"lines": [
-        L["final"],
-        L["records"].format(n=_fmt_n(running if final_total is None else final_total, lang)),
+        L("final"),
+        L("records", n=_fmt_n(running if final_total is None else final_total, lang)),
     ], "side": [], "final": True})
     return boxes
 
@@ -308,7 +273,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfgen import canvas as pdfcanvas
 
-    lang = "tr" if str(lang).lower().startswith("tr") else "en"
+    lang = doc_i18n.norm_lang(lang)
     flow = build_flow(project_id)
     if not flow.get("has_merge"):
         raise ValueError("no_merge_for_flow")
@@ -341,7 +306,7 @@ def render_flow_pdf(project_id: str, lang: str = "en") -> bytes:
 
     buf = io.BytesIO()
     c = pdfcanvas.Canvas(buf, pagesize=A4)
-    c.setTitle("BibexPy — Data Flow Diagram")
+    c.setTitle(f"BibexPy — {doc_i18n.tr_(lang, 'flow.pdfTitle')}")
     c.setAuthor("BibexPy")
     c.setLineCap(1)
     c.setLineJoin(1)

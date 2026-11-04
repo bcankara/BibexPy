@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import {
-  api, formatBytes, type UploadedFile, translateApiError,
+  api, type UploadedFile, translateApiError,
 } from "@/lib/api-client";
 import { UploadZone } from "@/components/UploadZone";
 import { Card, CardBody, CardHeader } from "@/components/Card";
@@ -9,7 +9,8 @@ import { Button } from "@/components/Button";
 import {
   FileText, Trash2, Plus, Brain, AlertTriangle, Download, Loader2,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, type Locale } from "@/lib/i18n";
+import { formatBytes, formatNumber } from "@/lib/i18n/format";
 import { useConfirm } from "@/components/Dialogs";
 
 /**
@@ -32,7 +33,7 @@ export function UploadSection({
   starting: boolean;
   onChanged: () => void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function UploadSection({
       <CardHeader>
         <FileText className="h-4 w-4 text-muted" />
         <h2 className="font-semibold flex-1">{t("merge.uploadTitle")}</h2>
-        <span className="text-xs text-muted">{files.length} {t("common.files")}</span>
+        <span className="text-xs text-muted">{formatNumber(files.length, locale)} {t("common.files")}</span>
       </CardHeader>
       <CardBody className="space-y-4">
         {error && <ErrBanner msg={error} />}
@@ -105,8 +106,8 @@ export function UploadSection({
           <UploadZone onUpload={handleUpload} />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            <RawColumn title={t("data.scopus")} sub="CSV" files={scopus} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} />
-            <RawColumn title={t("data.wos")} sub="TXT" files={wos} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} />
+            <RawColumn title={t("data.scopus")} sub="CSV" files={scopus} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} locale={locale} />
+            <RawColumn title={t("data.wos")} sub="TXT" files={wos} projectId={projectId} onDelete={handleDelete} deletingFile={deletingFile} t={t} locale={locale} />
           </div>
         )}
 
@@ -128,7 +129,7 @@ export function UploadSection({
   );
 }
 
-function RawColumn({ title, sub, files, projectId, onDelete, deletingFile, t }: {
+function RawColumn({ title, sub, files, projectId, onDelete, deletingFile, t, locale }: {
   title: string;
   sub: string;
   files: UploadedFile[];
@@ -136,6 +137,7 @@ function RawColumn({ title, sub, files, projectId, onDelete, deletingFile, t }: 
   onDelete: (name: string) => void;
   deletingFile: string | null;
   t: (k: string, vars?: Record<string, string | number>) => string;
+  locale: Locale;
 }) {
   return (
     <div className="rounded-xl border border-border bg-bg-soft/40 p-3">
@@ -150,7 +152,7 @@ function RawColumn({ title, sub, files, projectId, onDelete, deletingFile, t }: 
             <li key={f.name} className="flex items-center gap-2">
               <FileText className="h-4 w-4 flex-shrink-0 text-muted" />
               <span className="flex-1 truncate font-mono text-xs" title={f.name}>{f.name}</span>
-              <span className="text-[11px] text-muted tabular-nums">{formatBytes(f.size)}</span>
+              <span className="text-[11px] text-muted tabular-nums">{formatBytes(f.size, locale)}</span>
               <a
                 href={api.downloadFromUrl(projectId, "raw", f.name)}
                 download={f.name}

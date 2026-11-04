@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from services import storage
+from services import doc_i18n, storage
 
 
 _LOCK = threading.Lock()
@@ -167,89 +167,79 @@ def summary(project_id: str) -> dict[str, Any]:
 
 # ----- Markdown report -----
 
-KIND_LABELS = {
-    "project_create": "📋 Proje oluşturma",
-    "upload": "📥 Dosya yükleme",
-    "convert": "🔄 Dönüşüm",
-    "merge": "🧩 Birleştirme",
-    "merge_borderline": "🔍 Borderline kararı",
-    "analysis_activate": "🎯 Aktif analiz değiştirildi",
-    "analysis_delete": "🗑️ Analiz silindi",
-    "filter_save": "⭐ Preset kaydı",
-    "records_delete": "🗑️ Kayıt silme",
-    "records_edit": "✏️ Kayıt düzenleme",
-    "enrich_api": "🌐 API zenginleştirme",
-    "enrich_ml": "🧠 ML zenginleştirme",
-    "enrich_field": "🔧 Alan zenginleştirme",
-    "enrich_selected": "🔧 Seçimsel zenginleştirme",
-    "disambiguate": "✨ Disambiguation",
-    "disambiguate_authors": "✨ Yazar Disambiguation",
-    "disambiguate_affiliations": "🏢 Affiliation Disambiguation",
-    "snapshot": "📸 Snapshot",
-    "snapshot_restore": "↩️ Snapshot geri yükleme",
-    "export": "📤 Export",
-    "report": "📄 Rapor",
-}
+# English category labels (kept for backward compatibility; documents use
+# doc_i18n.kind_label(lang, kind) so they follow the requested language).
+KIND_LABELS = {k[len("kind."):]: v for k, v in doc_i18n.STRINGS["en"].items() if k.startswith("kind.")}
 
 
-def _render_smart_merge_md(details: dict) -> list[str]:
+def _as_int(value: Any) -> int:
+    """Count from a stored detail value; a corrupt or missing value counts as 0."""
+    try:
+        return int(round(float(value or 0)))
+    except Exception:
+        return 0
+
+
+def _render_smart_merge_md(details: dict, lang: str = "en") -> list[str]:
     """Rich Markdown block for a Smart Merge audit entry."""
+    t = lambda key, **p: doc_i18n.tr_(lang, key, **p)  # noqa: E731
+    n = lambda v: doc_i18n.fmt_int(v, lang)  # noqa: E731
     lines: list[str] = []
-    wos = details.get("wos_input", 0)
-    scp = details.get("scopus_input", 0)
-    merged = details.get("merged_count", 0)
-    matched = details.get("matched_pairs", 0)
-    borderline = details.get("borderline_count", 0)
-    conflict = details.get("conflict_count", 0)
-    lost_wos = details.get("lost_wos_count", 0)
-    lost_scp = details.get("lost_scopus_count", 0)
+    wos = _as_int(details.get("wos_input"))
+    scp = _as_int(details.get("scopus_input"))
+    merged = _as_int(details.get("merged_count"))
+    matched = _as_int(details.get("matched_pairs"))
+    borderline = _as_int(details.get("borderline_count"))
+    conflict = _as_int(details.get("conflict_count"))
+    lost_wos = _as_int(details.get("lost_wos_count"))
+    lost_scp = _as_int(details.get("lost_scopus_count"))
     duration = details.get("duration_seconds")
 
     # Flow summary
-    lines.append("**Birleştirme Özeti:**")
+    lines.append(f"**{t('smart.summaryHeading')}**")
     lines.append("")
-    lines.append("| Metrik | Değer |")
+    lines.append(f"| {t('smart.metric')} | {t('smart.value')} |")
     lines.append("|---|---|")
-    lines.append(f"| Ham girdi | {wos} WoS + {scp} Scopus = **{wos + scp}** |")
-    lines.append(f"| Eşleştirilen çift | **{matched}** |")
-    lines.append(f"| Borderline (manuel onay bekleyen) | {borderline} |")
-    lines.append(f"| Eşleşmemiş WoS (lost) | {lost_wos} |")
-    lines.append(f"| Eşleşmemiş Scopus (lost) | {lost_scp} |")
-    lines.append(f"| Çıktı (benzersiz kayıt) | **{merged}** |")
+    lines.append(f"| {t('smart.rawInput')} | {t('smart.rawInputValue', wos=n(wos), scopus=n(scp), total=n(wos + scp))} |")
+    lines.append(f"| {t('smart.matchedPairs')} | **{n(matched)}** |")
+    lines.append(f"| {t('smart.borderlinePending')} | {n(borderline)} |")
+    lines.append(f"| {t('smart.lostWos')} | {n(lost_wos)} |")
+    lines.append(f"| {t('smart.lostScopus')} | {n(lost_scp)} |")
+    lines.append(f"| {t('smart.output')} | **{n(merged)}** |")
     dedup_rate = (wos + scp - merged) / (wos + scp) if (wos + scp) else 0
-    lines.append(f"| Tekilleştirme oranı | %{dedup_rate * 100:.1f} |")
+    lines.append(f"| {t('smart.dedupRate')} | {doc_i18n.fmt_percent(dedup_rate, lang)} |")
     if duration:
-        lines.append(f"| Süre | {duration:.1f} sn |")
+        lines.append(f"| {t('smart.duration')} | {doc_i18n.fmt_float(duration, lang, 1)} {t('smart.seconds')} |")
     lines.append("")
 
     # Match stages
     stages = details.get("match_stages") or {}
     if stages:
-        lines.append("**Eşleşme Aşamaları** _(Hammerton 2013 + Caputo 2024)_:")
+        lines.append(f"**{t('smart.stagesHeading')}** _(Hammerton 2013 + Caputo 2024)_:")
         lines.append("")
-        lines.append("| Aşama | Eşleşme |")
+        lines.append(f"| {t('smart.stage')} | {t('smart.matches')} |")
         lines.append("|---|---|")
         for stage, count in sorted(stages.items(), key=lambda x: -x[1]):
-            lines.append(f"| {stage} | {count} |")
+            lines.append(f"| {doc_i18n.stage_label(lang, stage)} | {n(count)} |")
         lines.append("")
 
     # Conflict source distribution (Caputo 2024)
     field_dist = details.get("field_source_distribution") or {}
     if field_dist:
         total = sum(field_dist.values())
-        lines.append(f"**Alan Çakışma Çözümü** _({conflict} çakışma — Caputo 2024 sabit defaults)_:")
+        lines.append(f"**{t('smart.conflictHeading')}** _({t('smart.conflictNote', conflict=n(conflict))})_:")
         lines.append("")
-        lines.append("| Tercih Edilen Kaynak | Sayı | Yüzde |")
+        lines.append(f"| {t('smart.preferredSource')} | {t('doc.count')} | {t('smart.percent')} |")
         lines.append("|---|---|---|")
         for src, count in sorted(field_dist.items(), key=lambda x: -x[1]):
-            pct = (count / total * 100) if total else 0
-            lines.append(f"| {src} | {count} | %{pct:.1f} |")
+            ratio = (count / total) if total else 0
+            lines.append(f"| {doc_i18n.field_source_label(lang, src)} | {n(count)} | {doc_i18n.fmt_percent(ratio, lang)} |")
         lines.append("")
 
     # Generated files
     files = details.get("output_files") or []
     if files:
-        lines.append("**Üretilen Dosyalar:**")
+        lines.append(f"**{t('smart.filesHeading')}**")
         for f in files:
             lines.append(f"- `{f}`")
         lines.append("")
@@ -257,53 +247,76 @@ def _render_smart_merge_md(details: dict) -> list[str]:
     return lines
 
 
-def format_markdown_report(project_id: str, analysis_id: Optional[str] = _ALL) -> str:
-    import datetime as dt
+def render_detail_value(lang: str, key: str, value: Any, *, max_len: int = 200) -> str:
+    """One detail value as text: numbers per ``lang``, filter keys by UI names, long values clipped."""
+    if key == "filter_keys" and isinstance(value, list):
+        value = ", ".join(doc_i18n.filter_label(lang, str(x)) for x in value)
+    elif key == "match_stages" and isinstance(value, dict):
+        value = ", ".join(f"{doc_i18n.stage_label(lang, k)}: {doc_i18n.fmt_int(v, lang)}" for k, v in value.items())
+    elif isinstance(value, (list, dict)):
+        value = json.dumps(value, ensure_ascii=False)
+    else:
+        value = doc_i18n.fmt_value(value, lang)
+    text = str(value)
+    if len(text) > max_len:
+        text = text[:max_len] + "…"
+    return text
+
+
+def format_markdown_report(
+    project_id: str,
+    analysis_id: Optional[str] = _ALL,
+    lang: str = "en",
+) -> str:
+    lang = doc_i18n.norm_lang(lang)
+    t = lambda key, **p: doc_i18n.tr_(lang, key, **p)  # noqa: E731
     meta = storage.get_project(project_id)
     entries = read(project_id, analysis_id=analysis_id)
     name = meta.name if meta else project_id
 
+    import datetime as dt
     lines: list[str] = []
-    lines.append(f"# BibexPy v2 — Operasyon Raporu")
+    lines.append(f"# BibexPy v2 — {t('doc.title')}")
     lines.append("")
-    lines.append(f"**Proje:** {name} (`{project_id}`)  ")
-    lines.append(f"**Oluşturma:** {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}  ")
-    lines.append(f"**Toplam operasyon:** {len(entries)}")
+    lines.append(f"**{t('doc.project')}:** {name} (`{project_id}`)  ")
+    lines.append(f"**{t('doc.generated')}:** {doc_i18n.fmt_datetime(dt.datetime.now(), lang)}  ")
+    lines.append(f"**{t('doc.totalOps')}:** {doc_i18n.fmt_int(len(entries), lang)}")
     lines.append("")
 
     if not entries:
-        lines.append("_Henüz operasyon kaydı yok._")
+        lines.append(f"_{t('doc.noOps')}_")
         return "\n".join(lines)
 
     # Summary — from the filtered entries (active analysis history)
     by_kind: dict[str, int] = {}
     for e in entries:
         by_kind[e.get("kind", "?")] = by_kind.get(e.get("kind", "?"), 0) + 1
-    lines.append("## Özet")
+    lines.append(f"## {t('doc.summary')}")
     lines.append("")
-    lines.append("| Kategori | Sayı |")
+    lines.append(f"| {t('doc.category')} | {t('doc.count')} |")
     lines.append("|---|---|")
     for k, n in sorted(by_kind.items(), key=lambda x: -x[1]):
-        lines.append(f"| {KIND_LABELS.get(k, k)} | {n} |")
+        lines.append(f"| {doc_i18n.kind_label(lang, k)} | {doc_i18n.fmt_int(n, lang)} |")
     lines.append("")
 
-    lines.append("## Kronoloji")
+    lines.append(f"## {t('doc.chronology')}")
     lines.append("")
     for i, e in enumerate(entries, 1):
-        ts = e.get("ts")
-        ts_str = dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "—"
-        label = KIND_LABELS.get(e.get("kind", ""), e.get("kind", "?"))
-        title = e.get("title", "")
+        ts_str = doc_i18n.fmt_dt(e.get("ts"), lang, seconds=True)
+        label = doc_i18n.kind_label(lang, e.get("kind", "?"))
+        title = doc_i18n.resolve_title(lang, e)
         lines.append(f"### {i}. {label} — {title}")
         lines.append(f"_{ts_str}_")
-        details = e.get("details") or {}
+        details = e.get("details")
+        if not isinstance(details, dict):
+            details = {}
 
         # Rich format for Smart Merge — not a JSON dump
         if e.get("kind") == "merge" and details.get("method") == "smart":
             lines.append("")
-            lines.extend(_render_smart_merge_md(details))
+            lines.extend(_render_smart_merge_md(details, lang))
             if e.get("snapshot"):
-                lines.append(f"- 📸 snapshot: `{e['snapshot']}`")
+                lines.append(f"- 📸 {t('doc.snapshot')}: `{e['snapshot']}`")
             lines.append("")
             continue
 
@@ -312,22 +325,18 @@ def format_markdown_report(project_id: str, analysis_id: Optional[str] = _ALL) -
             for k, v in details.items():
                 if v is None or v == "":
                     continue
-                if isinstance(v, (list, dict)):
-                    v = json.dumps(v, ensure_ascii=False)
-                if len(str(v)) > 200:
-                    v = str(v)[:200] + "…"
-                lines.append(f"- **{k}:** {v}")
+                lines.append(f"- **{doc_i18n.detail_label(lang, k)}:** {render_detail_value(lang, k, v)}")
         before = e.get("before")
         after = e.get("after")
         if before or after:
             lines.append("")
             if before:
-                lines.append(f"- _önce:_ `{json.dumps(before, ensure_ascii=False)}`")
+                lines.append(f"- _{t('doc.before')}:_ `{json.dumps(before, ensure_ascii=False)}`")
             if after:
-                lines.append(f"- _sonra:_ `{json.dumps(after, ensure_ascii=False)}`")
+                lines.append(f"- _{t('doc.after')}:_ `{json.dumps(after, ensure_ascii=False)}`")
         if e.get("snapshot"):
-            lines.append(f"- 📸 snapshot: `{e['snapshot']}`")
+            lines.append(f"- 📸 {t('doc.snapshot')}: `{e['snapshot']}`")
         if e.get("user_action"):
-            lines.append(f"- 👤 kullanıcı: _{e['user_action']}_")
+            lines.append(f"- 👤 {t('doc.user')}: _{doc_i18n.user_action_label(lang, e['user_action'])}_")
         lines.append("")
     return "\n".join(lines)

@@ -1,3 +1,5 @@
+import { ProjectJobsBanner } from "@/components/ProjectJobsBanner";
+
 /**
  * Placeholder `_` ID for the static export — a single HTML file is produced, and the
  * FastAPI catch-all serves incoming `/projects/<real-id>/...` requests with it.
@@ -17,5 +19,13 @@ export default function ProjectLayout({
   children: React.ReactNode;
 }) {
   // ProjectNav is now rendered below PageHeader (dark header → pipeline → content).
-  return <>{children}</>;
+  // The jobs banner is a client component (reads the project id from the URL); the layout
+  // stays a server component so that generateStaticParams above keeps working. The layout
+  // persists across the sibling project pages, so the banner survives page navigation.
+  return (
+    <>
+      <ProjectJobsBanner />
+      {children}
+    </>
+  );
 }

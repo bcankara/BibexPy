@@ -13,6 +13,7 @@ Runs a self-contained six-phase pipeline independent of the core merge path:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
 import time
@@ -396,7 +397,8 @@ def doi_conflict(raw_a: Any, raw_b: Any) -> bool:
 def compute_match(w: dict, s: dict) -> Optional[dict]:
     """5-stage matching decision.
 
-    Returns: None (no match) or {stage, confidence, reason, jw_title, year_diff, surname_match}
+    Returns: None (no match) or {stage, stage_label, confidence, reason, doi, doi_variant,
+    jw_title, year_diff, surname_match}
     """
     # ── Identifier HIERARCHY: DOI > PMID > ISSN ───────────────────────────
     # A DEFINITE equality at a higher level overrides a contradiction at a lower
@@ -410,19 +412,23 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
     w_doi = w.get("_norm_doi")
     s_doi = s.get("_norm_doi")
     doi_note = ""
+    doi_variant = False
     if _present(w_doi) and _present(s_doi) and w_doi != s_doi:
         if not doi_separator_variants(w_doi, s_doi):
             return None
         # Separator/spelling difference: the veto is lifted, the DOI is not counted
         # as evidence. The pair must go through the title/year/author stages
         # below — Stage 1 is not produced.
-        doi_note = f" | DOI yazım farkı: {w_doi} ↔ {s_doi}"
+        doi_variant = True
+        doi_note = f" | DOI spelling variant: {w_doi} <-> {s_doi}"
     elif _present(w_doi) and _present(s_doi):
         return {
             "stage": "1_doi_exact",
             "stage_label": "DOI exact",
             "confidence": 1.00,
             "reason": f"DOI exact: {w_doi}",
+            "doi": w_doi,
+            "doi_variant": False,
             "jw_title": None,
             "year_diff": None,
             "surname_match": None,
@@ -440,6 +446,8 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
             "stage_label": "PMID exact",
             "confidence": 0.99,
             "reason": f"PMID exact: {w_pmid}",
+            "doi": "",
+            "doi_variant": doi_variant,
             "jw_title": None,
             "year_diff": None,
             "surname_match": None,
@@ -482,7 +490,9 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                 "stage": "3_title_year_surname",
                 "stage_label": "Title+Year+Surname",
                 "confidence": 0.95,
-                "reason": f"JW(title)={jw_title:.3f} ≥ {TITLE_EXACT_THRESHOLD}, year_diff={year_diff}, surname='{w_surname}' eşleşti" + doi_note,
+                "reason": f"JW(title)={jw_title:.3f} >= {TITLE_EXACT_THRESHOLD}, year_diff={year_diff}, surname '{w_surname}' matched" + doi_note,
+                "doi": "",
+                "doi_variant": doi_variant,
                 "jw_title": round(jw_title, 4),
                 "year_diff": year_diff,
                 "surname_match": surname_match,
@@ -513,6 +523,8 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                     "stage_label": "Journal+Vol+Pages",
                     "confidence": 0.90,
                     "reason": f"JW(journal)={jw_journal:.3f}, vol={w_vol}, page_match=True" + doi_note,
+                    "doi": "",
+                    "doi_variant": doi_variant,
                     "jw_title": round(jw_title, 4),
                     "year_diff": year_diff,
                     "surname_match": surname_match,
@@ -527,6 +539,8 @@ def compute_match(w: dict, s: dict) -> Optional[dict]:
                 "stage_label": "Borderline (manual review)",
                 "confidence": round(conf, 3),
                 "reason": f"JW(title)={jw_title:.3f}, year_diff={year_diff}, surname_match={surname_match}" + doi_note,
+                "doi": "",
+                "doi_variant": doi_variant,
                 "jw_title": round(jw_title, 4),
                 "year_diff": year_diff,
                 "surname_match": surname_match,
@@ -880,6 +894,35 @@ def _write_borderline_state(project_id: str, state: dict[str, dict], adir: Optio
     p.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _borderline_state_copy_path(snap_path: Path) -> Path:
+    """Where the borderline state that belongs to a pre_borderline_accept snapshot is kept."""
+    return snap_path.with_name(snap_path.name + ".borderline_state.json")
+
+
+def restore_borderline_state(project_id: str, snap_path: Path) -> bool:
+    """After a snapshot restore: put back the borderline state stored with that snapshot.
+
+    Only pre_borderline_accept snapshots carry such a copy. Without it the restored dataset
+    would hold both unmerged rows again while the state still says "accept", so the pair could
+    never be merged again. Returns True when the state was rolled back.
+    """
+    copy_path = _borderline_state_copy_path(Path(snap_path))
+    if not copy_path.exists():
+        return False
+    adir = analyses.get_active_analysis_dir(project_id)
+    # The copy belongs to the analysis the snapshot was taken in (snapshots/ is its subfolder).
+    if adir is None or copy_path.parent.parent.resolve() != Path(adir).resolve():
+        return False
+    try:
+        state = json.loads(copy_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(state, dict):
+        return False
+    _write_borderline_state(project_id, state, adir=adir)
+    return True
+
+
 # ════════════════════════════════════════════════════════════════════════
 #  MAIN ORCHESTRATOR
 # ════════════════════════════════════════════════════════════════════════
@@ -888,14 +931,30 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     """Main Smart Merge workflow. Returns a result dict (for the audit hook).
 
     Creates a new analysis folder, writes the outputs into it, and finally
-    marks it as the active analysis. On error the half-written folder is cleaned up.
+    marks it as the active analysis. On ANY failure, including a cancel (CancelledError is
+    a BaseException, so `except Exception` never sees it), the unfinished folder is
+    deleted: it has no completed_at and would otherwise be listed as a normal analysis.
     """
+    progress: dict[str, Any] = {}
+    try:
+        return await _run_smart_merge(ctx, project_id, progress)
+    except BaseException:
+        analysis_id = progress.get("analysis_id")
+        if analysis_id and not progress.get("finalized"):
+            try:
+                analyses.delete_analysis(project_id, analysis_id)
+            except Exception:
+                pass
+        raise
 
+
+async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str, Any]) -> dict[str, Any]:
     ctx.log("Starting Smart Merge...")
     ctx.progress(0.02)
 
     # 0. New analysis folder
     analysis_id, adir = analyses.create_analysis(project_id, "smart")
+    progress["analysis_id"] = analysis_id
     ctx.log(f"Analysis folder: {analysis_id}")
 
     # 1. Load the data (reuse from merger.py)
@@ -958,8 +1017,8 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
             for _col in ("_norm_doi", "_norm_pmid", "_norm_ut"):
                 if df[_col].dtype != object:
                     raise RuntimeError(
-                        f"normalize invariant ihlali: {_col} dtype={df[_col].dtype} "
-                        "(object bekleniyor — boş kimlikler None kalmalı)"
+                        f"merge_invariant_dtype: {_col} dtype={df[_col].dtype} "
+                        "(expected object; empty identifiers must stay None)"
                     )
 
     await run_cpu(_stage_normalize)
@@ -1014,6 +1073,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "jw_title": m["jw_title"],
                     "year_diff": m["year_diff"],
                     "surname_match": m["surname_match"],
+                    "doi_variant": bool(m.get("doi_variant", False)),
                     "confidence": m["confidence"],
                     "stage_label": m["stage_label"],
                     "reason": m["reason"],
@@ -1032,8 +1092,8 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "scp_surname": _to_str(s_row.get("_norm_surname", "")),
                     "wos_journal": _to_str(w_row.get("SO", "")),
                     "scp_journal": _to_str(s_row.get("SO", "")),
-                    "wos_volume": _to_str(w_row.get("VL", "")),
-                    "scp_volume": _to_str(s_row.get("VL", "")),
+                    "wos_volume": _cell_str(w_row.get("VL", "")),
+                    "scp_volume": _cell_str(s_row.get("VL", "")),
                     "status": "pending",
                 })
             else:
@@ -1045,7 +1105,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                     "pair_id": pair_id,
                     "wos_index": int(w_idx),
                     "scp_index": int(s_idx),
-                    "doi": m["reason"].split("DOI exact: ", 1)[-1].split(",")[0] if "DOI exact" in m["reason"] else "",
+                    "doi": m.get("doi", ""),
                     "stage": m["stage"],
                     "stage_label": m["stage_label"],
                     "confidence": m["confidence"],
@@ -1115,10 +1175,10 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
                      - len(matches))
         if len(final_df) != _expected:
             raise RuntimeError(
-                f"lineage invariant ihlali: {_expected} kayıt bekleniyordu "
-                f"(WoS {wos_raw_n}−{intra_wos_removed}, "
-                f"Scopus {scp_raw_n}−{intra_scp_removed}, eşleşme {len(matches)}), "
-                f"üretilen {len(final_df)}"
+                f"merge_lineage_mismatch: expected {_expected} records "
+                f"(WoS {wos_raw_n}-{intra_wos_removed}, "
+                f"Scopus {scp_raw_n}-{intra_scp_removed}, matched {len(matches)}) "
+                f"but produced {len(final_df)}"
             )
 
         # CR normalization — citations in Scopus grammar are converted to WoS
@@ -1171,13 +1231,16 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     stat_xlsx = adir / "Statistic.xlsx"
 
     try:
-        await asyncio.to_thread(dataset_io.atomic_write_dataset, final_df, merged_dataset)
-        await asyncio.to_thread(_write_match_audit, matches, audit_xlsx)
-        await asyncio.to_thread(_write_conflict_log, conflicts, conflict_xlsx)
-        await asyncio.to_thread(_write_borderline_queue, borderline, borderline_xlsx)
-        await asyncio.to_thread(_write_lost_records, wos_not_matched, lost_wos_xlsx)
-        await asyncio.to_thread(_write_lost_records, scp_not_matched, lost_scp_xlsx)
-        await asyncio.to_thread(
+        # Uncancellable: a cancel must not end the task (and release the exclusivity lock,
+        # and let the cleanup below delete the folder) while a write thread is still running.
+        _w = dataset_io.run_uncancellable
+        await _w(dataset_io.atomic_write_dataset, final_df, merged_dataset)
+        await _w(_write_match_audit, matches, audit_xlsx)
+        await _w(_write_conflict_log, conflicts, conflict_xlsx)
+        await _w(_write_borderline_queue, borderline, borderline_xlsx)
+        await _w(_write_lost_records, wos_not_matched, lost_wos_xlsx)
+        await _w(_write_lost_records, scp_not_matched, lost_scp_xlsx)
+        await _w(
             _write_statistic_smart,
             len(final_df), wos_raw_n, scp_raw_n, final_df, stat_xlsx,
         )
@@ -1199,6 +1262,7 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
 
     # 11. Finalize — file_count + make active
     analyses.finalize_analysis(project_id, analysis_id)
+    progress["finalized"] = True
 
     ctx.progress(1.0)
     storage.touch_project(project_id)
@@ -1237,6 +1301,60 @@ async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
 #  PHASE 6 — Borderline review
 # ════════════════════════════════════════════════════════════════════════
 
+def _cell_str(v: Any) -> str:
+    """Cell -> str; blank cells read back from xlsx as NaN become "" (never "nan").
+
+    Whole-number floats (a numeric VL/IS column, or Excel's number cells) are written
+    without the ".0" ("15", not "15.0").
+    """
+    try:
+        if v is None or pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    text = str(v)
+    # Queues written by older runs stored numeric volumes as "15.0".
+    return text[:-2] if text.endswith(".0") and text[:-2].isdigit() else text
+
+
+def _opt_int(v: Any) -> Optional[int]:
+    """Cell -> int, or None for blanks/NaN (queue rows written by older runs)."""
+    try:
+        if v is None or pd.isna(v):
+            return None
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_bool(v: Any) -> Optional[bool]:
+    """Cell -> bool, or None when the cell is blank/NaN."""
+    try:
+        if v is None or pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        return None
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    return bool(v)
+
+
+def _row_doi_variant(row: Any) -> bool:
+    """True when the pair's DOIs differ only by spelling.
+
+    New queues carry an explicit ``doi_variant`` column; queues written by older
+    runs are detected from the stored reason text (current English note or the
+    legacy one).
+    """
+    flag = _opt_bool(row.get("doi_variant"))
+    if flag is not None:
+        return flag
+    reason = str(row.get("reason", ""))
+    return "DOI spelling variant" in reason or "DOI yaz" in reason
+
+
 def list_borderline(project_id: str) -> list[dict]:
     """Combined list of borderline_queue.xlsx + borderline_state.json (active analysis)."""
     adir = analyses.get_active_analysis_dir(project_id)
@@ -1252,7 +1370,7 @@ def list_borderline(project_id: str) -> list[dict]:
     state = _read_borderline_state(project_id, adir=adir)
     items: list[dict] = []
     for _, row in df.iterrows():
-        pair_id = str(row.get("pair_id", ""))
+        pair_id = _cell_str(row.get("pair_id"))
         # DOI is decisive: if the sanitized DOIs differ, it is never the same
         # publication. Even if such pairs are left in old (pre-fix) queues, do NOT
         # show them for manual approval — the user is asked only about genuinely
@@ -1268,22 +1386,27 @@ def list_borderline(project_id: str) -> list[dict]:
             "confidence": float(row.get("confidence") or 0),
             "status": st.get("status", "pending"),
             "decided_at": st.get("decided_at"),
-            "reason": str(row.get("reason", "")),
+            "reason": _cell_str(row.get("reason")),
+            "year_diff": _opt_int(row.get("year_diff")),
+            "surname_match": _opt_bool(row.get("surname_match")),
+            "doi_variant": _row_doi_variant(row),
+            "wos_doi": _cell_str(row.get("wos_doi")) or None,
+            "scp_doi": _cell_str(row.get("scp_doi")) or None,
             "wos": {
-                "doi": str(row.get("wos_doi", "")) or None,
-                "title": str(row.get("wos_title", "")),
+                "doi": _cell_str(row.get("wos_doi")) or None,
+                "title": _cell_str(row.get("wos_title")),
                 "year": int(row["wos_year"]) if pd.notna(row.get("wos_year")) else None,
-                "surname": str(row.get("wos_surname", "")) or None,
-                "journal": str(row.get("wos_journal", "")) or None,
-                "volume": str(row.get("wos_volume", "")) or None,
+                "surname": _cell_str(row.get("wos_surname")) or None,
+                "journal": _cell_str(row.get("wos_journal")) or None,
+                "volume": _cell_str(row.get("wos_volume")) or None,
             },
             "scopus": {
-                "doi": str(row.get("scp_doi", "")) or None,
-                "title": str(row.get("scp_title", "")),
+                "doi": _cell_str(row.get("scp_doi")) or None,
+                "title": _cell_str(row.get("scp_title")),
                 "year": int(row["scp_year"]) if pd.notna(row.get("scp_year")) else None,
-                "surname": str(row.get("scp_surname", "")) or None,
-                "journal": str(row.get("scp_journal", "")) or None,
-                "volume": str(row.get("scp_volume", "")) or None,
+                "surname": _cell_str(row.get("scp_surname")) or None,
+                "journal": _cell_str(row.get("scp_journal")) or None,
+                "volume": _cell_str(row.get("scp_volume")) or None,
             },
             "llm_suggestion": st.get("llm_suggestion"),
         })
@@ -1427,14 +1550,14 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
 
     adir = analyses.get_active_analysis_dir(project_id)
     if adir is None:
-        raise RuntimeError("Aktif analiz yok — önce Smart Merge çalıştırın")
+        raise RuntimeError("no_active_analysis")
 
     # Get the dataset path from the resolver — the extension (parquet/legacy xlsx)
     # is not assumed here; a legacy project may have been migrated to parquet on
     # first touch.
     merged_path = analyses.active_dataset_path(project_id)
     if merged_path is None or not merged_path.exists():
-        raise RuntimeError("Birleştirilmiş dataset bulunamadı — önce Smart Merge çalıştırın")
+        raise RuntimeError("no_merged_data")
 
     bq_path = adir / "borderline_queue.xlsx"
     if not bq_path.exists():
@@ -1445,6 +1568,9 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     # Pairs ALREADY accepted BEFORE this call — if accepted again, they are not
     # merged a second time (idempotent).
     prior_accepted = {pid for pid, v in state.items() if v.get("status") == "accept"}
+    # State as it was BEFORE this call: stored next to the pre-accept snapshot so that a
+    # snapshot restore can roll the accept decisions back together with the dataset.
+    state_before = copy.deepcopy(state)
     bq_df = pd.read_excel(bq_path)
     bq_by_id = {str(r["pair_id"]): r for _, r in bq_df.iterrows()}
 
@@ -1502,11 +1628,11 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             # Invariants — on violation the dataset is NOT TOUCHED.
             if len(df_after) != len(df_before) - merged_pairs:
                 raise RuntimeError(
-                    f"borderline birleştirme değişmezi: {len(df_before)} - {merged_pairs} "
-                    f"beklenirken {len(df_after)} satır"
+                    f"borderline_merge_invariant: expected {len(df_before)} - {merged_pairs} "
+                    f"rows but got {len(df_after)}"
                 )
             if "UID" in df_after.columns and not df_after["UID"].astype(str).is_unique:
-                raise RuntimeError("borderline birleştirme sonrası UID tekil değil")
+                raise RuntimeError("borderline_uid_not_unique")
 
             # Snapshot of the PREVIOUS dataset — only if something will really change.
             snaps_dir = analyses.work_dir(project_id) / "snapshots"
@@ -1515,6 +1641,11 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
             snap_path = snaps_dir / f"pre_borderline_accept_{stamp}.parquet"
             dataset_io.atomic_write_dataset(df_before, snap_path)
             snapshot_rel = str(snap_path.relative_to(storage.settings.storage_path))
+            try:
+                _borderline_state_copy_path(snap_path).write_text(
+                    json.dumps(state_before, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass  # best effort: without the copy a restore leaves the state untouched
 
             dataset_io.atomic_write_dataset(df_after, merged_path)
             filter_engine._DF_CACHE.clear()
@@ -1547,7 +1678,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     audit.write(
         project_id,
         kind="merge_borderline",
-        title=f"Borderline: {_bl_accept} kabul / {_bl_reject} red / {_bl_skip} atlandı",
+        title=f"Borderline: {_bl_accept} accepted / {_bl_reject} rejected / {_bl_skip} skipped",
         title_key="audit.titles.borderlineDecisions",
         title_params={"accept": _bl_accept, "reject": _bl_reject, "skip": _bl_skip},
         details={

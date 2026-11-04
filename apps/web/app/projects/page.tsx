@@ -1,16 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, formatBytes, type Project, translateApiError} from "@/lib/api-client";
+import { api, type Project, translateApiError} from "@/lib/api-client";
 import { Button } from "@/components/Button";
 import { Card, CardBody } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
 import { FolderOpen, FolderSymlink, Plus, Trash2, FileText, ArrowRight, Loader2 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
+import { formatBytes, formatDate, formatNumber } from "@/lib/i18n/format";
 import { useConfirm } from "@/components/Dialogs";
 
 export default function ProjectsPage() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,10 +129,10 @@ export default function ProjectsPage() {
                     </Link>
                     <p className="text-xs text-muted mt-1 flex items-center gap-3 flex-wrap">
                       <span className="inline-flex items-center gap-1">
-                        <FileText className="h-3 w-3" />{t("projects.fileCount", { n: p.file_count })}
+                        <FileText className="h-3 w-3" />{t("projects.fileCount", { n: formatNumber(p.file_count, locale) })}
                       </span>
-                      <span>{formatBytes(p.raw_size_bytes)}</span>
-                      <span>{new Date(p.created_at).toLocaleDateString()}</span>
+                      <span>{formatBytes(p.raw_size_bytes, locale)}</span>
+                      <span>{formatDate(new Date(p.created_at), locale)}</span>
                     </p>
                   </div>
                   <Link href={`/projects/${p.id}/merge`}>

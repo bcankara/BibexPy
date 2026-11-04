@@ -7,27 +7,38 @@ import {
   Layers, Database, Check, AlertCircle, Loader2,
 } from "lucide-react";
 import { api, translateTitle, translateApiError, type AuditEntry } from "@/lib/api-client";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatDateTime, formatNumber, formatPercent } from "@/lib/i18n/format";
+import { auditKindLabel, fieldSourceLabel, stageLabel } from "@/lib/i18n/labels";
 import { useConfirm, useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
 
-// Locale-aware label resolver — translated at runtime via t()
-const KIND_ICONS: Record<string, { icon: React.ReactNode; color: string; labelKey: string }> = {
-  upload:                  { icon: <Upload className="h-3.5 w-3.5" />,  color: "text-info",      labelKey: "audit.kinds.upload" },
-  convert:                 { icon: <FileText className="h-3.5 w-3.5" />, color: "text-info",      labelKey: "audit.kinds.convert" },
-  merge:                   { icon: <Combine className="h-3.5 w-3.5" />,  color: "text-brand-500", labelKey: "audit.kinds.merge" },
-  filter_save:             { icon: <Star className="h-3.5 w-3.5" />,     color: "text-warning",   labelKey: "audit.kinds.filter_save" },
-  records_delete:          { icon: <Trash2 className="h-3.5 w-3.5" />,   color: "text-danger",    labelKey: "audit.kinds.records_delete" },
-  enrich_api:              { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500", labelKey: "audit.kinds.enrich_api" },
-  enrich_ml:               { icon: <Brain className="h-3.5 w-3.5" />,    color: "text-brand-500", labelKey: "audit.kinds.enrich_ml" },
-  enrich_selected_requested:{ icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500", labelKey: "audit.kinds.enrich_selected" },
-  disambiguate:            { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-accent",    labelKey: "audit.kinds.disambiguate" },
-  snapshot:                { icon: <Camera className="h-3.5 w-3.5" />,   color: "text-muted",     labelKey: "audit.kinds.snapshot" },
-  snapshot_restore:        { icon: <RotateCcw className="h-3.5 w-3.5" />, color: "text-warning",  labelKey: "audit.kinds.snapshot_restore" },
-  export:                  { icon: <Download className="h-3.5 w-3.5" />, color: "text-success",   labelKey: "audit.kinds.export" },
-  analysis_activate:       { icon: <Combine className="h-3.5 w-3.5" />,  color: "text-brand-500", labelKey: "audit.kinds.analysis_activate" },
-  analysis_delete:         { icon: <Trash2 className="h-3.5 w-3.5" />,   color: "text-danger",    labelKey: "audit.kinds.analysis_delete" },
-  merge_borderline:        { icon: <Layers className="h-3.5 w-3.5" />,   color: "text-warning",   labelKey: "audit.kinds.merge_borderline" },
+// Icon + colour per audit kind. Labels come from auditKindLabel() (audit.kinds.<kind>).
+const KIND_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
+  upload:                  { icon: <Upload className="h-3.5 w-3.5" />,  color: "text-info" },
+  convert:                 { icon: <FileText className="h-3.5 w-3.5" />, color: "text-info" },
+  merge:                   { icon: <Combine className="h-3.5 w-3.5" />,  color: "text-brand-500" },
+  filter_save:             { icon: <Star className="h-3.5 w-3.5" />,     color: "text-warning" },
+  records_delete:          { icon: <Trash2 className="h-3.5 w-3.5" />,   color: "text-danger" },
+  enrich_api:              { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500" },
+  enrich_ml:               { icon: <Brain className="h-3.5 w-3.5" />,    color: "text-brand-500" },
+  enrich_selected_requested:{ icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500" },
+  disambiguate:            { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-accent" },
+  snapshot:                { icon: <Camera className="h-3.5 w-3.5" />,   color: "text-muted" },
+  snapshot_restore:        { icon: <RotateCcw className="h-3.5 w-3.5" />, color: "text-warning" },
+  export:                  { icon: <Download className="h-3.5 w-3.5" />, color: "text-success" },
+  analysis_activate:       { icon: <Combine className="h-3.5 w-3.5" />,  color: "text-brand-500" },
+  analysis_delete:         { icon: <Trash2 className="h-3.5 w-3.5" />,   color: "text-danger" },
+  merge_borderline:        { icon: <Layers className="h-3.5 w-3.5" />,   color: "text-warning" },
+  enrich_selected:         { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500" },
+  enrich_field:            { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-brand-500" },
+  disambiguate_authors:    { icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-accent" },
+  disambiguate_affiliations:{ icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-accent" },
+  project_create:          { icon: <Check className="h-3.5 w-3.5" />,    color: "text-success" },
+  report:                  { icon: <FileText className="h-3.5 w-3.5" />, color: "text-info" },
+  records_edit:            { icon: <Save className="h-3.5 w-3.5" />,     color: "text-warning" },
+  filter_apply:            { icon: <Star className="h-3.5 w-3.5" />,     color: "text-warning" },
+  format_migration:        { icon: <Database className="h-3.5 w-3.5" />, color: "text-muted" },
 };
 
 type Props = {
@@ -37,7 +48,7 @@ type Props = {
 };
 
 export function AuditLogPanel({ projectId, open, onClose }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -131,12 +142,13 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
           </div>
           <Link
             href={`/projects/${projectId}/report`}
+            target="_blank" rel="noopener noreferrer"
             className="text-xs text-brand-600 hover:underline flex items-center gap-1"
           >
             {t("nav.report")} <ExternalLink className="h-3 w-3" />
           </Link>
           <a
-            href={api.auditReportUrl(projectId)}
+            href={api.auditReportUrl(projectId, locale)}
             target="_blank" rel="noreferrer"
             className="text-xs text-muted hover:text-brand-600 flex items-center gap-1"
             title={t("audit.downloadMarkdown")}
@@ -191,7 +203,7 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
 }
 
 function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const d = details as Record<string, number | string | Record<string, number> | string[] | undefined>;
   const wos = Number(d.wos_input ?? 0);
   const scp = Number(d.scopus_input ?? 0);
@@ -213,10 +225,10 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
     <div className="mt-2 space-y-2">
       {/* Flow summary — large number cards */}
       <div className="grid grid-cols-4 gap-1.5">
-        <SummaryCell label={t("audit.smart.rawInput")} value={`${totalInput}`} sub={`${wos} + ${scp}`} tone="muted" />
-        <SummaryCell label={t("audit.smart.matched")} value={`${matched}`} sub={`${dedupRate.toFixed(1)}% ${t("audit.smart.dedupShort")}`} tone="brand" />
-        <SummaryCell label={t("audit.smart.borderline")} value={`${borderlinePending}/${borderline}`} sub={t("audit.smart.pendingTotal")} tone={borderlinePending > 0 ? "warning" : "muted"} />
-        <SummaryCell label={t("audit.smart.output")} value={`${merged}`} sub={`${lostWos}+${lostScp} ${t("audit.smart.lostShort")}`} tone="success" />
+        <SummaryCell label={t("audit.smart.rawInput")} value={formatNumber(totalInput, locale)} sub={`${formatNumber(wos, locale)} + ${formatNumber(scp, locale)}`} tone="muted" />
+        <SummaryCell label={t("audit.smart.matched")} value={formatNumber(matched, locale)} sub={`${formatPercent(dedupRate, locale)} ${t("audit.smart.dedupShort")}`} tone="brand" />
+        <SummaryCell label={t("audit.smart.borderline")} value={`${formatNumber(borderlinePending, locale)}/${formatNumber(borderline, locale)}`} sub={t("audit.smart.pendingTotal")} tone={borderlinePending > 0 ? "warning" : "muted"} />
+        <SummaryCell label={t("audit.smart.output")} value={formatNumber(merged, locale)} sub={`${formatNumber(lostWos, locale)}+${formatNumber(lostScp, locale)} ${t("audit.smart.lostShort")}`} tone="success" />
       </div>
 
       {/* Stage distribution */}
@@ -227,8 +239,8 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
           </div>
           <div className="flex flex-wrap gap-1">
             {Object.entries(stages).map(([k, v]) => (
-              <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-border">
-                <span className="font-mono text-muted">{k}:</span> <strong>{String(v)}</strong>
+              <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-border" title={k}>
+                <span className="text-muted">{stageLabel(t, k)}:</span> <strong>{formatNumber(Number(v), locale)}</strong>
               </span>
             ))}
           </div>
@@ -244,10 +256,10 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
           <div className="flex flex-wrap gap-1">
             {Object.entries(fieldDist).map(([src, v]) => {
               const total = Object.values(fieldDist).reduce((s, n) => s + (n as number), 0);
-              const pct = total > 0 ? ((v as number) / total * 100).toFixed(0) : "0";
+              const pct = formatPercent(total > 0 ? ((v as number) / total * 100) : 0, locale, 0);
               return (
                 <span key={src} className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-border">
-                  <span className="font-mono text-muted">{src}:</span> <strong>{String(v)}</strong> <span className="text-muted">({pct}%)</span>
+                  <span className="text-muted" title={src}>{fieldSourceLabel(t, src)}:</span> <strong>{formatNumber(Number(v), locale)}</strong> <span className="text-muted">({pct})</span>
                 </span>
               );
             })}
@@ -259,7 +271,7 @@ function SmartMergeSummary({ details }: { details: Record<string, unknown> }) {
       {(durationSec != null || outputFiles.length > 0) && (
         <div className="flex items-center gap-2 text-[10px] text-muted">
           {durationSec != null && (
-            <span>⏱ {durationSec.toFixed(1)} {t("audit.smart.seconds")}</span>
+            <span>⏱ {formatNumber(durationSec, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} {t("audit.smart.seconds")}</span>
           )}
           {outputFiles.length > 0 && (
             <span>📦 {t("audit.smart.filesProduced", { n: outputFiles.length })}</span>
@@ -291,11 +303,10 @@ function SummaryCell({ label, value, sub, tone }: {
 
 
 function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onRestore: (snapshot: string) => void; restoring?: boolean }) {
-  const t = useT();
-  const iconMeta = KIND_ICONS[entry.kind] ?? { icon: <FileText className="h-3.5 w-3.5" />, color: "text-muted", labelKey: "" };
-  const label = iconMeta.labelKey ? t(iconMeta.labelKey) : entry.kind;
-  const date = new Date(entry.ts * 1000);
-  const dateStr = date.toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
+  const { t, locale } = useI18n();
+  const iconMeta = KIND_ICONS[entry.kind === "enrich_selected_requested" ? "enrich_selected" : entry.kind] ?? { icon: <FileText className="h-3.5 w-3.5" />, color: "text-muted" };
+  const label = auditKindLabel(t, entry.kind);
+  const dateStr = formatDateTime(new Date(entry.ts * 1000), locale);
   const [open, setOpen] = useState(false);
 
   const beforeAfter = (entry.before || entry.after);
@@ -312,7 +323,7 @@ function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onR
             </span>
             {isSmartMerge && (
               <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-success-soft text-emerald-700 border border-success/30">
-                Smart
+                {t("analyses.method.smart")}
               </span>
             )}
             <span className="text-[10px] text-muted ml-auto">{dateStr}</span>

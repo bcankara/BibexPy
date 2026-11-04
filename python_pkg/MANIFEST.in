@@ -1,6 +1,6 @@
-# sdist (kaynak dağıtım) için dosya dahil etme kuralları.
-# Wheel için asıl belirleyici pyproject.toml [tool.setuptools.package-data];
-# bu MANIFEST sadece `python -m build`'in ürettiği .tar.gz sdist içindir.
+# File inclusion rules for the sdist (source distribution).
+# For the wheel, pyproject.toml [tool.setuptools.package-data] is what decides;
+# this MANIFEST only applies to the .tar.gz sdist produced by `python -m build`.
 
 recursive-include src/bibexpy/_server *
 recursive-include src/bibexpy/_web *
@@ -8,7 +8,7 @@ recursive-include src/bibex_core *.py
 include README.md
 include LICENSE
 
-# Build artıkları / gereksizler
+# Build artifacts / unneeded files
 global-exclude __pycache__ *.py[cod] *.so .DS_Store
 recursive-exclude src/bibexpy/_server storage *
 recursive-exclude src/bibexpy/_server tests *

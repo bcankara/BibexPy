@@ -50,7 +50,7 @@ def _audit_convert(project_id: str, kind: str, inputs: list[str] | str, output: 
         title=f"{kind}: {output.name}",
         title_key="audit.titles.converted",
         title_params={"name": output.name},
-        analysis_id=None,  # proje-seviye tool
+        analysis_id=None,  # project-level tool
         details={
             "type": kind,
             "inputs": inputs if isinstance(inputs, list) else [inputs],

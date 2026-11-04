@@ -16,6 +16,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export type ToolKey =
   | "vosviewer"
@@ -47,7 +48,7 @@ type ToolMeta = {
   label: string;
   /** Colored accent — text + dot color */
   color: string;
-  /** Description (tooltip) */
+  /** English description (tooltip fallback; the translated text is tools.tips.<key>) */
   tip: string;
   /** Direct logo path under public/tools/ */
   logoSrc?: string;
@@ -157,7 +158,15 @@ function ToolLogo({ tool, className }: { tool: ToolKey; className?: string }) {
  * Size: noticeably larger than the text chips (~46-52px tall) so that the
  * "featured" feel is actually conveyed.
  */
+/** Tooltip text in the app language (tools.tips.<tool>), falling back to the English tip. */
+function toolTip(t: (k: string) => string, tool: ToolKey, fallback: string): string {
+  const key = `tools.tips.${tool}`;
+  const v = t(key);
+  return v === key ? fallback : v;
+}
+
 export function FeaturedTool({ tool }: { tool: ToolKey }) {
+  const t = useT();
   const meta = TOOLS[tool];
   const [logoFailed, setLogoFailed] = useState(false);
   if (!meta) return null;
@@ -167,7 +176,7 @@ export function FeaturedTool({ tool }: { tool: ToolKey }) {
 
   return (
     <span
-      title={meta.tip}
+      title={toolTip(t, tool, meta.tip)}
       className={cn(
         "inline-flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5",
         "shadow-soft hover:border-brand-400 transition",
@@ -192,11 +201,12 @@ export function FeaturedTool({ tool }: { tool: ToolKey }) {
 
 /** Compact chip — logo + name, thin border. If there is no logo, falls back to a monogram. */
 export function TextChip({ tool, tier = "primary" }: { tool: ToolKey; tier?: ToolTier }) {
+  const t = useT();
   const meta = TOOLS[tool];
   if (!meta) return null;
   return (
     <span
-      title={meta.tip}
+      title={toolTip(t, tool, meta.tip)}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-white py-0.5 pl-0.5 pr-2",
         "hover:border-brand-300 transition",

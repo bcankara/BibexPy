@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
+from jobs.runner import job_runner
 from models.project import ProjectCreate, ProjectMeta
 from services import audit, storage
 
@@ -18,7 +19,7 @@ def create_project(payload: ProjectCreate):
     audit.write(
         meta.id,
         kind="project_create",
-        title=f"Proje oluşturuldu: {meta.name}",
+        title=f"Project created: {meta.name}",
         title_key="audit.titles.projectCreated",
         title_params={"name": meta.name},
         details={"name": meta.name, "description": payload.description or ""},
@@ -39,11 +40,14 @@ def get_project(project_id: str):
 def delete_project(project_id: str):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    try:
-        storage.delete_project(project_id)
-    except Exception as e:
-        # If not caught, the 500 comes back from ServerErrorMiddleware without a CORS
-        # header (a misleading "CORS" error in the browser). An HTTPException passes
-        # through the inner layer, gets the CORS header and shows the user the real cause.
-        raise HTTPException(409, f"project_delete_failed: {e}")
+    # Never rmtree the project folder under a running job (it would recreate the folders or
+    # fail on files it holds open) or under an in-flight mutating request.
+    with job_runner.mutation(project_id):
+        try:
+            storage.delete_project(project_id)
+        except Exception as e:
+            # If not caught, the 500 comes back from ServerErrorMiddleware without a CORS
+            # header (a misleading "CORS" error in the browser). An HTTPException passes
+            # through the inner layer, gets the CORS header and shows the user the real cause.
+            raise HTTPException(409, f"project_delete_failed: {e}")
     return None

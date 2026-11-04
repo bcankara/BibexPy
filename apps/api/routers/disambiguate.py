@@ -45,7 +45,7 @@ async def start_authors(project_id: str, payload: DisambiguateRequest | None = N
         return await pipeline.run_author_disambiguation(ctx, project_id, max_records=max_records)
 
     job = job_runner.submit(
-        project_id, "disambiguate_authors", "Yazar Ayrıştırma",
+        project_id, "disambiguate_authors", "Author disambiguation",
         worker, title_key="audit.titles.authorDisambiguation", exclusive=True,
     )
     return {"job_id": job.id, "max_records": max_records}
@@ -63,7 +63,7 @@ async def start_affiliations(project_id: str, payload: DisambiguateRequest | Non
         return await pipeline.run_affiliation_disambiguation(ctx, project_id, max_records=max_records)
 
     job = job_runner.submit(
-        project_id, "disambiguate_affiliations", "Kurum Normalizasyonu",
+        project_id, "disambiguate_affiliations", "Affiliation standardization",
         worker, title_key="audit.titles.affiliationStandardization", exclusive=True,
     )
     return {"job_id": job.id}
@@ -81,7 +81,7 @@ async def start_countries(project_id: str, payload: DisambiguateRequest | None =
         return await pipeline.run_country_standardization(ctx, project_id, max_records=max_records)
 
     job = job_runner.submit(
-        project_id, "disambiguate", "Ülke Standartlaştırma",
+        project_id, "disambiguate", "Country standardization",
         worker, title_key="audit.titles.countryStandardization", exclusive=True,
     )
     return {"job_id": job.id}
@@ -99,7 +99,7 @@ async def start_organizations(project_id: str, payload: DisambiguateRequest | No
         return await pipeline.run_org_rollup(ctx, project_id, max_records=max_records)
 
     job = job_runner.submit(
-        project_id, "disambiguate", "Kurum Toplama (üst kurum)",
+        project_id, "disambiguate", "Affiliation roll-up (parent organization)",
         worker, title_key="audit.titles.orgRollup", exclusive=True,
     )
     return {"job_id": job.id}
@@ -126,35 +126,37 @@ def apply(project_id: str, payload: ApplyRequest):
         raise HTTPException(404, "project_not_found")
     if payload.kind not in ("authors", "affiliations", "countries", "organizations"):
         raise HTTPException(400, "invalid_kind")
+    # Applying rewrites the dataset: never while an exclusive job could overwrite it.
+    with job_runner.mutation(project_id):
 
-    # SPLIT first, then MERGE — order: the split is the first operation.
-    split_result = None
-    if payload.kind == "authors" and payload.approved_splits:
-        split_result = pipeline.apply_splits(project_id, payload.approved_splits)
-    merge_result = None
-    if payload.approved:
-        merge_result = pipeline.apply_clusters(project_id, payload.kind, payload.approved)
+        # SPLIT first, then MERGE — order: the split is the first operation.
+        split_result = None
+        if payload.kind == "authors" and payload.approved_splits:
+            split_result = pipeline.apply_splits(project_id, payload.approved_splits)
+        merge_result = None
+        if payload.approved:
+            merge_result = pipeline.apply_clusters(project_id, payload.kind, payload.approved)
 
-    replacements = (
-        (split_result or {}).get("replacements", 0) + (merge_result or {}).get("replacements", 0)
-    )
-    snapshot = (merge_result or {}).get("snapshot") or (split_result or {}).get("snapshot")
-    audit.write(
-        project_id,
-        kind="disambiguate",
-        title=f"Yazar Ayrıştırma uygulandı ({payload.kind}) — {replacements} değişiklik",
-        title_key="audit.titles.disambiguationApplied",
-        title_params={"kind": payload.kind, "n": replacements},
-        details={
-            "kind": payload.kind,
-            "clusters_approved": len(payload.approved),
-            "splits_approved": len(payload.approved_splits),
-            "replacements": replacements,
-        },
-        snapshot=snapshot,
-        user_action="apply_disambiguation",
-    )
-    return {"merge": merge_result, "split": split_result, "replacements": replacements, "snapshot": snapshot}
+        replacements = (
+            (split_result or {}).get("replacements", 0) + (merge_result or {}).get("replacements", 0)
+        )
+        snapshot = (merge_result or {}).get("snapshot") or (split_result or {}).get("snapshot")
+        audit.write(
+            project_id,
+            kind="disambiguate",
+            title=f"Disambiguation applied ({payload.kind}) — {replacements} changes",
+            title_key="audit.titles.disambiguationApplied",
+            title_params={"kind": payload.kind, "n": replacements},
+            details={
+                "kind": payload.kind,
+                "clusters_approved": len(payload.approved),
+                "splits_approved": len(payload.approved_splits),
+                "replacements": replacements,
+            },
+            snapshot=snapshot,
+            user_action="apply_disambiguation",
+        )
+        return {"merge": merge_result, "split": split_result, "replacements": replacements, "snapshot": snapshot}
 
 
 class RestoreRequest(BaseModel):
@@ -165,13 +167,14 @@ class RestoreRequest(BaseModel):
 def restore(project_id: str, payload: RestoreRequest):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    result = pipeline.restore_snapshot(project_id, payload.snapshot)
-    audit.write(
-        project_id,
-        kind="snapshot_restore",
-        title=f"Disambiguation snapshot geri yüklendi",
-        title_key="audit.titles.disambiguationRestored",
-        details={"snapshot": payload.snapshot, "into": result.get("into")},
-        user_action="restore",
-    )
-    return result
+    with job_runner.mutation(project_id):
+        result = pipeline.restore_snapshot(project_id, payload.snapshot)
+        audit.write(
+            project_id,
+            kind="snapshot_restore",
+            title="Disambiguation snapshot restored",
+            title_key="audit.titles.disambiguationRestored",
+            details={"snapshot": payload.snapshot, "into": result.get("into")},
+            user_action="restore",
+        )
+        return result

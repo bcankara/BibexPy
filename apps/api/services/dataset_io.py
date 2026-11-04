@@ -16,6 +16,7 @@ the service layer uses flat imports and ``filter_engine`` already depends on
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 import time
@@ -185,6 +186,43 @@ def atomic_write_dataset(df: pd.DataFrame, path: Any) -> None:
                 tmp.unlink()
             except OSError:
                 pass
+
+
+async def run_uncancellable(fn: Callable[..., Any], *args: Any) -> Any:
+    """Run `fn(*args)` in a worker thread and NEVER return early on cancellation.
+
+    A worker thread cannot be cancelled. With a bare ``await asyncio.to_thread(...)`` a
+    task cancel ends the task (and so releases the job runner's exclusivity lock) while the
+    thread is still writing; a mutating request could then load the old file and publish
+    its own result on top of (or under) the job's. Here the call runs as a future that is
+    shielded from the cancel; on ``CancelledError`` we keep waiting for the thread to finish
+    and only then re-raise, so the task, and with it the lock, ends after the write.
+    """
+    fut = asyncio.ensure_future(asyncio.to_thread(fn, *args))
+    cancelled = False
+    while not fut.done():
+        try:
+            await asyncio.shield(fut)
+        except asyncio.CancelledError:
+            if not fut.done():
+                cancelled = True  # cancel arrived mid-write: keep waiting for the thread
+                continue
+            cancelled = True
+        except BaseException:
+            break  # the call itself failed: surfaced through fut below
+    if fut.cancelled():
+        raise asyncio.CancelledError()
+    exc = fut.exception()
+    if exc is not None:
+        raise exc  # a real write error wins over a pending cancel
+    if cancelled:
+        raise asyncio.CancelledError()
+    return fut.result()
+
+
+async def write_dataset_uncancellable(df: pd.DataFrame, path: Any) -> None:
+    """`atomic_write_dataset` for job-final writes; see :func:`run_uncancellable`."""
+    await run_uncancellable(atomic_write_dataset, df, path)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -7,8 +7,10 @@ import {
 } from "lucide-react";
 import { Card, CardBody } from "@/components/Card";
 import { Button } from "@/components/Button";
-import { api, formatBytes, type AnalysisItem, translateApiError} from "@/lib/api-client";
-import { useT } from "@/lib/i18n";
+import { api, type AnalysisItem, translateApiError} from "@/lib/api-client";
+import { useI18n, type Locale } from "@/lib/i18n";
+import { formatBytes, formatDateTime } from "@/lib/i18n/format";
+import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
 
 type Props = {
@@ -24,20 +26,17 @@ const METHOD_META: Record<string, { label: string; icon: typeof Combine; tone: s
   simple: { label: "Simple", icon: Combine, tone: "text-slate-700", bg: "bg-slate-50" },
   enhanced: { label: "Enhanced", icon: Sparkles, tone: "text-brand-700", bg: "bg-brand-50" },
   smart: { label: "Smart", icon: Brain, tone: "text-emerald-700", bg: "bg-emerald-50" },
+  single: { label: "Single", icon: Combine, tone: "text-slate-700", bg: "bg-slate-50" },
   unknown: { label: "Legacy", icon: Folder, tone: "text-slate-500", bg: "bg-slate-50" },
 };
 
-function fmtDate(ts?: number | null): string {
+function fmtDate(ts: number | null | undefined, locale: Locale): string {
   if (!ts) return "—";
-  const d = new Date(ts * 1000);
-  return d.toLocaleString(undefined, {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return formatDateTime(new Date(ts * 1000), locale);
 }
 
 export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -114,7 +113,7 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-ink truncate">{a.label}</span>
+                        <span className="text-sm font-medium text-ink truncate">{analysisDisplayLabel(t, locale, a)}</span>
                         <span className={cn(
                           "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-medium",
                           meta.bg, meta.tone,
@@ -128,11 +127,11 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
                         )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-[11px] text-muted">
-                        <span>{fmtDate(a.created_at)}</span>
+                        <span>{fmtDate(a.created_at, locale)}</span>
                         <span>·</span>
                         <span>{a.file_count} {t("common.files")}</span>
                         <span>·</span>
-                        <span>{formatBytes(a.total_size)}</span>
+                        <span>{formatBytes(a.total_size, locale)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

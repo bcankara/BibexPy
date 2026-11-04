@@ -67,7 +67,10 @@
     "footerVersionTitle": "Running BibexPy version",
     "nextStep": "Next step",
     "prevStep": "Previous step",
-    "confirmTitle": "Are you sure?"
+    "confirmTitle": "Are you sure?",
+    "min": "min",
+    "max": "max",
+    "beta": "Beta"
   },
   "nav": {
     "data": "Preparing",
@@ -142,6 +145,32 @@
       "xlsx": "Excel (.xlsx)",
       "csv": "CSV",
       "tsv": "TSV"
+    },
+    "tips": {
+      "vosviewer": "VOSviewer — Network visualization (co-authorship, co-citation, keyword co-occurrence maps)",
+      "bibliometrix": "bibliometrix — R package for comprehensive science mapping (Aria & Cuccurullo)",
+      "biblioshiny": "Web UI for bibliometrix (no coding required)",
+      "citespace": "Citation network & research-front detection",
+      "bibexcel": "Lightweight bibliometric data preprocessing",
+      "histcite": "Historiographic citation analysis",
+      "gephi": "General-purpose network visualization",
+      "citnetexplorer": "Direct citation network exploration",
+      "zotero": "Open-source reference manager",
+      "mendeley": "Elsevier reference manager (free tier)",
+      "jabref": "Java open-source BibTeX editor",
+      "endnote": "Clarivate reference manager",
+      "citavi": "Reference + knowledge management (Lumivero)",
+      "refworks": "ProQuest cloud-based reference manager",
+      "papers": "ReadCube reference manager",
+      "latex": "Typesetting system — works with .bib",
+      "overleaf": "Web-based LaTeX editor",
+      "excel": "Microsoft spreadsheet — opens .xlsx natively",
+      "tableau": "Salesforce BI / dashboards",
+      "powerbi": "Microsoft BI / dashboards",
+      "python": "pandas / NetworkX / matplotlib",
+      "r": "Statistical computing — base of bibliometrix",
+      "openrefine": "Data cleaning / transformation for messy CSV/TSV",
+      "scite": "Smart citations & assistant"
     }
   },
   "home": {
@@ -339,7 +368,8 @@
       "simple": "Simple",
       "enhanced": "Enhanced",
       "smart": "Smart",
-      "unknown": "Legacy"
+      "unknown": "Legacy",
+      "single": "Single"
     },
     "infoBanner": {
       "title": "How does merging work?",
@@ -638,6 +668,13 @@
     "noMerge": {
       "title": "No analysis yet",
       "hint": "Start with Smart Merge above."
+    },
+    "stages": {
+      "doiExact": "DOI exact",
+      "pmidExact": "PMID exact",
+      "titleYearSurname": "Title + year + surname",
+      "journalVolPage": "Journal + volume + pages",
+      "borderline": "Borderline (manual review)"
     }
   },
   "help": {
@@ -689,7 +726,21 @@
       "doi": "DOI"
     },
     "confShort": "conf",
-    "appliedToast": "{applied} records updated. Pending: {pending}."
+    "appliedToast": "{applied} records updated. Pending: {pending}.",
+    "llmLabel": "LLM",
+    "verdict": {
+      "same": "Same",
+      "different": "Different",
+      "uncertain": "Uncertain"
+    },
+    "reason": {
+      "titleSimilarity": "Title similarity {value}",
+      "yearSame": "same year",
+      "yearDiff": "years differ by {n}",
+      "surnameSame": "same first-author surname",
+      "surnameDiff": "different first-author surname",
+      "doiVariant": "DOIs differ only in notation ({a} / {b})"
+    }
   },
   "records": {
     "title": "Records & Filter",
@@ -848,11 +899,11 @@
       "reportSummary": "{enriched} of {scanned} records with a DOI were updated.",
       "reportSummaryShort": "{enriched} record(s) were updated.",
       "reportDois": "+{n} missing DOI(s) resolved from title lookup.",
-      "reportOverall": "Overall fill {before}% → {after}%",
+      "reportOverall": "Overall fill {before} → {after}",
       "runAgain": "Run again",
       "startAll": "Fill all missing",
-      "startAllHint": "Run API enrichment in parallel for every field with missing values",
-      "startAllConfirm": "Enrichment will be started for {n} fields. The jobs run in parallel and may take a little while.",
+      "startAllHint": "Fill the missing values of every field in one background job",
+      "startAllConfirm": "Missing values in {n} field(s) will be filled in one background job. It keeps running on the server if you leave this page, and its progress shows at the top of every page of this project.",
       "startAllNothing": "Nothing to fill — all fields are complete",
       "stopAll": "Cancel running",
       "cancelTitle": "Cancel",
@@ -865,12 +916,29 @@
       "missingArrow": "missing →",
       "fillNMissing": "Fill {n} missing records via API",
       "startAllTitle": "Fill all missing fields?",
-      "startAllFreeNote": "The enrichment sources used (Crossref, OpenAlex, Unpaywall) are free and consume no paid quota.",
-      "missingShort": "missing"
+      "startAllFreeNote": "The sources used (Crossref, OpenAlex, Europe PMC, DataCite) are free. OpenAlex allows a limited number of keyless lookups per day; add a free API key in Settings for more.",
+      "missingShort": "missing",
+      "alreadyRunningAttached": "This job was already running — showing its progress.",
+      "blockedBy": "\"{title}\" is running for this project. You can fill missing values when it finishes.",
+      "backgroundNote": "Runs on the server — you can leave this page; it keeps going while BibexPy stays open.",
+      "doiSkipped": "{n} candidate DOI(s) were not written ({reasons}).",
+      "doiLogDownload": "Download lookup log (CSV)",
+      "openalexExhausted": "The free daily OpenAlex budget is used up. Add a free OpenAlex API key in Settings for more lookups.",
+      "openSettings": "Open Settings",
+      "skip": {
+        "ambiguous": "ambiguous match",
+        "preprint_only": "preprint only",
+        "duplicate": "duplicate",
+        "type_rejected": "document type mismatch",
+        "no_match": "no match",
+        "api_error": "API error",
+        "suspect": "failed the re-check after fetch"
+      }
     },
     "editRow": "Edit record",
     "deleteRow": "Delete record",
-    "deleteRowConfirm": "Delete this record? A snapshot is taken so it can be restored."
+    "deleteRowConfirm": "Delete this record? A snapshot is taken so it can be restored.",
+    "totalWithPct": "total · {pct}%"
   },
   "enrich": {
     "title": "Harmonization",
@@ -962,6 +1030,10 @@
       "fillRateBefore": "Fill rate before",
       "fillRateAfter": "Fill rate after",
       "sources": "Source contributions"
+    },
+    "fields": {
+      "organizations": "C1 → parent organization",
+      "countries": "C1 (country)"
     }
   },
   "disambiguate": {
@@ -1034,7 +1106,12 @@
     "scanHintStd": "Scan finds variants of the same {subject} and unifies them to one canonical form. Everything needs your approval.",
     "selectAll": "Select all",
     "clearAll": "Clear all",
-    "subjects": { "authors": "person", "affiliations": "institution", "organizations": "institution", "countries": "country" }
+    "subjects": {
+      "authors": "person",
+      "affiliations": "institution",
+      "organizations": "institution",
+      "countries": "country"
+    }
   },
   "export": {
     "title": "Export",
@@ -1094,7 +1171,9 @@
       "keepHint": "Old files are preserved. The new file gets a new name.",
       "cancel": "Cancel — don't create",
       "replacing": "Replacing…",
-      "replaced": "{n} old file{plural} removed"
+      "replaced": "{n} old file{plural} removed",
+      "bodyOne": "{count} previous {format} export found. What would you like to do?",
+      "bodyOther": "{count} previous {format} exports found. What would you like to do?"
     },
     "deleteExport": "Delete file",
     "deleteExportConfirm": "Delete \"{name}\"?",
@@ -1210,6 +1289,10 @@
       },
       "DISAMBIGUATION_AUTO_APPROVE_THRESHOLD": {
         "label": "Auto-approve threshold"
+      },
+      "OPENALEX_API_KEY": {
+        "label": "OpenAlex API key (optional)",
+        "hint": "Optional. OpenAlex limits keyless searches to a small free daily budget shared per IP address; a free key gives this installation its own budget."
       }
     },
     "infoNotes": [
@@ -1229,6 +1312,14 @@
       "openai": "OpenAI",
       "openrouter": "OpenRouter",
       "custom": "Custom (OpenAI-compatible)"
+    },
+    "baseUrlLabel": "Base URL",
+    "modelHints": {
+      "fast_cheap": "fast, cheap",
+      "powerful": "powerful",
+      "frontier": "frontier",
+      "cheap_fast": "cheap, fast",
+      "cheapest": "cheapest"
     }
   },
   "report": {
@@ -1316,7 +1407,12 @@
       "export": "Export",
       "project_create": "Project created",
       "report": "Report",
-      "records_edit": "Record edit"
+      "records_edit": "Record edit",
+      "filter_apply": "Filter applied",
+      "format_migration": "Format migration",
+      "enrich_field": "Field enrichment",
+      "disambiguate_authors": "Author disambiguation",
+      "disambiguate_affiliations": "Affiliation disambiguation"
     },
     "smart": {
       "rawInput": "Raw input",
@@ -1328,7 +1424,16 @@
       "seconds": "sec",
       "filesProduced": "{n} files produced",
       "dedupShort": "dedup",
-      "lostShort": "lost"
+      "lostShort": "lost",
+      "sources": {
+        "wos": "WoS",
+        "scopus": "Scopus",
+        "union": "Union",
+        "cross_fill": "Cross-filled",
+        "empty": "Empty",
+        "scopus_fallback": "Scopus (fallback)",
+        "wos_fallback": "WoS (fallback)"
+      }
     },
     "kindLabels": {
       "upload": "📥 File upload",
@@ -1371,7 +1476,7 @@
       "apiEnrichment": "API enrichment",
       "mlEnrichment": "ML enrichment",
       "methodologyGenerated": "Methodology report generated (LLM)",
-      "fillAll": "Fill missing fields (API + ML)",
+      "fillAll": "Fill missing fields (API)",
       "countryStandardization": "Country standardization",
       "orgRollup": "Affiliation roll-up (parent organization)",
       "recordEdited": "Record edited ({n} fields)",
@@ -1384,6 +1489,34 @@
       "converted": "Converted: {name}",
       "fileDeleted": "File deleted: {name}",
       "borderlineDecisions": "Borderline pairs: {accept} accepted / {reject} rejected / {skip} skipped"
+    },
+    "userActions": {
+      "job_completed": "Job completed",
+      "job_failed": "Job failed",
+      "job_cancelled": "Job cancelled",
+      "analysis_activate": "Analysis activated",
+      "analysis_delete": "Analysis deleted",
+      "apply_disambiguation": "Disambiguation applied",
+      "auto": "Automatic",
+      "auto_prepare": "Automatic preparation",
+      "borderline_decide": "Borderline decision",
+      "convert": "Conversion",
+      "copy_to_folder": "Copied to folder",
+      "copy_browser": "Copied via browser",
+      "create_project": "Project created",
+      "delete_file": "File deleted",
+      "delete_preset": "Preset deleted",
+      "delete_processed_file": "Processed file deleted",
+      "export": "Export",
+      "export_delete": "Export deleted",
+      "filter_apply": "Filter applied",
+      "generate_methodology": "Methodology generated",
+      "manual_bulk_delete": "Bulk delete",
+      "manual_edit": "Manual edit",
+      "prepare_reset": "Preparation reset",
+      "restore": "Snapshot restored",
+      "save_preset": "Preset saved",
+      "upload": "Upload"
     }
   },
   "recordDetail": {
@@ -1463,7 +1596,33 @@
     "cancelled": "Cancelled",
     "queued": "Queued",
     "cancel": "Cancel",
-    "result": "Result (JSON)"
+    "result": "Result (JSON)",
+    "lost": "The server was restarted, so this job was lost. Start it again.",
+    "logHeader": "Technical log (English)",
+    "copyLog": "Copy log",
+    "logCopied": "Log copied",
+    "busyNotice": "\"{title}\" is running for this project — wait for it to finish before changing the data.",
+    "banner": {
+      "note": "Runs on the server — you can leave this page. Keep BibexPy running.",
+      "open": "Open",
+      "cancel": "Cancel",
+      "cancelConfirmTitle": "Cancel this job?",
+      "cancelConfirm": "\"{title}\" will be stopped and will not finish."
+    },
+    "toast": {
+      "completed": "\"{title}\" finished.",
+      "failed": "\"{title}\" failed: {error}",
+      "lost": "\"{title}\": the server was restarted, so this job was lost.",
+      "inProject": "(project “{project}”)"
+    },
+    "status": {
+      "loading": "Loaded {n} records",
+      "doiLookup": "Looking up missing DOIs: {done} of {total} checked, {found} found",
+      "apiPass": "Filling fields from DOI metadata: {done} of {total} ({enriched} records enriched)",
+      "addresses": "Completing address countries: {done} of {total}",
+      "writing": "Writing results to the dataset",
+      "done": "Done"
+    }
   },
   "errors": {
     "generic": "An error occurred",
@@ -1532,7 +1691,27 @@
     "llm_request_failed": "The language model request failed. Please try again.",
     "project_delete_failed": "Could not delete the project. A file may be open or locked — close any program using it (Excel, a file browser) and try again.",
     "no_fields_to_update": "No fields to update.",
-    "record_not_found": "Record not found."
+    "record_not_found": "Record not found.",
+    "storage_dir_not_writable": "The storage folder cannot be written to. Choose a folder you have write access to.",
+    "invalid_target": "Invalid target.",
+    "folder_not_found": "Folder not found.",
+    "open_failed": "The folder could not be opened.",
+    "no_active_filters": "No active filters. Add at least one filter first.",
+    "filter_matches_no_records": "The filter matches no records, so nothing was exported.",
+    "invalid_format": "Invalid format.",
+    "dataset_busy_job_running": "A job is running on this project's dataset. Wait for it to finish or cancel it, then try again.",
+    "doi_log_not_found": "No DOI lookup log found. Run the DOI lookup first.",
+    "analysis_gone": "This analysis no longer exists.",
+    "unknown_kind": "Unknown operation type.",
+    "folder_delete_failed": "The folder could not be deleted.",
+    "merge_lineage_mismatch": "The merge result did not add up (the record count differs from what the source files imply). Nothing was written. Please re-run the merge; if it happens again, report it.",
+    "merge_invariant_dtype": "An internal consistency check failed while normalizing identifiers. Nothing was written. Please report this.",
+    "no_active_analysis": "There is no active analysis. Run Smart Merge first.",
+    "borderline_merge_invariant": "An internal consistency check failed while merging the accepted pairs. The dataset was not changed.",
+    "borderline_uid_not_unique": "Record IDs would not be unique after merging the accepted pairs. The dataset was not changed.",
+    "merged_dataset_unreadable": "The merged dataset looks corrupted. Restore a snapshot from History.",
+    "no_merge_for_flow": "There is no merge to draw the data flow from yet — run a merge first.",
+    "dataset_busy_request_running": "Another change to this project is being saved — try again in a moment."
   },
   "folderPicker": {
     "title": "Select Folder",
@@ -1554,6 +1733,18 @@
     "toSelect": "Will select",
     "nothingSelected": "(no selection)",
     "cancel": "Cancel",
-    "selectThis": "Select this folder"
+    "selectThis": "Select this folder",
+    "shortcuts": {
+      "home": "Home",
+      "documents": "Documents",
+      "downloads": "Downloads",
+      "desktop": "Desktop",
+      "computer": "Computer",
+      "applications": "Applications",
+      "volumes": "Volumes",
+      "mount": "Mounts",
+      "media": "Media",
+      "root": "Root"
+    }
   }
 }

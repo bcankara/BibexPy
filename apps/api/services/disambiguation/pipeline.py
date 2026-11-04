@@ -277,6 +277,28 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
     return [s for s in splits if s.get("decision") != "keep"]
 
 
+_ORCID_FILL_COLS = ("OI", "RI", "ROR", "CC")
+
+
+def _apply_filled_cells(full: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
+    """Copy the ORCID-filled cells of `part` (the first len(part) rows of `full`) onto a
+    copy of `full`, only into blank cells. `full` itself is left untouched."""
+    out = full.copy(deep=True)
+    n = min(len(part), len(out))
+    for col in _ORCID_FILL_COLS:
+        if col not in part.columns:
+            continue
+        if col not in out.columns:
+            out[col] = None
+        ci = out.columns.get_loc(col)
+        pv = part[col].tolist()
+        ov = out.iloc[:n, ci].tolist()
+        for i in range(n):
+            if not orcid_mod._is_blank(pv[i]) and orcid_mod._is_blank(ov[i]):
+                out.iat[i, ci] = pv[i]
+    return out
+
+
 async def run_author_disambiguation(
     ctx: JobContext, project_id: str, mode: str = "auto",
     max_records: int | None = None,
@@ -284,8 +306,11 @@ async def run_author_disambiguation(
     project_dir = _project_dir(project_id)
     df = await asyncio.to_thread(_load_merged, project_id)
     ctx.log(f"Loaded: {len(df)} records")
+    # Keep the FULL frame: the ORCID write-back below must never persist a truncated one.
+    full_df: pd.DataFrame | None = None
     if max_records and max_records > 0 and len(df) > max_records:
-        df = df.head(max_records)
+        full_df = df
+        df = df.head(max_records).copy()  # own copy: ORCID fills must not leak into full_df
         ctx.log(f"Test/cost mode: limited to first {max_records} records")
     ctx.log(f"Mode: {mode}")
     ctx.progress(0.05)
@@ -472,7 +497,7 @@ async def run_author_disambiguation(
             for g in s.get("groups", []):
                 ambiguous_rows.extend(g.get("records", []))
         if ambiguous_rows:
-            df_before = df.copy(deep=True)
+            df_before = df.copy(deep=True) if full_df is None else full_df
             wb = await asyncio.to_thread(
                 orcid_mod.enrich_rows_from_doi, df, ambiguous_rows,
                 email=(settings.crossref_email or None),
@@ -482,14 +507,20 @@ async def run_author_disambiguation(
             if wb["rows_filled"]:
                 src = await asyncio.to_thread(merger.merged_dataset_path, project_id)
                 if src is not None:
+                    # A truncated scan frame (max_records) is NEVER written back: the filled
+                    # cells are applied onto the full frame, which is what gets snapshotted
+                    # (untouched `full_df`) and persisted.
+                    df_out = df if full_df is None else _apply_filled_cells(full_df, df)
                     snap_rel = _snapshot(project_dir, df_before, "orcid_enrich")
-                    await asyncio.to_thread(dataset_io.atomic_write_dataset, df, src)
                     try:
-                        from services.filter_engine import _DF_CACHE
-                        _DF_CACHE.clear()
-                    except Exception:
-                        pass
-                    storage.touch_project(project_id)
+                        await dataset_io.write_dataset_uncancellable(df_out, src)
+                    finally:
+                        try:
+                            from services.filter_engine import _DF_CACHE
+                            _DF_CACHE.clear()
+                        except Exception:
+                            pass
+                        storage.touch_project(project_id)
                     ctx.log(f"ORCID write-back: {wb['rows_filled']} rows enriched (OI/ROR/CC)")
 
     ctx.progress(1.0)
@@ -846,7 +877,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
         if mapping:
             affected = _apply_c1_map(df, cols, lambda s: replace_org_in_c1(s, mapping))
     else:
-        raise HTTPException(400, f"Bilinmeyen kind: {kind}")
+        raise HTTPException(400, f"unknown_kind: {kind}")
 
     # Save (overwrite the original merged file, but a snapshot exists)
     # If no change was made: NO snapshot/write/audit (an empty apply is a no-op).
@@ -988,8 +1019,8 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
 
 def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
     project_dir = _project_dir(project_id)
-    snap_path = storage.settings.storage_path / snapshot_relative
-    if not snap_path.exists() or project_dir not in snap_path.parents:
+    snap_path = (storage.settings.storage_path / snapshot_relative).resolve()
+    if not snap_path.is_file() or not snap_path.is_relative_to(Path(project_dir).resolve()):
         raise HTTPException(404, "snapshot_not_found")
     target = merger.merged_dataset_path(project_id)
     if target is None:
@@ -999,4 +1030,11 @@ def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
     dataset_io.atomic_write_dataset(dataset_io.read_dataset(snap_path), target)
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
+    # A pre_borderline_accept snapshot carries the borderline state it was taken with:
+    # roll the accept decisions back together with the dataset.
+    try:
+        from services import smart_merger
+        smart_merger.restore_borderline_state(project_id, snap_path)
+    except Exception:
+        pass
     return {"restored_from": snapshot_relative, "into": str(target.relative_to(storage.settings.storage_path))}

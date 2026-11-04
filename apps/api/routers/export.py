@@ -107,7 +107,7 @@ def delete_export(project_id: str, name: str):
     audit.write(
         project_id,
         kind="export",
-        title=f"Export silindi: {safe_name}",
+        title=f"Export deleted: {safe_name}",
         title_key="audit.titles.exportDeleted",
         title_params={"name": safe_name},
         details={"deleted": safe_name},

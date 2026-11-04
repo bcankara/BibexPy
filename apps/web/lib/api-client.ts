@@ -245,8 +245,13 @@ export const api = {
 
   // Jobs
   getJob: (jobId: string) => http<JobInfo>(`/jobs/${jobId}`),
-  listJobs: (projectId?: string) =>
-    http<JobInfo[]>(`/jobs${projectId ? `?project_id=${projectId}` : ""}`),
+  listJobs: (projectId?: string, opts?: { active?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (projectId) qs.set("project_id", projectId);
+    if (opts?.active) qs.set("active", "true");
+    const s = qs.toString();
+    return http<JobInfo[]>(`/jobs${s ? `?${s}` : ""}`);
+  },
   cancelJob: (jobId: string) =>
     http<{ ok: boolean }>(`/jobs/${jobId}/cancel`, { method: "POST" }),
   jobStreamUrl: (jobId: string) => `${BASE}/jobs/${jobId}/stream`,
@@ -385,6 +390,8 @@ export const api = {
   // Overview table download URL (CSV/XLSX) — used directly with <a href> / fetch.
   qualityOverviewUrl: (id: string, fmt: "csv" | "xlsx") => `${BASE}/projects/${id}/quality/overview?fmt=${fmt}`,
   lastFillReport: (id: string) => http<{ report: FillReport | null }>(`/projects/${id}/quality/last-fill-report`),
+  // Per-record provenance CSV of the latest reverse DOI lookup (404 `doi_log_not_found` if none).
+  doiLogUrl: (id: string) => `${BASE}/projects/${id}/enrich/doi-log`,
   qualityCharts: (id: string) => http<QualityCharts>(`/projects/${id}/quality/charts`),
 
   // Records — delete & snapshots
@@ -409,15 +416,26 @@ export const api = {
     http<AuditEntry[]>(`/projects/${id}/audit?limit=${limit}`),
   auditSummary: (id: string) =>
     http<AuditSummary>(`/projects/${id}/audit/summary`),
-  addAuditEntry: (id: string, entry: { kind: string; title: string; details?: Record<string, unknown>; user_action?: string }) =>
+  addAuditEntry: (
+    id: string,
+    entry: {
+      kind: string;
+      title: string;
+      title_key?: string;
+      title_params?: Record<string, unknown>;
+      details?: Record<string, unknown>;
+      user_action?: string;
+    },
+  ) =>
     http<AuditEntry>(`/projects/${id}/audit`, { method: "POST", body: JSON.stringify(entry) }),
   clearAudit: (id: string) =>
     http<void>(`/projects/${id}/audit`, { method: "DELETE" }),
-  auditReportUrl: (id: string) => `${BASE}/projects/${id}/audit/report.md`,
+  auditReportUrl: (id: string, lang?: string) =>
+    `${BASE}/projects/${id}/audit/report.md${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`,
 
   // Report (final step after Export) — raw log + LLM methodology report
-  reportLogUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
-    `${BASE}/projects/${id}/report/log.${fmt}`,
+  reportLogUrl: (id: string, fmt: "md" | "txt" | "pdf", lang?: string) =>
+    `${BASE}/projects/${id}/report/log.${fmt}${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`,
   // Data flow derived from the audit log (the Report page draws a diagram)
   reportFlow: (id: string) => http<ReportFlow>(`/projects/${id}/report/flow`),
   methodologyUrl: (id: string, fmt: "md" | "txt" | "pdf") =>
@@ -492,6 +510,9 @@ export type BrowseEntry = {
 };
 
 export type BrowseShortcut = {
+  /** Stable shortcut id (home, documents, downloads, ...) — the UI translates it. */
+  id?: string;
+  /** English fallback label. */
   label: string;
   path: string;
   icon: string;
@@ -556,12 +577,32 @@ export type QualityStats = {
   db_distribution: Record<string, number>;
 };
 
+/** Reverse DOI lookup result of a 'Fill all' run. A record that was not matched with confidence is skipped, never guessed. */
+export type DoiFillStats = {
+  scanned?: number;
+  filled?: number;
+  skipped?: {
+    ambiguous?: number;
+    preprint_only?: number;
+    duplicate?: number;
+    type_rejected?: number;
+    no_match?: number;
+    api_error?: number;
+    /** DOI written, then removed because the title returned by the DOI did not match the record. */
+    suspect?: number;
+  };
+  /** Sources that hit a hard quota during the run (e.g. "openalex"). */
+  sources_exhausted?: string[];
+  /** Path of the per-record provenance CSV (download via api.doiLogUrl), or null. */
+  provenance?: string | null;
+};
+
 /** Persistent summary of the last 'Fill all' operation (from the audit). */
 export type FillReport = {
   ts?: number;
   enriched?: number;
   api?: { total?: number; enriched?: number };
-  doi?: { scanned?: number; filled?: number };
+  doi?: DoiFillStats;
   fill_rate_before?: number;
   fill_rate_after?: number;
   per_field_fill?: Record<string, { before: number; after: number }>;
@@ -635,7 +676,9 @@ export type MergeSummary = {
 export type AnalysisItem = {
   id: string;
   label: string;
-  method: "simple" | "enhanced" | "smart" | "unknown" | string;
+  /** True when the backend generated `label` from method + time (the UI rebuilds it in the app language). */
+  label_auto?: boolean | null;
+  method: "simple" | "enhanced" | "smart" | "single" | "unknown" | string;
   created_at: number;
   completed_at?: number | null;
   file_count: number;
@@ -657,7 +700,14 @@ export type BorderlinePair = {
   confidence: number;
   status: "pending" | "accept" | "reject" | "skip";
   decided_at?: number | null;
+  /** English technical explanation from the backend — tooltip only, never rendered as text. */
   reason: string;
+  /** True when both records carry the same DOI written differently (backend flag, optional). */
+  doi_variant?: boolean | null;
+  /** Absolute publication-year difference computed by the backend (null when a year is missing). */
+  year_diff?: number | null;
+  /** First-author surname match computed by the backend (null when a surname is missing). */
+  surname_match?: boolean | null;
   wos: {
     doi?: string | null;
     title: string;
@@ -854,11 +904,18 @@ export type JobInfo = {
   title: string;
   title_key?: string | null;
   title_params?: Record<string, string | number> | null;
+  /** Exclusive jobs lock dataset-mutating endpoints of the project while they run. */
+  exclusive?: boolean;
   status: JobStatus;
   progress: number;
   log_tail: string[];
+  /** Translatable one-line status: show t(status_key, status_params); fallback = last log line. */
+  status_key?: string | null;
+  status_params?: Record<string, string | number> | null;
   result: unknown;
   error: string | null;
+  /** Leading snake_case code of `error` (e.g. "no_merged_data"), or null. */
+  error_code?: string | null;
   started_at: number | null;
   finished_at: number | null;
   created_at: number;

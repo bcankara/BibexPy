@@ -20,7 +20,7 @@ from services.bibex_adapter import _suppress_stdio
 def _project_paths(project_id: str) -> tuple[Path, Path, Path]:
     meta = storage.get_project(project_id)
     if meta is None:
-        raise HTTPException(404, "Proje bulunamadı")
+        raise HTTPException(404, "project_not_found")
     root = storage.project_dir(project_id)
     return root, root / "raw", root / "processed"
 
@@ -29,7 +29,7 @@ def _raw_file(raw_dir: Path, name: str) -> Path:
     name = Path(name).name
     p = raw_dir / name
     if not p.exists() or not p.is_file():
-        raise HTTPException(404, f"Ham dosya bulunamadı: {name}")
+        raise HTTPException(404, "file_not_found")
     return p
 
 
@@ -40,12 +40,12 @@ def csv_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
     _, raw, processed = _project_paths(project_id)
     sources = [str(_raw_file(raw, n)) for n in source_names]
     if not sources:
-        raise HTTPException(400, "En az bir CSV dosyası gerekli")
+        raise HTTPException(400, "no_files_to_process")
     output = processed / Path(output_name).name
     with _suppress_stdio():
         ok = save_to_excel(sources, str(output))
     if not ok or not output.exists():
-        raise HTTPException(500, "CSV → XLSX dönüşümü başarısız")
+        raise HTTPException(500, "scopus_convert_failed")
     storage.touch_project(project_id)
     return output
 
@@ -57,7 +57,7 @@ def wos_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
     _, raw, processed = _project_paths(project_id)
     sources = [_raw_file(raw, n) for n in source_names]
     if not sources:
-        raise HTTPException(400, "En az bir TXT dosyası gerekli")
+        raise HTTPException(400, "no_files_to_process")
 
     # Merge
     merged_txt = processed / "_wos_merged.tmp.txt"
@@ -71,7 +71,7 @@ def wos_to_xlsx(project_id: str, source_names: Iterable[str], output_name: str =
         ok = save_to_excel(str(merged_txt), str(output))
     merged_txt.unlink(missing_ok=True)
     if not ok or not output.exists():
-        raise HTTPException(500, "WoS → XLSX dönüşümü başarısız")
+        raise HTTPException(500, "wos_convert_failed")
     storage.touch_project(project_id)
     return output
 
@@ -156,13 +156,13 @@ def xlsx_to_wos_txt(project_id: str, source_name: str, output_name: str | None =
         if alt.exists():
             src = alt
         else:
-            raise HTTPException(404, f"XLSX bulunamadı: {source_name}")
+            raise HTTPException(404, "file_not_found")
 
     output = processed / (output_name or (src.stem + "_wos.txt"))
     with _suppress_stdio():
         convert_excel_to_wos(str(src), str(output))
     if not output.exists():
-        raise HTTPException(500, "XLSX → WoS TXT dönüşümü başarısız")
+        raise HTTPException(500, "file_write_failed")
     storage.touch_project(project_id)
     return output
 
@@ -179,7 +179,7 @@ def xlsx_to_tsv(project_id: str, source_name: str, output_name: str | None = Non
         if alt.exists():
             src = alt
         else:
-            raise HTTPException(404, f"XLSX bulunamadı: {source_name}")
+            raise HTTPException(404, "file_not_found")
 
     ext = "tsv" if sep == "\t" else "csv"
     output = processed / (output_name or (src.stem + f".{ext}"))

@@ -27,6 +27,18 @@ function trf(t: TFn, key: string, fallback?: string | null): string {
   return v === key ? (fallback ?? key) : v;
 }
 
+/**
+ * Model descriptors arrive as "Name (hint)" from the backend ("GPT-5.4 mini (cheap, fast)").
+ * The model name is a brand name and stays as is; the hint is translated via
+ * settings.modelHints.<hint with non-letters replaced by "_">.
+ */
+function modelLabel(t: TFn, label: string): string {
+  const m = label.match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+  if (!m) return label;
+  const hint = trf(t, `settings.modelHints.${m[2].toLowerCase().replace(/[^a-z]+/g, "_")}`, m[2]);
+  return `${m[1]} (${hint})`;
+}
+
 /** Translates the path validation status into text according to the locale (instead of the backend message). */
 function pathStatusMessage(t: TFn, v: PathValidation): string {
   if (v.valid) return t("settings.pathStatus.ready");
@@ -434,7 +446,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
       {isCustom && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-ink flex-1">Base URL</label>
+            <label className="text-sm font-medium text-ink flex-1">{t("settings.baseUrlLabel")}</label>
             <span className="text-[10px] text-muted font-mono">LLM_BASE_URL</span>
           </div>
           <input
@@ -452,7 +464,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
       )}
       {!isCustom && baseUrlField && (
         <div className="text-[11px] text-muted px-1">
-          Base URL: <span className="font-mono">{provider?.base_url}</span>
+          {t("settings.baseUrlLabel")}: <span className="font-mono">{provider?.base_url}</span>
         </div>
       )}
 
@@ -481,7 +493,7 @@ function LLMSection({ fields, values, touched, reveal, providers, onChange, onTo
                   )}
                 >
                   <div className="font-mono text-[11px] font-semibold">{m.id}</div>
-                  <div className="text-[10px] text-muted mt-0.5">{m.label}</div>
+                  <div className="text-[10px] text-muted mt-0.5">{modelLabel(t, m.label)}</div>
                 </button>
               );
             })}

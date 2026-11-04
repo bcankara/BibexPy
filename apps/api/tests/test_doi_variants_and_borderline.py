@@ -95,7 +95,9 @@ def test_variant_lifts_the_veto_but_is_never_stage_one():
     assert m is not None
     assert m["stage"] == "3_title_year_surname"
     assert m["confidence"] < 1.0
-    assert "DOI yazım farkı" in m["reason"]
+    assert "DOI spelling variant" in m["reason"]
+    assert m["doi_variant"] is True
+    assert "matched" in m["reason"]
 
 
 def test_variant_with_different_titles_does_not_match():
@@ -106,6 +108,8 @@ def test_variant_with_different_titles_does_not_match():
 def test_identical_dois_are_still_stage_one():
     m = compute_match(_rec("10.1000/abc", "a"), _rec("10.1000/ABC", "b"))
     assert m["stage"] == "1_doi_exact"
+    assert m["doi"] == "10.1000/abc"
+    assert m["doi_variant"] is False
 
 
 # ── year-tolerant blocking ───────────────────────────────────────────────

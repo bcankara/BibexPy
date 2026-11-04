@@ -128,7 +128,7 @@ def _robust_rmtree(path: Path) -> None:
             return
         time.sleep(0.3)
     if path.exists():
-        raise last_exc or OSError(f"Klasör silinemedi: {path}")
+        raise last_exc or OSError(f"folder_delete_failed: {path}")
 
 
 def delete_project(project_id: str) -> bool:

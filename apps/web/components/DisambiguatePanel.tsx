@@ -1,10 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   api, type Cluster, type AuthorSplit, type DisambiguationStatus,
-  type JobInfo, type ProposalSet, translateApiError,
+  type JobInfo, type ProposalSet, translateApiError, translateTitle,
 } from "@/lib/api-client";
+import {
+  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectJobs,
+} from "@/lib/job-store";
 import { Card, CardBody } from "./Card";
 import { Button } from "./Button";
 import { JobProgress } from "./JobProgress";
@@ -12,7 +15,8 @@ import {
   AlertTriangle, Sparkles, ShieldQuestion,
   SplitSquareHorizontal, Combine, Loader2,
 } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatPercent } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "./Dialogs";
 
 type Kind = "authors" | "affiliations" | "countries" | "organizations";
@@ -46,8 +50,17 @@ export function DisambiguatePanel({
   const toast = useToast();
   const [status, setStatus] = useState<DisambiguationStatus | null>(null);
   const [proposals, setProposals] = useState<ProposalSet | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+  // Job started from THIS panel instance (kept so a failed run's card stays visible).
+  const [startedJobId, setStartedJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A scan that is already running (started here earlier, before a navigation, or from
+  // another tab) is picked up from the shared job store — no local re-attach code needed.
+  const { active: activeJobs } = useProjectJobs(projectId);
+  const attachedJob = activeJobs.find((j) => jobMatchesKind(j, kind));
+  const jobId = startedJobId ?? attachedJob?.id ?? null;
+  // Another exclusive job (e.g. "Fill all missing") holds the project: a scan would be refused.
+  const blockingJob = activeJobs.find((j) => j.exclusive && !jobMatchesKind(j, kind));
+  const setJobId = setStartedJobId;
   const [approvedMerges, setApprovedMerges] = useState<Set<string>>(new Set());
   const [approvedSplits, setApprovedSplits] = useState<Set<string>>(new Set());
   const [canonicalEdits, setCanonicalEdits] = useState<Record<string, string>>({});
@@ -83,6 +96,9 @@ export function DisambiguatePanel({
       setRefreshing(false);
     }
   }
+  // The job-finished listener below must call the CURRENT loadProposals (it closes over kind).
+  const loadProposalsRef = useRef(loadProposals);
+  loadProposalsRef.current = loadProposals;
 
   // When kind/project changes: clear the old suggestions IMMEDIATELY and apply only the
   // response for the CURRENT kind. Ignore a stale response (a slow response for the previous
@@ -99,24 +115,19 @@ export function DisambiguatePanel({
     api.getProposals(projectId, kind)
       .then((p) => { if (alive) applyProposalSet(p); })
       .catch((e) => { if (alive) setError(translateApiError(t, e)); });
-    // Re-attach to an in-progress scan: if the user starts "Scan", switches to another
-    // tool/page and comes back (component unmount/remount), the `jobId` state is
-    // lost and the panel looks IDLE — yet the job is still running in the backend, and
-    // pressing "Scan" again even yields a "job_already_running" error. On mount, ask
-    // whether this project still has a queued/running job; if so, re-attach to the
-    // same progress UI (JobProgress) — as if "Scan" had just been started.
-    api.listJobs(projectId)
-      .then((jobs) => {
-        if (!alive) return;
-        const active = jobs.find(
-          (j) => (j.status === "queued" || j.status === "running") && jobMatchesKind(j, kind),
-        );
-        if (active) setJobId(active.id);
-      })
-      .catch(() => {}); // silent — this is an optimistic check, the panel can still work idle
+    // Re-attaching to an in-progress scan (the user navigated away and came back) is done by
+    // the shared job store: `useProjectJobs` above finds the queued/running job of this kind.
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, projectId]);
+
+  // Reload the suggestions whenever a scan of this kind ends — also for a scan the panel
+  // re-attached to (its progress card unmounts as soon as the job is no longer active).
+  useJobFinished((e) => {
+    if (e.job.project_id === projectId && jobMatchesKind(e.job, kind) && e.outcome !== "lost") {
+      void loadProposalsRef.current();
+    }
+  });
 
   async function start() {
     if (scanning || jobId) return;
@@ -127,10 +138,11 @@ export function DisambiguatePanel({
         : kind === "affiliations" ? api.startAffiliationDisambiguation
         : kind === "countries" ? api.startCountryStandardization
         : api.startOrgRollup;
-      const { job_id } = await starter(projectId, "auto");
-      setJobId(job_id);
+      setJobId(await startTrackedJob(projectId, starter(projectId, "auto")));
     } catch (e) {
       setError(translateApiError(t, e, "disambiguate.startFailed"));
+      // 409: a job is already running (maybe not known to this page yet) — pick it up.
+      if (isBusyError(e)) void refreshProjectJobs(projectId);
     } finally { setScanning(false); }
   }
 
@@ -200,9 +212,16 @@ export function DisambiguatePanel({
 
       <p className="text-xs text-muted">{kind === "authors" ? t("disambiguate.scanHint") : t("disambiguate.scanHintStd", { subject })}</p>
 
+      {blockingJob && (
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs text-cyan-900 flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+          {t("jobs.busyNotice", { title: translateTitle(t, blockingJob) || t("jobs.running") })}
+        </div>
+      )}
+
       {/* Scan */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Button onClick={start} disabled={scanning || !!jobId} size="sm">
+        <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob} size="sm">
           {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           {t("disambiguate.scan")}
         </Button>
@@ -211,14 +230,22 @@ export function DisambiguatePanel({
           {t("common.refresh")}
         </Button>
         {totalApproved > 0 && (
-          <Button onClick={applyApproved} disabled={applying} variant="success" size="sm" className="ml-auto">
+          <Button onClick={applyApproved} disabled={applying || activeJobs.some((j) => j.exclusive)} variant="success" size="sm" className="ml-auto">
             {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("disambiguate.approveApply", { n: totalApproved })}
           </Button>
         )}
       </div>
 
-      {jobId && <JobProgress jobId={jobId} onComplete={() => { loadProposals(); setJobId(null); }} onClose={() => setJobId(null)} />}
+      {jobId && (
+        <JobProgress
+          jobId={jobId}
+          // A finished or cancelled run closes its card (suggestions reload via the finish
+          // listener above); a FAILED run keeps it open so the translated error stays visible.
+          onComplete={(j) => { if (j.status !== "failed") setJobId(null); }}
+          onClose={() => setJobId(null)}
+        />
+      )}
 
       {/* Split — authors only */}
       {kind === "authors" && (
@@ -350,6 +377,7 @@ function MergeRow({ cluster: c, kind, approved, canonical, onToggle, onCanonical
   onToggle: () => void; onCanonical: (v: string) => void;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const uniq = clusterVariants(c, kind);
   const canon = canonical || c.canonical_name || uniq[0] || "";
   return (
@@ -362,7 +390,7 @@ function MergeRow({ cluster: c, kind, approved, canonical, onToggle, onCanonical
               <TierBadge tier={c.tier} source={c.source} />
               {c.source !== "deterministic" && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-bg-soft text-muted">
-                  {(c.confidence * 100).toFixed(0)}% {t("disambiguate.confidenceLabel")}
+                  {formatPercent(c.confidence * 100, locale, 0)} {t("disambiguate.confidenceLabel")}
                 </span>
               )}
               {c.country && <span className="text-xs text-muted">{c.country}</span>}

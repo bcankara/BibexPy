@@ -21,6 +21,9 @@ class MergeRequest(BaseModel):
 async def start_merge(project_id: str, payload: MergeRequest | None = None):
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
+    # A merge writes a new analysis and flips the active pointer: it must not overlap with
+    # an enrichment/disambiguation job (and vice versa, because the merge is exclusive too).
+    job_runner.assert_idle(project_id)
     # Single algorithm: Smart Merge — payload.method is now ignored.
     # Readiness check — BEFORE submitting the job; if there is no prepared XLSX, 409 (the UI
     # sends the user back to step 1). This way the merge never silently uses raw CSV/TXT.
@@ -32,10 +35,11 @@ async def start_merge(project_id: str, payload: MergeRequest | None = None):
     job = job_runner.submit(
         project_id=project_id,
         kind="merge",
-        title="Birleştirme (Smart Merge)",
+        title="Merge (Smart Merge)",
         title_key="audit.titles.merge",
         title_params={"method": "smart"},
         worker=worker,
+        exclusive=True,
     )
     return {"job_id": job.id}
 
@@ -47,17 +51,17 @@ def list_merged(project_id: str):
     return merger.list_merged(project_id)
 
 
-# Field codes → descriptive Turkish label
+# Field codes → descriptive English label
 FIELD_LABELS = {
-    "TI": "Başlık", "AU": "Yazarlar (kısa)", "AF": "Yazarlar (tam)",
-    "SO": "Dergi/Kaynak", "JI": "Dergi (ISO)", "J9": "Dergi (kısa)",
-    "PY": "Yıl", "TC": "Atıf sayısı", "DT": "Doküman tipi", "LA": "Dil",
-    "DI": "DOI", "AB": "Özet", "DE": "Anahtar Kelimeler", "ID": "Keywords Plus",
-    "C1": "Adresler", "RP": "İletişim yazarı", "EM": "E-posta",
-    "CR": "Referanslar", "NR": "Ref. sayısı", "PG": "Sayfa", "PU": "Yayıncı",
-    "WC": "WoS Kategorisi", "SC": "Konu Kategorisi", "DB": "Kaynak DB",
-    "UT": "WoS ID", "PM": "PubMed ID", "VL": "Cilt", "IS": "Sayı",
-    "BP": "Başlangıç sayfa", "EP": "Bitiş sayfa", "OA": "Açık Erişim",
+    "TI": "Title", "AU": "Authors (short)", "AF": "Authors (full)",
+    "SO": "Journal/Source", "JI": "Journal (ISO)", "J9": "Journal (short)",
+    "PY": "Year", "TC": "Citation count", "DT": "Document type", "LA": "Language",
+    "DI": "DOI", "AB": "Abstract", "DE": "Keywords", "ID": "Keywords Plus",
+    "C1": "Addresses", "RP": "Corresponding author", "EM": "Email",
+    "CR": "References", "NR": "Reference count", "PG": "Pages", "PU": "Publisher",
+    "WC": "WoS Category", "SC": "Subject Category", "DB": "Source DB",
+    "UT": "WoS ID", "PM": "PubMed ID", "VL": "Volume", "IS": "Issue",
+    "BP": "Start page", "EP": "End page", "OA": "Open Access",
     "SR": "Source-Year ref",
 }
 
@@ -116,6 +120,7 @@ def merge_summary(project_id: str) -> dict[str, Any]:
         out["analysis"] = {
             "id": meta.get("id"),
             "label": meta.get("label"),
+            "label_auto": bool(meta.get("label_auto", False)),
             "method": meta.get("method"),
             "created_at": meta.get("created_at"),
             "completed_at": meta.get("completed_at"),
@@ -329,20 +334,30 @@ def decide_borderline(project_id: str, payload: BorderlineDecidePayload):
     """Apply the user's borderline decisions. Takes a snapshot, writes an audit record."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    from services import smart_merger
-    decisions = [d.model_dump() for d in payload.decisions]
-    if not decisions:
-        raise HTTPException(400, "decisions_empty")
-    valid = {"accept", "reject", "skip"}
-    for d in decisions:
-        if d["decision"] not in valid:
-            raise HTTPException(400, f"invalid_decision: {d['decision']}")
-    return smart_merger.decide_borderline(project_id, decisions)
+    with job_runner.mutation(project_id):
+        from services import smart_merger
+        decisions = [d.model_dump() for d in payload.decisions]
+        if not decisions:
+            raise HTTPException(400, "decisions_empty")
+        valid = {"accept", "reject", "skip"}
+        for d in decisions:
+            if d["decision"] not in valid:
+                raise HTTPException(400, f"invalid_decision: {d['decision']}")
+        return smart_merger.decide_borderline(project_id, decisions)
 
 
 # ────────────────────────────────────────────────────────────────────
 #  Analysis management — every merge is an independent analysis folder
 # ────────────────────────────────────────────────────────────────────
+
+def _is_unfinished(meta: dict) -> bool:
+    """An analysis a merge created (`source: user_run`) but never finalized.
+
+    finalize_analysis stamps `completed_at`; a cancelled/killed merge leaves the folder
+    without it. Legacy metas that have no `source` field are NOT treated as unfinished.
+    """
+    return meta.get("source") == "user_run" and not meta.get("completed_at")
+
 
 @router.get("/analyses")
 def list_analyses_endpoint(project_id: str):
@@ -354,7 +369,8 @@ def list_analyses_endpoint(project_id: str):
         raise HTTPException(404, "project_not_found")
     return {
         "active_id": analyses.get_active_analysis_id(project_id),
-        "items": analyses.list_analyses(project_id),
+        "items": [m for m in analyses.list_analyses(project_id)
+                  if m.get("is_active") or not _is_unfinished(m)],
     }
 
 
@@ -363,35 +379,36 @@ def activate_analysis(project_id: str, analysis_id: str):
     """Make an analysis active — Records/Filter/Quality operate on it from then on."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    meta = analyses.get_analysis_meta(project_id, analysis_id)
-    if not meta:
-        raise HTTPException(404, "analysis_not_found")
-    analyses.set_active_analysis(project_id, analysis_id)
-    # Invalidate the filter cache (the active dataset changed)
-    try:
-        from services import filter_engine
-        filter_engine._DF_CACHE.clear()
-    except Exception:
-        pass
-    # Audit
-    try:
-        from services import audit
-        audit.write(
-            project_id,
-            kind="analysis_activate",
-            title=f"Aktif analiz: {meta.get('label') or analysis_id}",
-            title_key="audit.titles.analysisActivated",
-            title_params={"label": meta.get("label") or analysis_id},
-            details={
-                "analysis_id": analysis_id,
-                "method": meta.get("method"),
-                "label": meta.get("label"),
-            },
-            user_action="analysis_activate",
-        )
-    except Exception:
-        pass
-    return {"ok": True, "active_id": analysis_id}
+    with job_runner.mutation(project_id):
+        meta = analyses.get_analysis_meta(project_id, analysis_id)
+        if not meta or _is_unfinished(meta):
+            raise HTTPException(404, "analysis_not_found")
+        analyses.set_active_analysis(project_id, analysis_id)
+        # Invalidate the filter cache (the active dataset changed)
+        try:
+            from services import filter_engine
+            filter_engine._DF_CACHE.clear()
+        except Exception:
+            pass
+        # Audit
+        try:
+            from services import audit
+            audit.write(
+                project_id,
+                kind="analysis_activate",
+                title=f"Active analysis: {meta.get('label') or analysis_id}",
+                title_key="audit.titles.analysisActivated",
+                title_params={"label": meta.get("label") or analysis_id},
+                details={
+                    "analysis_id": analysis_id,
+                    "method": meta.get("method"),
+                    "label": meta.get("label"),
+                },
+                user_action="analysis_activate",
+            )
+        except Exception:
+            pass
+        return {"ok": True, "active_id": analysis_id}
 
 
 @router.delete("/analyses/{analysis_id}")
@@ -401,42 +418,43 @@ def delete_analysis_endpoint(project_id: str, analysis_id: str):
     was active, the active status moves to the newest other analysis."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    meta = analyses.get_analysis_meta(project_id, analysis_id)
-    if not meta:
-        raise HTTPException(404, "analysis_not_found")
-    ok = analyses.delete_analysis(project_id, analysis_id)
-    if not ok:
-        raise HTTPException(500, "analysis_delete_failed")
-    # Clear the cache
-    try:
-        from services import filter_engine
-        filter_engine._DF_CACHE.clear()
-    except Exception:
-        pass
-    # Audit
-    try:
-        from services import audit
-        audit.write(
-            project_id,
-            kind="analysis_delete",
-            title=f"Analiz silindi: {meta.get('label') or analysis_id}",
-            title_key="audit.titles.analysisDeleted",
-            title_params={"label": meta.get("label") or analysis_id},
-            details={
-                "analysis_id": analysis_id,
-                "method": meta.get("method"),
-            },
-            user_action="analysis_delete",
-        )
-    except Exception:
-        pass
-    active_id = analyses.get_active_analysis_id(project_id)
-    # Delete this analysis's history records — every analysis has its OWN separate history
-    # (Burak: "each one should have its own separate history"). Project-level setup
-    # records (upload etc.) and the records of OTHER analyses are preserved.
-    try:
-        from services import audit as _audit
-        _audit.delete_for_analysis(project_id, analysis_id)
-    except Exception:
-        pass
-    return {"ok": True, "active_id": active_id}
+    with job_runner.mutation(project_id):
+        meta = analyses.get_analysis_meta(project_id, analysis_id)
+        if not meta:
+            raise HTTPException(404, "analysis_not_found")
+        ok = analyses.delete_analysis(project_id, analysis_id)
+        if not ok:
+            raise HTTPException(500, "analysis_delete_failed")
+        # Clear the cache
+        try:
+            from services import filter_engine
+            filter_engine._DF_CACHE.clear()
+        except Exception:
+            pass
+        # Audit
+        try:
+            from services import audit
+            audit.write(
+                project_id,
+                kind="analysis_delete",
+                title=f"Analysis deleted: {meta.get('label') or analysis_id}",
+                title_key="audit.titles.analysisDeleted",
+                title_params={"label": meta.get("label") or analysis_id},
+                details={
+                    "analysis_id": analysis_id,
+                    "method": meta.get("method"),
+                },
+                user_action="analysis_delete",
+            )
+        except Exception:
+            pass
+        active_id = analyses.get_active_analysis_id(project_id)
+        # Delete this analysis's history records — every analysis has its OWN separate history
+        # (Burak: "each one should have its own separate history"). Project-level setup
+        # records (upload etc.) and the records of OTHER analyses are preserved.
+        try:
+            from services import audit as _audit
+            _audit.delete_for_analysis(project_id, analysis_id)
+        except Exception:
+            pass
+        return {"ok": True, "active_id": active_id}

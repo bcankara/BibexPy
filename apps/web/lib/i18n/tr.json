@@ -67,7 +67,10 @@
     "footerVersionTitle": "Çalışan BibexPy sürümü",
     "nextStep": "Sonraki adım",
     "prevStep": "Önceki adım",
-    "confirmTitle": "Emin misiniz?"
+    "confirmTitle": "Emin misiniz?",
+    "min": "en az",
+    "max": "en çok",
+    "beta": "Beta"
   },
   "nav": {
     "data": "Hazırlık",
@@ -89,7 +92,7 @@
     "source": "Kaynak",
     "sourceHint": "GitHub v1",
     "help": "Yardım",
-    "apiHint": "Backend docs",
+    "apiHint": "Backend belgeleri",
     "home": "Anasayfa",
     "panel": {
       "workspaces": "Çalışma Alanı",
@@ -142,6 +145,32 @@
       "xlsx": "Excel (.xlsx)",
       "csv": "CSV",
       "tsv": "TSV"
+    },
+    "tips": {
+      "vosviewer": "VOSviewer — Ağ görselleştirme (ortak yazarlık, ortak atıf, anahtar kelime birlikte kullanım haritaları)",
+      "bibliometrix": "bibliometrix — Kapsamlı bilim haritalama için R paketi (Aria & Cuccurullo)",
+      "biblioshiny": "bibliometrix için web arayüzü (kod yazmak gerekmez)",
+      "citespace": "Atıf ağı ve araştırma cephesi tespiti",
+      "bibexcel": "Hafif bibliyometrik veri ön işleme aracı",
+      "histcite": "Tarihsel atıf analizi",
+      "gephi": "Genel amaçlı ağ görselleştirme",
+      "citnetexplorer": "Doğrudan atıf ağı keşfi",
+      "zotero": "Açık kaynaklı kaynakça yöneticisi",
+      "mendeley": "Elsevier kaynakça yöneticisi (ücretsiz katman)",
+      "jabref": "Java tabanlı açık kaynaklı BibTeX düzenleyici",
+      "endnote": "Clarivate kaynakça yöneticisi",
+      "citavi": "Kaynakça + bilgi yönetimi (Lumivero)",
+      "refworks": "ProQuest bulut tabanlı kaynakça yöneticisi",
+      "papers": "ReadCube kaynakça yöneticisi",
+      "latex": "Dizgi sistemi — .bib ile çalışır",
+      "overleaf": "Web tabanlı LaTeX düzenleyici",
+      "excel": "Microsoft hesap tablosu — .xlsx dosyasını doğrudan açar",
+      "tableau": "Salesforce BI / panolar",
+      "powerbi": "Microsoft BI / panolar",
+      "python": "pandas / NetworkX / matplotlib",
+      "r": "İstatistiksel hesaplama — bibliometrix'in temeli",
+      "openrefine": "Dağınık CSV/TSV verileri için temizleme / dönüştürme",
+      "scite": "Akıllı atıflar ve asistan"
     }
   },
   "home": {
@@ -330,7 +359,7 @@
     "openInRecords": "Hazırlık & Filtre",
     "statRecords": "Kayıt",
     "statDedup": "Tekilleştirme",
-    "statDuplicates": "duplicate",
+    "statDuplicates": "yinelenen",
     "statMatches": "eşleşme",
     "statColumns": "kolon",
     "deleteFailed": "Silme başarısız",
@@ -339,7 +368,8 @@
       "simple": "Simple",
       "enhanced": "Enhanced",
       "smart": "Smart",
-      "unknown": "Eski"
+      "unknown": "Eski",
+      "single": "Tekli"
     },
     "infoBanner": {
       "title": "Birleştirme nasıl çalışır?",
@@ -539,7 +569,7 @@
     "classic": {
       "simpleHeader": "Simple Merge — Sonuçlar",
       "enhancedHeader": "Enhanced Merge — Sonuçlar",
-      "summaryBadge": "{duplicates} duplicate · %{rate} tekilleştirme",
+      "summaryBadge": "{duplicates} yinelenen · %{rate} tekilleştirme",
       "simpleDescription": "DOI tabanlı tekilleştirme uygulandı. Aynı DOI'li WoS + Scopus satırlarından sadece WoS satırı tutuldu; alan birleştirme yapılmadı.",
       "enhancedDescription": "Tekilleştirme + cross-database alan tamamlama uygulandı. WoS ve Scopus aynı yayını içeren satırların alanları birleştirildi; boş alanlar diğer kaynaktan dolduruldu.",
       "fieldRulesHeader": "Alan kuralları",
@@ -638,6 +668,13 @@
     "noMerge": {
       "title": "Henüz analiz yok",
       "hint": "Yukarıdaki Smart Merge ile başlat."
+    },
+    "stages": {
+      "doiExact": "DOI tam eşleşme",
+      "pmidExact": "PMID tam eşleşme",
+      "titleYearSurname": "Başlık + yıl + soyad",
+      "journalVolPage": "Dergi + cilt + sayfa",
+      "borderline": "Belirsiz (elle inceleme)"
     }
   },
   "help": {
@@ -689,7 +726,21 @@
       "doi": "DOI"
     },
     "confShort": "güven",
-    "appliedToast": "{applied} kayıt güncellendi. Bekleyen: {pending}."
+    "appliedToast": "{applied} kayıt güncellendi. Bekleyen: {pending}.",
+    "llmLabel": "LLM",
+    "verdict": {
+      "same": "Aynı",
+      "different": "Farklı",
+      "uncertain": "Belirsiz"
+    },
+    "reason": {
+      "titleSimilarity": "Başlık benzerliği {value}",
+      "yearSame": "aynı yıl",
+      "yearDiff": "yıllar {n} fark ediyor",
+      "surnameSame": "ilk yazar soyadı aynı",
+      "surnameDiff": "ilk yazar soyadı farklı",
+      "doiVariant": "DOI'ler yalnızca yazım biçiminde farklı ({a} / {b})"
+    }
   },
   "records": {
     "title": "Hazırlık & Filtre",
@@ -848,13 +899,13 @@
       "reportSummary": "DOI'li {scanned} kayıttan {enriched} tanesi güncellendi.",
       "reportSummaryShort": "{enriched} kayıt güncellendi.",
       "reportDois": "Başlık aramasıyla {n} eksik DOI bulundu.",
-      "reportOverall": "Genel doluluk %{before} → %{after}",
+      "reportOverall": "Genel doluluk {before} → {after}",
       "runAgain": "Tekrar çalıştır",
       "startAll": "Tümünü doldur",
-      "startAllHint": "Eksik değeri olan tüm alanlar için API zenginleştirmesini paralel başlat",
-      "startAllConfirm": "{n} alan için zenginleştirme başlatılacak. İşler paralel çalışır ve biraz zaman alabilir.",
+      "startAllHint": "Tüm alanlardaki eksik değerleri tek bir arka plan işiyle doldur",
+      "startAllConfirm": "{n} alandaki eksik değerler tek bir arka plan işiyle doldurulacak. Bu sayfadan ayrılsanız bile sunucuda çalışmaya devam eder; ilerlemesi bu projenin her sayfasının üstünde görünür.",
       "startAllNothing": "Doldurulacak bir şey yok — tüm alanlar dolu",
-      "stopAll": "Çalışanları iptal et",
+      "stopAll": "İşlemi iptal et",
       "cancelTitle": "İptal",
       "recordsEnriched": "+{n} kayıt dolduruldu",
       "noRecordsEnriched": "0 kayıt dolduruldu",
@@ -865,12 +916,29 @@
       "missingArrow": "eksik →",
       "fillNMissing": "{n} eksik kaydı API ile doldur",
       "startAllTitle": "Tüm eksik alanlar doldurulsun mu?",
-      "startAllFreeNote": "Kullanılan zenginleştirme kaynakları (Crossref, OpenAlex, Unpaywall) ücretsizdir ve hiçbir ücretli kota tüketmez.",
-      "missingShort": "eksik"
+      "startAllFreeNote": "Kullanılan kaynaklar (Crossref, OpenAlex, Europe PMC, DataCite) ücretsizdir. OpenAlex anahtarsız günlük sınırlı sayıda arama sunar; daha fazlası için Ayarlar'dan ücretsiz bir API anahtarı ekleyin.",
+      "missingShort": "eksik",
+      "alreadyRunningAttached": "Bu iş zaten çalışıyordu — ilerlemesi gösteriliyor.",
+      "blockedBy": "\"{title}\" bu proje için çalışıyor. Bitince eksik değerleri doldurabilirsiniz.",
+      "backgroundNote": "Sunucuda çalışır — bu sayfadan ayrılabilirsiniz; BibexPy açık kaldığı sürece devam eder.",
+      "doiSkipped": "{n} aday DOI yazılmadı ({reasons}).",
+      "doiLogDownload": "Arama günlüğünü indir (CSV)",
+      "openalexExhausted": "OpenAlex'in ücretsiz günlük hakkı doldu. Daha fazla arama için Ayarlar'dan ücretsiz bir OpenAlex API anahtarı ekleyin.",
+      "openSettings": "Ayarlar'ı aç",
+      "skip": {
+        "ambiguous": "belirsiz eşleşme",
+        "preprint_only": "yalnızca ön baskı",
+        "duplicate": "yinelenen",
+        "type_rejected": "belge türü uyumsuz",
+        "no_match": "eşleşme yok",
+        "api_error": "API hatası",
+        "suspect": "ikinci doğrulamada elendi"
+      }
     },
     "editRow": "Kaydı düzenle",
     "deleteRow": "Kaydı sil",
-    "deleteRowConfirm": "Bu kayıt silinsin mi? Geri yüklenebilmesi için snapshot alınır."
+    "deleteRowConfirm": "Bu kayıt silinsin mi? Geri yüklenebilmesi için snapshot alınır.",
+    "totalWithPct": "toplam · %{pct}"
   },
   "enrich": {
     "title": "Harmonizasyon",
@@ -962,13 +1030,17 @@
       "fillRateBefore": "Önce doluluk",
       "fillRateAfter": "Sonra doluluk",
       "sources": "Kaynak katkıları"
+    },
+    "fields": {
+      "organizations": "C1 → üst kurum",
+      "countries": "C1 (ülke)"
     }
   },
   "disambiguate": {
     "title": "Yazar Ayrıştırma",
     "subtitle": "Yazar ve affiliation duplicate'lerini gruplandır.",
     "authorsTab": "Yazarlar",
-    "affiliationsTab": "Affiliations",
+    "affiliationsTab": "Kurumlar",
     "mode": "Tarama Modu",
     "modeAuto": "Akıllı",
     "modeAutoDescription": "Sadece şüpheli yazarları LLM'e gönderir — hızlı, ucuz",
@@ -1034,7 +1106,12 @@
     "scanHintStd": "Tarama, aynı {subject} için farklı yazılışları bulur ve tek standart forma toplar. Hepsi senin onayına tabi.",
     "selectAll": "Tümünü seç",
     "clearAll": "Tümünü temizle",
-    "subjects": { "authors": "kişi", "affiliations": "kurum", "organizations": "kurum", "countries": "ülke" }
+    "subjects": {
+      "authors": "kişi",
+      "affiliations": "kurum",
+      "organizations": "kurum",
+      "countries": "ülke"
+    }
   },
   "export": {
     "title": "Veri Dönüşümü",
@@ -1094,7 +1171,9 @@
       "keepHint": "Eski dosyalar korunur. Yeni dosya farklı isimle gelir.",
       "cancel": "Vazgeç — oluşturma",
       "replacing": "Eski siliniyor…",
-      "replaced": "{n} eski dosya silindi"
+      "replaced": "{n} eski dosya silindi",
+      "bodyOne": "{count} adet eski {format} dosyası bulundu. Ne yapmak istersin?",
+      "bodyOther": "{count} adet eski {format} dosyası bulundu. Ne yapmak istersin?"
     },
     "deleteExport": "Dosyayı sil",
     "deleteExportConfirm": "\"{name}\" silinsin mi?",
@@ -1210,6 +1289,10 @@
       },
       "DISAMBIGUATION_AUTO_APPROVE_THRESHOLD": {
         "label": "Auto-approve eşiği"
+      },
+      "OPENALEX_API_KEY": {
+        "label": "OpenAlex API anahtarı (opsiyonel)",
+        "hint": "Opsiyonel. OpenAlex, anahtarsız aramalara IP adresi başına paylaşılan küçük bir ücretsiz günlük kota tanır; ücretsiz bir anahtar bu kuruluma kendi kotasını verir."
       }
     },
     "infoNotes": [
@@ -1229,6 +1312,14 @@
       "openai": "OpenAI",
       "openrouter": "OpenRouter",
       "custom": "Özel (OpenAI-uyumlu)"
+    },
+    "baseUrlLabel": "Temel URL (Base URL)",
+    "modelHints": {
+      "fast_cheap": "hızlı, ucuz",
+      "powerful": "güçlü",
+      "frontier": "en gelişmiş",
+      "cheap_fast": "ucuz, hızlı",
+      "cheapest": "en ucuz"
     }
   },
   "report": {
@@ -1313,10 +1404,15 @@
       "analysis_activate": "Analiz etkinleştir",
       "analysis_delete": "Analiz sil",
       "merge_borderline": "Belirsiz çiftler",
-      "export": "Export",
+      "export": "Dışa aktarma",
       "project_create": "Proje oluşturma",
       "report": "Rapor",
-      "records_edit": "Kayıt düzenleme"
+      "records_edit": "Kayıt düzenleme",
+      "filter_apply": "Filtre uygulama",
+      "format_migration": "Biçim geçişi",
+      "enrich_field": "Alan zenginleştirme",
+      "disambiguate_authors": "Yazar disambiguation",
+      "disambiguate_affiliations": "Kurum disambiguation"
     },
     "smart": {
       "rawInput": "Ham girdi",
@@ -1328,7 +1424,16 @@
       "seconds": "sn",
       "filesProduced": "{n} dosya üretildi",
       "dedupShort": "tekil",
-      "lostShort": "kayıp"
+      "lostShort": "kayıp",
+      "sources": {
+        "wos": "WoS",
+        "scopus": "Scopus",
+        "union": "Birleşim",
+        "cross_fill": "Çapraz dolduruldu",
+        "empty": "Boş",
+        "scopus_fallback": "Scopus (yedek)",
+        "wos_fallback": "WoS (yedek)"
+      }
     },
     "kindLabels": {
       "upload": "📥 Dosya yükleme",
@@ -1345,10 +1450,10 @@
       "enrich_selected": "🔧 Seçimsel zenginleştirme",
       "disambiguate": "✨ Disambiguation",
       "disambiguate_authors": "✨ Yazar disambiguation",
-      "disambiguate_affiliations": "🏢 Affiliation disambiguation",
+      "disambiguate_affiliations": "🏢 Kurum ayrıştırma",
       "snapshot": "📸 Snapshot",
       "snapshot_restore": "↩️ Snapshot geri yükleme",
-      "export": "📤 Export"
+      "export": "📤 Dışa aktarma"
     },
     "titles": {
       "disambiguationApplied": "Disambiguation uygulandı ({kind}) — {n} değişiklik",
@@ -1371,7 +1476,7 @@
       "apiEnrichment": "API ile zenginleştirme",
       "mlEnrichment": "ML ile zenginleştirme",
       "methodologyGenerated": "Metodoloji raporu üretildi (LLM)",
-      "fillAll": "Eksik alanları doldur (API + ML)",
+      "fillAll": "Eksik alanları doldur (API)",
       "countryStandardization": "Ülke standartlaştırma",
       "orgRollup": "Kurum toplama (üst kurum)",
       "recordEdited": "Kayıt düzenlendi ({n} alan)",
@@ -1384,6 +1489,34 @@
       "converted": "Dönüştürüldü: {name}",
       "fileDeleted": "Dosya silindi: {name}",
       "borderlineDecisions": "Belirsiz çiftler: {accept} kabul / {reject} red / {skip} atlandı"
+    },
+    "userActions": {
+      "job_completed": "İş tamamlandı",
+      "job_failed": "İş başarısız",
+      "job_cancelled": "İş iptal edildi",
+      "analysis_activate": "Analiz etkinleştirildi",
+      "analysis_delete": "Analiz silindi",
+      "apply_disambiguation": "Disambiguation uygulandı",
+      "auto": "Otomatik",
+      "auto_prepare": "Otomatik hazırlık",
+      "borderline_decide": "Belirsiz çift kararı",
+      "convert": "Dönüşüm",
+      "copy_to_folder": "Klasöre kopyalandı",
+      "copy_browser": "Tarayıcı ile kopyalandı",
+      "create_project": "Proje oluşturuldu",
+      "delete_file": "Dosya silindi",
+      "delete_preset": "Preset silindi",
+      "delete_processed_file": "İşlenmiş dosya silindi",
+      "export": "Dışa aktarma",
+      "export_delete": "Dışa aktarma silindi",
+      "filter_apply": "Filtre uygulandı",
+      "generate_methodology": "Metodoloji üretildi",
+      "manual_bulk_delete": "Toplu silme",
+      "manual_edit": "Elle düzenleme",
+      "prepare_reset": "Hazırlık sıfırlandı",
+      "restore": "Snapshot geri yüklendi",
+      "save_preset": "Preset kaydedildi",
+      "upload": "Yükleme"
     }
   },
   "recordDetail": {
@@ -1418,7 +1551,7 @@
       "AF": "Yazarlar (tam)",
       "C1": "Adresler",
       "RP": "İletişim yazarı",
-      "EM": "Email",
+      "EM": "E-posta",
       "OI": "ORCID",
       "RI": "Researcher ID",
       "DE": "Anahtar Kelimeler (Yazar)",
@@ -1463,7 +1596,33 @@
     "cancelled": "İptal edildi",
     "queued": "Sırada",
     "cancel": "İptal",
-    "result": "Sonuç (JSON)"
+    "result": "Sonuç (JSON)",
+    "lost": "Sunucu yeniden başlatıldığı için bu iş kayboldu. Yeniden başlatın.",
+    "logHeader": "Teknik günlük (İngilizce)",
+    "copyLog": "Günlüğü kopyala",
+    "logCopied": "Günlük kopyalandı",
+    "busyNotice": "\"{title}\" bu proje için çalışıyor — veriyi değiştirmeden önce bitmesini bekleyin.",
+    "banner": {
+      "note": "Sunucuda çalışır — bu sayfadan ayrılabilirsiniz. BibexPy'nin açık kalması yeterlidir.",
+      "open": "Aç",
+      "cancel": "İptal",
+      "cancelConfirmTitle": "İş iptal edilsin mi?",
+      "cancelConfirm": "\"{title}\" durdurulacak ve tamamlanmayacak."
+    },
+    "toast": {
+      "completed": "\"{title}\" tamamlandı.",
+      "failed": "\"{title}\" başarısız oldu: {error}",
+      "lost": "\"{title}\": sunucu yeniden başlatıldığı için iş kayboldu.",
+      "inProject": "(“{project}” projesi)"
+    },
+    "status": {
+      "loading": "{n} kayıt yüklendi",
+      "doiLookup": "Eksik DOI'ler aranıyor: {total} kayıttan {done} tanesi kontrol edildi, {found} bulundu",
+      "apiPass": "Alanlar DOI üstverisinden dolduruluyor: {total} kayıttan {done} ({enriched} kayıt zenginleştirildi)",
+      "addresses": "Adres ülkeleri tamamlanıyor: {done} / {total}",
+      "writing": "Sonuçlar veri setine yazılıyor",
+      "done": "Tamamlandı"
+    }
   },
   "errors": {
     "generic": "Bir hata oluştu",
@@ -1532,12 +1691,32 @@
     "llm_request_failed": "Dil modeli isteği başarısız oldu. Lütfen tekrar deneyin.",
     "project_delete_failed": "Proje silinemedi. Bir dosya açık veya kilitli olabilir — onu kullanan programı (Excel, dosya gezgini) kapatıp tekrar deneyin.",
     "no_fields_to_update": "Güncellenecek alan yok.",
-    "record_not_found": "Kayıt bulunamadı."
+    "record_not_found": "Kayıt bulunamadı.",
+    "storage_dir_not_writable": "Depolama klasörüne yazılamıyor. Yazma iznin olan bir klasör seç.",
+    "invalid_target": "Geçersiz hedef.",
+    "folder_not_found": "Klasör bulunamadı.",
+    "open_failed": "Klasör açılamadı.",
+    "no_active_filters": "Etkin filtre yok. Önce en az bir filtre ekle.",
+    "filter_matches_no_records": "Filtre hiçbir kayıtla eşleşmiyor, bu yüzden dışa aktarılacak bir şey yok.",
+    "invalid_format": "Geçersiz biçim.",
+    "dataset_busy_job_running": "Bu projenin veri seti üzerinde bir iş çalışıyor. Bitmesini bekle ya da iptal et, sonra tekrar dene.",
+    "doi_log_not_found": "DOI arama günlüğü bulunamadı. Önce DOI aramasını çalıştır.",
+    "analysis_gone": "Bu analiz artık mevcut değil.",
+    "unknown_kind": "Bilinmeyen işlem türü.",
+    "folder_delete_failed": "Klasör silinemedi.",
+    "merge_lineage_mismatch": "Birleştirme sonucu tutmadı (kayıt sayısı kaynak dosyaların gerektirdiğinden farklı). Hiçbir şey yazılmadı. Birleştirmeyi yeniden çalıştır; tekrar olursa bildir.",
+    "merge_invariant_dtype": "Kimlikler normalize edilirken dahili bir tutarlılık denetimi başarısız oldu. Hiçbir şey yazılmadı. Lütfen bildir.",
+    "no_active_analysis": "Etkin analiz yok. Önce Smart Merge çalıştır.",
+    "borderline_merge_invariant": "Onaylanan çiftler birleştirilirken dahili bir tutarlılık denetimi başarısız oldu. Veri seti değişmedi.",
+    "borderline_uid_not_unique": "Onaylanan çiftler birleştirildikten sonra kayıt kimlikleri benzersiz olmayacaktı. Veri seti değişmedi.",
+    "merged_dataset_unreadable": "Birleştirilmiş veri seti bozuk görünüyor. Geçmiş'ten bir snapshot geri yükle.",
+    "no_merge_for_flow": "Veri akışını çizecek bir birleştirme henüz yok — önce birleştirme çalıştırın.",
+    "dataset_busy_request_running": "Bu projede başka bir değişiklik kaydediliyor — birazdan tekrar dene."
   },
   "folderPicker": {
     "title": "Klasör Seç",
     "subtitle": "Sistem gezgini · macOS / Windows / Linux uyumlu",
-    "nativePicker": "Native picker",
+    "nativePicker": "Sistem seçicisi",
     "nativePickerTip": "Tarayıcı native dosya seçicisini aç (Chrome/Edge) — backend klasör adını arayıp tam yolu bulur",
     "nativePickerLoadError": "Yüklenemedi",
     "nativePickerNoPath": "\"{name}\" klasörü için tam yol bulunamadı. Sol panelden manuel gezinerek seçin.",
@@ -1554,6 +1733,18 @@
     "toSelect": "Seçilecek",
     "nothingSelected": "(seçim yok)",
     "cancel": "Vazgeç",
-    "selectThis": "Bu klasörü seç"
+    "selectThis": "Bu klasörü seç",
+    "shortcuts": {
+      "home": "Ev",
+      "documents": "Belgeler",
+      "downloads": "İndirilenler",
+      "desktop": "Masaüstü",
+      "computer": "Bilgisayar",
+      "applications": "Uygulamalar",
+      "volumes": "Sürücüler",
+      "mount": "Bağlı sürücüler",
+      "media": "Ortam",
+      "root": "Kök"
+    }
   }
 }

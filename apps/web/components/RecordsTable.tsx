@@ -11,7 +11,8 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FilterResponse } from "@/lib/api-client";
 import { Button } from "./Button";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT } from "@/lib/i18n";
+import { formatNumber } from "@/lib/i18n/format";
 import { cn } from "@/lib/cn";
 
 type Row = Record<string, string | null>;
@@ -56,7 +57,7 @@ export function RecordsTable({
   data, onPage, onRowClick, storageKey = "bibex.records.table",
   selected, onSelectionChange, rowKey, onEditRow, onDeleteRow,
 }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const { total, offset, limit, columns: cols, records } = data;
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(offset + limit, total);
@@ -165,7 +166,7 @@ export function RecordsTable({
       }
       return <span className="truncate block" title={v}>{v}</span>;
     },
-  })), [cols]);
+  })), [cols, t]);
 
   const table = useReactTable({
     data: records,
@@ -200,8 +201,8 @@ export function RecordsTable({
       {/* Top bar: count + pagination + column settings */}
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm text-muted">
-          <span className="text-ink font-semibold">{start.toLocaleString()}–{end.toLocaleString()}</span>{" "}
-          / {total.toLocaleString()} {t("common.records")}
+          <span className="text-ink font-semibold">{formatNumber(start, locale)}–{formatNumber(end, locale)}</span>{" "}
+          / {formatNumber(total, locale)} {t("common.records")}
         </span>
 
         <div className="ml-auto flex items-center gap-1.5">

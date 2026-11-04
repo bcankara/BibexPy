@@ -35,7 +35,7 @@ _EXT = {"wos": "txt", "vos": "txt"}
 def _project_paths(project_id: str) -> tuple[Path, Path]:
     meta = storage.get_project(project_id)
     if meta is None:
-        raise HTTPException(404, "Proje bulunamadı")
+        raise HTTPException(404, "project_not_found")
     root = storage.project_dir(project_id)
     exports = root / "exports"
     exports.mkdir(parents=True, exist_ok=True)
@@ -239,7 +239,7 @@ def export(
     output_name: Optional[str] = None,
 ) -> Path:
     if fmt not in VALID_FORMATS:
-        raise HTTPException(400, f"Desteklenmeyen format: {fmt}")
+        raise HTTPException(400, f"unsupported_target_format: {fmt}")
     _, exports = _project_paths(project_id)
 
     try:
@@ -248,7 +248,7 @@ def export(
         raise HTTPException(409, str(e))
 
     if len(df) == 0:
-        raise HTTPException(400, "Filtre 0 kayıt döndürdü — export yapılmadı")
+        raise HTTPException(400, "filter_matches_no_records")
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
     ext = _EXT.get(fmt, fmt)

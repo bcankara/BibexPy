@@ -16,6 +16,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from jobs.runner import job_runner
 from services import analyses, audit, dataset_io, filter_engine, merger, storage
 
 
@@ -45,9 +46,9 @@ def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
 
 
 class DeletePayload(BaseModel):
-    uids: list[str] = Field(default_factory=list, description="Benzersiz satır UID'leri (önerilen)")
-    dois: list[str] = Field(default_factory=list, description="DOI listesi (yalnız DOI'li kayıtlar için)")
-    indices: list[int] = Field(default_factory=list, description="Pozisyon tabanlı (fallback, kırılgan)")
+    uids: list[str] = Field(default_factory=list, description="Unique row UIDs (recommended)")
+    dois: list[str] = Field(default_factory=list, description="DOI list (only for records that have a DOI)")
+    indices: list[int] = Field(default_factory=list, description="Position based (fallback, fragile)")
     reason: Optional[str] = None
 
 
@@ -56,67 +57,68 @@ def delete_records(project_id: str, payload: DeletePayload):
     """Bulk delete by UID, DOI or row indices. A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    try:
-        df = filter_engine.load_merged(project_id)
-    except FileNotFoundError as e:
-        raise HTTPException(409, str(e))
-    total_before = int(len(df))
+    with job_runner.mutation(project_id):
+        try:
+            df = filter_engine.load_merged(project_id)
+        except FileNotFoundError as e:
+            raise HTTPException(409, str(e))
+        total_before = int(len(df))
 
-    if not payload.uids and not payload.dois and not payload.indices:
-        raise HTTPException(400, "no_records_to_delete")
+        if not payload.uids and not payload.dois and not payload.indices:
+            raise HTTPException(400, "no_records_to_delete")
 
-    keep = pd.Series(True, index=df.index)
+        keep = pd.Series(True, index=df.index)
 
-    if payload.uids and "UID" in df.columns:
-        uid_set = {str(u).strip() for u in payload.uids if u}
-        df_uid = df["UID"].astype(str).str.strip()
-        keep &= ~df_uid.isin(uid_set)
+        if payload.uids and "UID" in df.columns:
+            uid_set = {str(u).strip() for u in payload.uids if u}
+            df_uid = df["UID"].astype(str).str.strip()
+            keep &= ~df_uid.isin(uid_set)
 
-    if payload.dois and "DI" in df.columns:
-        doi_set = {str(d).strip().lower() for d in payload.dois if d}
-        df_doi = df["DI"].astype(str).str.strip().str.lower()
-        keep &= ~df_doi.isin(doi_set)
+        if payload.dois and "DI" in df.columns:
+            doi_set = {str(d).strip().lower() for d in payload.dois if d}
+            df_doi = df["DI"].astype(str).str.strip().str.lower()
+            keep &= ~df_doi.isin(doi_set)
 
-    if payload.indices:
-        idx_to_drop = set(payload.indices)
-        keep &= ~pd.Series([i in idx_to_drop for i in range(len(df))], index=df.index)
+        if payload.indices:
+            idx_to_drop = set(payload.indices)
+            keep &= ~pd.Series([i in idx_to_drop for i in range(len(df))], index=df.index)
 
-    deleted_count = int((~keep).sum())
-    if deleted_count == 0:
-        return {"deleted": 0, "kept": total_before, "snapshot": None}
+        deleted_count = int((~keep).sum())
+        if deleted_count == 0:
+            return {"deleted": 0, "kept": total_before, "snapshot": None}
 
-    snapshot = _snapshot_dataset(project_id, df, "delete")
-    df_new = df.loc[keep].reset_index(drop=True)
-    saved_path = _save_dataset(project_id, df_new)
+        snapshot = _snapshot_dataset(project_id, df, "delete")
+        df_new = df.loc[keep].reset_index(drop=True)
+        saved_path = _save_dataset(project_id, df_new)
 
-    audit.write(
-        project_id,
-        kind="records_delete",
-        title=f"{deleted_count} kayıt silindi",
-        title_key="audit.titles.recordsDeleted",
-        title_params={"n": deleted_count},
-        details={
-            "before": total_before,
-            "after": int(len(df_new)),
+        audit.write(
+            project_id,
+            kind="records_delete",
+            title=f"{deleted_count} records deleted",
+            title_key="audit.titles.recordsDeleted",
+            title_params={"n": deleted_count},
+            details={
+                "before": total_before,
+                "after": int(len(df_new)),
+                "deleted": deleted_count,
+                "by_uid": len(payload.uids),
+                "by_doi": len(payload.dois),
+                "by_index": len(payload.indices),
+                "reason": payload.reason,
+                "saved_path": saved_path,
+            },
+            before={"total": total_before},
+            after={"total": int(len(df_new))},
+            snapshot=snapshot,
+            user_action="manual_bulk_delete",
+        )
+
+        return {
             "deleted": deleted_count,
-            "by_uid": len(payload.uids),
-            "by_doi": len(payload.dois),
-            "by_index": len(payload.indices),
-            "reason": payload.reason,
-            "saved_path": saved_path,
-        },
-        before={"total": total_before},
-        after={"total": int(len(df_new))},
-        snapshot=snapshot,
-        user_action="manual_bulk_delete",
-    )
-
-    return {
-        "deleted": deleted_count,
-        "kept": int(len(df_new)),
-        "total_before": total_before,
-        "snapshot": snapshot,
-    }
+            "kept": int(len(df_new)),
+            "total_before": total_before,
+            "snapshot": snapshot,
+        }
 
 
 class RestoreSnapshotPayload(BaseModel):
@@ -128,22 +130,34 @@ def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
     """Restore the snapshot file as the active dataset."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    snap_path = storage.settings.storage_path / payload.snapshot
-    if not snap_path.exists():
-        raise HTTPException(404, f"snapshot_not_found: {payload.snapshot}")
-    # Format converter: snapshots from the xlsx era can be loaded into the parquet dataset.
-    df = dataset_io.read_dataset(snap_path)
-    saved_path = _save_dataset(project_id, df)
-    audit.write(
-        project_id,
-        kind="snapshot_restore",
-        title=f"Snapshot geri yüklendi: {Path(payload.snapshot).name}",
-        title_key="audit.titles.snapshotRestored",
-        title_params={"name": Path(payload.snapshot).name},
-        details={"snapshot": payload.snapshot, "restored_count": int(len(df)), "saved_path": saved_path},
-        user_action="restore",
-    )
-    return {"restored": int(len(df)), "snapshot": payload.snapshot}
+    with job_runner.mutation(project_id):
+        # The path comes from the request body: resolve it and require it to stay inside
+        # this project's folder (no "../" or absolute paths to arbitrary files).
+        snap_path = (storage.settings.storage_path / payload.snapshot).resolve()
+        if not snap_path.is_relative_to(storage.project_dir(project_id).resolve()) or not snap_path.is_file():
+            raise HTTPException(404, f"snapshot_not_found: {payload.snapshot}")
+        # Format converter: snapshots from the xlsx era can be loaded into the parquet dataset.
+        df = dataset_io.read_dataset(snap_path)
+        saved_path = _save_dataset(project_id, df)
+        # A pre_borderline_accept snapshot carries the borderline state it was taken with:
+        # roll the accept decisions back together with the dataset.
+        borderline_restored = False
+        try:
+            from services import smart_merger
+            borderline_restored = smart_merger.restore_borderline_state(project_id, snap_path)
+        except Exception:
+            pass
+        audit.write(
+            project_id,
+            kind="snapshot_restore",
+            title=f"Snapshot restored: {Path(payload.snapshot).name}",
+            title_key="audit.titles.snapshotRestored",
+            title_params={"name": Path(payload.snapshot).name},
+            details={"snapshot": payload.snapshot, "restored_count": int(len(df)), "saved_path": saved_path,
+                     "borderline_state_restored": borderline_restored},
+            user_action="restore",
+        )
+        return {"restored": int(len(df)), "snapshot": payload.snapshot}
 
 
 @router.get("/snapshots")
@@ -170,7 +184,7 @@ def list_snapshots(project_id: str):
 class UpdatePayload(BaseModel):
     uid: Optional[str] = None
     doi: Optional[str] = None
-    fields: dict[str, Any] = Field(default_factory=dict, description="Güncellenecek alan -> yeni değer")
+    fields: dict[str, Any] = Field(default_factory=dict, description="Field to update -> new value")
 
 
 @router.post("/update")
@@ -178,38 +192,41 @@ def update_record(project_id: str, payload: UpdatePayload):
     """Manually edit the fields of a single record (find it by UID or DOI). A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    if not payload.fields:
-        raise HTTPException(400, "no_fields_to_update")
-    try:
-        df = filter_engine.load_merged(project_id)
-    except FileNotFoundError as e:
-        raise HTTPException(409, str(e))
+    with job_runner.mutation(project_id):
+        if not payload.fields:
+            raise HTTPException(400, "no_fields_to_update")
+        try:
+            # load_merged returns the SHARED cached frame: edit a copy, so a failed save
+            # cannot leave phantom edits in the cache.
+            df = filter_engine.load_merged(project_id).copy()
+        except FileNotFoundError as e:
+            raise HTTPException(409, str(e))
 
-    mask = pd.Series(False, index=df.index)
-    if payload.uid and "UID" in df.columns:
-        mask |= df["UID"].astype(str).str.strip() == str(payload.uid).strip()
-    if not mask.any() and payload.doi and "DI" in df.columns:
-        mask |= df["DI"].astype(str).str.strip().str.lower() == str(payload.doi).strip().lower()
-    idxs = df.index[mask].tolist()
-    if not idxs:
-        raise HTTPException(404, "record_not_found")
-    idx = idxs[0]
+        mask = pd.Series(False, index=df.index)
+        if payload.uid and "UID" in df.columns:
+            mask |= df["UID"].astype(str).str.strip() == str(payload.uid).strip()
+        if not mask.any() and payload.doi and "DI" in df.columns:
+            mask |= df["DI"].astype(str).str.strip().str.lower() == str(payload.doi).strip().lower()
+        idxs = df.index[mask].tolist()
+        if not idxs:
+            raise HTTPException(404, "record_not_found")
+        idx = idxs[0]
 
-    snapshot = _snapshot_dataset(project_id, df, "edit")
-    for k, v in payload.fields.items():
-        if k not in df.columns:
-            df[k] = ""
-        df.at[idx, k] = "" if v is None else v
-    saved_path = _save_dataset(project_id, df)
+        snapshot = _snapshot_dataset(project_id, df, "edit")
+        for k, v in payload.fields.items():
+            if k not in df.columns:
+                df[k] = ""
+            df.at[idx, k] = "" if v is None else v
+        saved_path = _save_dataset(project_id, df)
 
-    audit.write(
-        project_id,
-        kind="records_edit",
-        title=f"Kayıt düzenlendi ({len(payload.fields)} alan)",
-        title_key="audit.titles.recordEdited",
-        title_params={"n": len(payload.fields)},
-        details={"uid": payload.uid, "doi": payload.doi, "fields": list(payload.fields.keys()), "saved_path": saved_path},
-        snapshot=snapshot,
-        user_action="manual_edit",
-    )
-    return {"updated": 1, "fields": len(payload.fields), "snapshot": snapshot}
+        audit.write(
+            project_id,
+            kind="records_edit",
+            title=f"Record edited ({len(payload.fields)} fields)",
+            title_key="audit.titles.recordEdited",
+            title_params={"n": len(payload.fields)},
+            details={"uid": payload.uid, "doi": payload.doi, "fields": list(payload.fields.keys()), "saved_path": saved_path},
+            snapshot=snapshot,
+            user_action="manual_edit",
+        )
+        return {"updated": 1, "fields": len(payload.fields), "snapshot": snapshot}

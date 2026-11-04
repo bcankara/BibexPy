@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.routing import APIRoute
 import pandas as pd
 
 from config import settings
@@ -139,6 +140,38 @@ def get_last_fill_report(project_id: str):
                 }
             }
     return {"report": None}
+
+
+def download_doi_log(project_id: str):
+    """Latest per-record provenance CSV of the reverse DOI lookup (ACTIVE analysis).
+
+    One row per scanned record: outcome, written DOI, source, candidate title/type/container,
+    score, reason, preprint DOI, warning, possible duplicate. 404 `doi_log_not_found` when the
+    active analysis has none.
+    """
+    if storage.get_project(project_id) is None:
+        raise HTTPException(404, "project_not_found")
+    adir = analyses.get_active_analysis_dir(project_id)
+    if adir is None:
+        raise HTTPException(404, "doi_log_not_found")
+    root = adir.resolve()
+    # The stamp in the file name sorts chronologically.
+    for p in sorted(root.glob("doi_lookup_*.csv"), reverse=True):
+        try:
+            p.resolve().relative_to(root)   # must stay inside the analysis folder
+        except ValueError:
+            continue
+        if p.is_file():
+            return FileResponse(path=str(p), filename=p.name, media_type="text/csv")
+    raise HTTPException(404, "doi_log_not_found")
+
+
+# The contract path is /projects/{id}/enrich/doi-log, which lies outside this router's
+# "/quality" prefix (main.py mounts routers by their `.router`), so the route is registered
+# with its full path directly.
+router.routes.append(APIRoute(
+    "/projects/{project_id}/enrich/doi-log", download_doi_log, methods=["GET"], tags=["enrich"],
+))
 
 
 @router.get("/stats")
