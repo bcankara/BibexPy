@@ -32,7 +32,7 @@ _ALLOW_SNIPPETS = {
     "MergeDB.py": ["FRANÇAIS"],                                          # WoS language value
 }
 # Files holding single-character transliteration (fold) tables.
-_FOLD_TABLE_FILES = {"report_flow.py", "api_utils.py"}
+_FOLD_TABLE_FILES = {"report_flow.py", "api_utils.py", "affiliation_graph.py"}
 # Author name inside the citation text (methodology, LLM prompt, comments).
 _AUTHOR = "Şahin"
 

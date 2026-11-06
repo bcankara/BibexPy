@@ -673,7 +673,7 @@ async def run_affiliation_disambiguation(
                 "confidence": 1.0,
                 "source": "deterministic",
                 "tier": 1,
-                "reason": "High string similarity (automatic)",
+                "reason": "Same address in another spelling (automatic)",
             })
             auto_count += 1
     if auto_count:

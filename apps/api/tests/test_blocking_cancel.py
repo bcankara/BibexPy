@@ -20,7 +20,7 @@ import pytest
 _API_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_API_ROOT))
 
-from services.disambiguation import blocking  # noqa: E402
+from services.disambiguation import affiliation_graph, blocking  # noqa: E402
 from services.disambiguation.similarity import jaro_winkler  # noqa: E402
 
 
@@ -102,8 +102,7 @@ class _CancelAfter:
 
 # ── cancellation ────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("builder", [blocking.build_affiliation_blocks, blocking.build_org_rollup])
-def test_cancel_stops_inside_a_large_block(builder):
+def test_cancel_stops_inside_a_large_block():
     # 450 rows: 2 checks in the row loop, 1 before the single block; the 20th call can only
     # come from inside the similarity loops of that block (17 × 256 comparisons in). At 0.99
     # no two addresses are similar enough, so the greedy run would make ~100,000 comparisons
@@ -111,12 +110,33 @@ def test_cancel_stops_inside_a_large_block(builder):
     # so that a regression fails within seconds instead of running the whole block for minutes.
     df = _department_frame(450)
     cancel = _CancelAfter(20)
-    out = builder(df, 0.99, "auto", 0.995, should_cancel=cancel)
+    out = blocking.build_org_rollup(df, 0.99, "auto", 0.995, should_cancel=cancel)
     done = time.perf_counter()
     assert isinstance(out, list)
     assert cancel.at is not None, "should_cancel() was never asked inside the block"
     # Without checks inside the similarity loops this block runs to its end.
     assert done - cancel.at < 1.0, f"returned {done - cancel.at:.2f}s after cancellation"
+
+
+def test_affiliation_cancel_stops_inside_the_pair_loop():
+    # 250 addresses share the blocking key (country, "southern"): 31,125 pairs, one check per
+    # _PAIR_CHECK_EVERY of them. The row loop and the signature-group loop make one check each
+    # (rows / groups 0), so the 5th call can only come from inside the pair loop (3 checks in).
+    # Without the pair-loop check the later loops make fewer than 5 calls and never cancel.
+    rng = random.Random(21)
+    names = ["".join(rng.choice(string.ascii_lowercase) for _ in range(9)).title() for _ in range(250)]
+    rows = [f"[A] University of Southern {nm}, Zed, Germany" for nm in names]
+    df = pd.DataFrame({"UID": list(range(1, len(rows) + 1)), "C1": rows})
+    assert len(rows) * (len(rows) - 1) // 2 >= 4 * affiliation_graph._PAIR_CHECK_EVERY
+    cancel = _CancelAfter(5)
+    out = blocking.build_affiliation_blocks(df, should_cancel=cancel)
+    done = time.perf_counter()
+    assert out == []
+    assert cancel.at is not None, "should_cancel() was never asked inside the pair loop"
+    assert cancel.n == 5
+    assert done - cancel.at < 1.0, f"returned {done - cancel.at:.2f}s after cancellation"
+    # the same data without cancellation completes
+    assert isinstance(blocking.build_affiliation_blocks(df), list)
 
 
 def test_cancel_stops_country_builder():

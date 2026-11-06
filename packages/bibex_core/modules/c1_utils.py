@@ -293,6 +293,7 @@ def _split_keep(value: str) -> list[str]:
     """Split on ';' (bracket-aware) BUT KEEP the '[author]' bracket.
 
     For the replace_* functions: the original structure (including the author bracket) must stay intact.
+    Lossless: ";".join(_split_keep(value)) == value (a trailing ';' yields a final empty chunk).
     """
     chunks: list[str] = []
     buf: list[str] = []
@@ -309,8 +310,8 @@ def _split_keep(value: str) -> list[str]:
             buf = []
         else:
             buf.append(ch)
-    if buf:
-        chunks.append("".join(buf))
+    # always emit the last chunk, even when empty (trailing ';'), so ";".join(chunks) == value
+    chunks.append("".join(buf))
     return chunks
 
 
@@ -322,6 +323,7 @@ def replace_country_in_c1(value: str, mapping: dict) -> str:
     if not str(value or "").strip():
         return value
     out: list[str] = []
+    changed = False
     for chunk in _split_keep(value):
         parts = chunk.split(",")
         if parts:
@@ -329,8 +331,9 @@ def replace_country_in_c1(value: str, mapping: dict) -> str:
             canon = mapping.get(last.lower())
             if canon and last and last.lower() != canon.lower():
                 parts[-1] = " " + canon
+                changed = True
         out.append(",".join(parts))
-    return ";".join(out)
+    return ";".join(out) if changed else value
 
 
 def append_country_to_c1(value: str, append_map: dict) -> str:
@@ -348,6 +351,7 @@ def append_country_to_c1(value: str, append_map: dict) -> str:
     if not str(value or "").strip():
         return value
     out: list[str] = []
+    changed = False
     for chunk in _split_keep(value):
         # Temporarily strip the '[author]' bracket for matching (it is kept in the output);
         # extract_country_from_c1 also strips the bracket, so the keys match this way.
@@ -359,8 +363,9 @@ def append_country_to_c1(value: str, append_map: dict) -> str:
         # If it is already a country, leave it alone (the replace path handles it); otherwise append.
         if country and last and canonical_country(last) is None:
             chunk = chunk.rstrip() + ", " + country
+            changed = True
         out.append(chunk)
-    return ";".join(out)
+    return ";".join(out) if changed else value
 
 
 def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
@@ -380,6 +385,7 @@ def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
         return norm_map.get(re.sub(r"\s+", " ", str(token).strip()).lower())
 
     out: list[str] = []
+    changed = False
     for chunk in _split_keep(value):
         m = re.match(r"^(\s*\[[^\]]*\]\s*)?(.*)$", chunk, re.S)
         prefix = m.group(1) or ""
@@ -388,6 +394,7 @@ def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
         canon = _canon(addr)
         if canon:
             out.append(prefix + canon)
+            changed = True
             continue
         # 2) Does one of the address's comma-separated components match exactly?
         parts = addr.split(",")
@@ -397,8 +404,11 @@ def replace_affiliation_in_c1(value: str, variant_to_canonical: dict) -> str:
             if c:
                 parts[i] = (" " if i > 0 and part.startswith(" ") else "") + c
                 replaced = True
+        if replaced:
+            changed = True
         out.append(prefix + ",".join(parts) if replaced else chunk)
-    return ";".join(out)
+    # nothing replaced: hand back the original cell byte for byte
+    return ";".join(out) if changed else value
 
 
 def replace_org_in_c1(value: str, variant_to_canonical: dict) -> str:
@@ -414,10 +424,13 @@ def replace_org_in_c1(value: str, variant_to_canonical: dict) -> str:
     # replace_affiliation_in_c1.
     norm_map = {re.sub(r"\s+", " ", str(k).strip()).lower(): v for k, v in variant_to_canonical.items()}
     out: list[str] = []
+    changed = False
     for chunk in _split_keep(value):
         m = re.match(r"^(\s*\[[^\]]*\]\s*)?(.*)$", chunk, re.S)
         prefix = m.group(1) or ""
         addr = (m.group(2) or "").strip()
         canon = norm_map.get(re.sub(r"\s+", " ", addr).lower())
+        if canon:
+            changed = True
         out.append(prefix + canon if canon else chunk)
-    return ";".join(out)
+    return ";".join(out) if changed else value

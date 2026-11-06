@@ -679,8 +679,8 @@
   },
   "help": {
     "jw": "Jaro-Winkler: başlıklar için 0–1 arası metin benzerlik skoru. Eşik ve üzeri çiftler aynı yayın sayılır; altındakiler ayrı tutulur. 0.88 dengeli bir varsayılandır.",
-    "blockingThreshold": "Blocking eşiği (0–1): iki isim/kurumun aynı aday gruba (inceleme için) düşmesi için ne kadar benzer olması gerektiği. Düşük = daha geniş ağ (daha çok aday, daha yavaş); yüksek = daha katı.",
-    "autoApprove": "Otomatik onay eşiği (0–1): bu benzerlik ve üzeri çiftler AI/manuel inceleme olmadan otomatik birleştirilir. Yanlış birleştirmeyi önlemek için yüksek tutun (ör. 0.95)."
+    "blockingThreshold": "Blocking eşiği (0–1): iki yazar isminin aynı aday gruba (inceleme için) düşmesi için ne kadar benzer olması gerektiği (benzerliğe dayanan diğer taramalarda da kullanılır). Düşük = daha geniş ağ (daha çok aday, daha yavaş); yüksek = daha katı. Kurum adı standardizasyonu bu değeri kullanmaz; kendi sabit kurallarını uygular.",
+    "autoApprove": "Otomatik onay eşiği (0–1): bu benzerlik ve üzeri yazar ismi çiftleri AI/manuel inceleme olmadan otomatik birleştirilir (benzerliğe dayanan diğer taramalarda da kullanılır). Yanlış birleştirmeyi önlemek için yüksek tutun (ör. 0.95). Kurum adı standardizasyonu bu değeri kullanmaz; kendi sabit kurallarını uygular."
   },
   "borderline": {
     "title": "Belirsiz Çiftler — İncele (opsiyonel)",

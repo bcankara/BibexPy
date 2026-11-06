@@ -455,68 +455,16 @@ def build_affiliation_blocks(
     auto_threshold: float = 0.95,
     should_cancel: CancelCheck = None,
 ) -> list[dict]:
-    """Blocking of affiliation variants based on the first meaningful token. See build_author_blocks."""
-    if "C1" not in df.columns and "C1raw" not in df.columns:
-        return []
-    uid_of = _uid_of_label(df)
+    """Affiliation candidates: blocks of address spellings that may name one institution.
 
-    # canonical form -> list of variants
-    blocks: dict[str, list[dict]] = defaultdict(list)
-    for _ri, (idx, row) in enumerate(df.iterrows()):
-        if _is_cancelled(should_cancel, _ri):
-            return []
-        affs = _split_affs(row.get("C1", "") or row.get("C1raw", ""))
-        for aff in affs:
-            norm = normalize_name(aff)
-            if not norm:
-                continue
-            # first meaningful token (not a stopword)
-            tokens = [t for t in norm.split() if t not in {"the", "of", "and", "for", "univ", "university"}]
-            key = tokens[0] if tokens else norm[:5]
-            blocks[key].append({
-                "record": int(idx),
-                "raw": aff,
-                "norm": norm,
-            })
+    Delegates to services.disambiguation.affiliation_graph (field-aware multi-key graph
+    that cannot chain institutions together). sim_threshold, mode and auto_threshold are
+    accepted for compatibility and are not used by the affiliation builder.
+    """
+    # imported here: affiliation_graph imports helpers from this module
+    from . import affiliation_graph
 
-    out: list[dict] = []
-    guard = _PairGuard(should_cancel)
-    try:
-        for key, members in blocks.items():
-            if should_cancel and should_cancel():
-                return out
-            if len({m["norm"] for m in members}) < 2:
-                continue
-
-            auto_clusters: list[dict] = []
-            llm_members: list[dict] = []
-            for ci, comp in enumerate(_greedy_cluster(members, sim_threshold, guard)):
-                comp_norms = {m["norm"] for m in comp}
-                if len(comp_norms) < 2:
-                    continue  # single variant → no merge (Tier 3)
-                cand = {
-                    "id": f"{key}_{ci}",
-                    "variants": sorted({m["raw"] for m in comp}),
-                    "records": _uids((m["record"] for m in comp), uid_of, 100),
-                }
-                # Affiliation: high string similarity alone is a strong signal (no context).
-                if _all_pairs_at_least(comp_norms, auto_threshold, guard):
-                    cand["tier"] = 1
-                    auto_clusters.append(cand)
-                else:
-                    cand["tier"] = 2
-                    llm_members.append(cand)
-
-            block: dict = {"key": key}
-            if auto_clusters:
-                block["auto"] = auto_clusters
-            if llm_members:
-                block["members"] = llm_members
-            if block.get("auto") or block.get("members"):
-                out.append(block)
-    except _Cancelled:
-        pass  # cancelled inside a similarity loop: return the result so far
-    return out
+    return affiliation_graph.build_affiliation_candidates(df, should_cancel=should_cancel)
 
 
 def build_country_blocks(

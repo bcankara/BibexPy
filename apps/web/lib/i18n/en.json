@@ -679,8 +679,8 @@
   },
   "help": {
     "jw": "Jaro-Winkler: a 0–1 string-similarity score for titles. Pairs at or above the threshold are treated as the same publication; lower pairs are kept separate. 0.88 is a balanced default.",
-    "blockingThreshold": "Blocking threshold (0–1): how similar two names/affiliations must be to land in the same candidate group for review. Lower = wider net (more candidates, slower); higher = stricter.",
-    "autoApprove": "Auto-approve threshold (0–1): pairs at or above this similarity are merged automatically without AI/manual review. Keep it high (e.g. 0.95) to avoid false merges."
+    "blockingThreshold": "Blocking threshold (0–1): how similar two author names must be to land in the same candidate group for review (also used by the other similarity-based scans). Lower = wider net (more candidates, slower); higher = stricter. Affiliation standardization does not use it: it applies its own fixed rules.",
+    "autoApprove": "Auto-approve threshold (0–1): author-name pairs at or above this similarity are merged automatically without AI/manual review (also used by the other similarity-based scans). Keep it high (e.g. 0.95) to avoid false merges. Affiliation standardization does not use it: it applies its own fixed rules."
   },
   "borderline": {
     "title": "Uncertain Pairs — Review (optional)",
