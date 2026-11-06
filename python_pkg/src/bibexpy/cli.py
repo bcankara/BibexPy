@@ -25,7 +25,7 @@ _PKG_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PKG_DIR / "_web"
 _SERVER_DIR = _PKG_DIR / "_server"
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 __codename__ = "Helium"   # v2 release codename (successor to v1 "Hydrogen"; H -> He)
 
 
@@ -280,6 +280,26 @@ def _supervise(argv: list[str] | None) -> int:
         first = False
 
 
+def _pandas2_notice() -> str | None:
+    """One-line transition notice when the installed pandas is 2.x (None otherwise).
+
+    BibexPy 2.4.x runs on pandas 2.2+ and pandas 3 with identical results; 2.5 will
+    require pandas 3 (Python 3.11+). Never raises: a failure here must not block startup.
+    """
+    try:
+        import pandas
+
+        parts = pandas.__version__.split(".")
+        if int(parts[0]) == 2:
+            return (
+                "Note: BibexPy 2.5 will require pandas 3 (Python 3.11+); "
+                f"you are on pandas {parts[0]}.{parts[1]}."
+            )
+    except Exception:  # pragma: no cover - purely informational
+        pass
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     # On non-UTF-8 codepages (cp1254/cp850 etc.) the Windows console can crash with
     # UnicodeEncodeError on Turkish characters or arrow symbols.
@@ -380,6 +400,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  -> UI:       {url}")
     print(f"  -> Storage:  {storage_path}")
     print(f"  -> Settings: {env_file}")
+    pandas_note = _pandas2_notice()
+    if pandas_note:
+        print(f"  {pandas_note}")
     print(f"  (Press Ctrl+C to stop)\n")
 
     # Windows: if `bibexpy` is not on PATH (Store Python / --user install), OFFER to

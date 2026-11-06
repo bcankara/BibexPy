@@ -16,7 +16,7 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import HTTPException
 
-from services import filter_engine, storage
+from services import filter_engine, pdcompat, storage
 from services.bibex_adapter import _suppress_stdio
 
 
@@ -163,13 +163,13 @@ def _normalize_cr_for_table(df: pd.DataFrame) -> pd.DataFrame:
         return df
     from bibex_core.cr_normalize import count_refs, normalize_cr
 
-    before = df["CR"].fillna("").astype(str)
+    before = pdcompat.text(df["CR"])
     after = before.map(normalize_cr)
     filled = before.str.strip() != ""
     changed = filled & (after != before)
     if "NR" in df.columns:
         nr = df["NR"]
-        blank = nr.isna() | nr.astype(str).str.strip().isin(("", "nan", "NaN", "None", "0", "0.0"))
+        blank = nr.isna() | pdcompat.text(nr).str.strip().isin(("", "nan", "NaN", "None", "0", "0.0"))
     else:
         blank = pd.Series(True, index=df.index)
     fill = (blank | changed) & filled

@@ -11,6 +11,10 @@ records through a local web interface — with full provenance — and keeps you
 exports on your own machine. It prepares analysis-ready datasets for VOSviewer, Biblioshiny,
 BibTeX, RIS, Excel and more.
 
+## Python and pandas support
+
+BibexPy 2.4.x installs on Python 3.10 to 3.15 and works with both pandas 2.2+ and pandas 3 (the same outputs under either). Because pandas 2 is no longer developed and has no installers for Python 3.15 and later, BibexPy 2.5 will require pandas 3 (Python 3.11+); Python 3.10 users can keep using 2.4.x.
+
 ## Install
 
 ```bash

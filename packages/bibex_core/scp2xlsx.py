@@ -4,6 +4,16 @@ import os
 from typing import List, Union
 
 
+def _is_text_dtype(s: pd.Series) -> bool:
+    """True for object columns and pandas string columns (pandas 2 and 3)."""
+    return pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)
+
+
+def _upper_str_cell(x):
+    """Python str.upper on string cells only; anything else is returned as is."""
+    return x.upper() if isinstance(x, str) else x
+
+
 def abbrev_title(title: str) -> str:
     # This function can be used to abbreviate journal names
     # Simple version for now
@@ -137,9 +147,14 @@ def csvScopus2df(files: Union[str, List[str]]) -> pd.DataFrame:
     url_values = DATA.get('URL', None)
 
     # Convert all string columns to uppercase
+    # Gate on object OR pandas string dtype (pandas 3 reads text as 'str', so a
+    # plain dtype == 'object' test would skip every column), and upper-case with
+    # Python's str.upper so "ß" -> "SS" on every pandas version (the Arrow
+    # kernel behind the 'str' dtype would produce "ẞ"). Non-string cells and
+    # missing cells are left unchanged.
     for col in DATA.columns:
-        if DATA[col].dtype == 'object':
-            DATA[col] = DATA[col].str.upper()
+        if _is_text_dtype(DATA[col]):
+            DATA[col] = DATA[col].map(_upper_str_cell)
 
     # Restore DI and URL values
     if di_values is not None:

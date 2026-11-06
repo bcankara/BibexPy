@@ -23,7 +23,7 @@ from fastapi import HTTPException
 
 from config import settings
 from jobs.runner import JobContext
-from services import analyses, dataset_io, filter_engine, merger, storage
+from services import analyses, dataset_io, filter_engine, merger, pdcompat, storage
 from services.bibex_adapter import _suppress_stdio
 
 
@@ -107,8 +107,14 @@ def _mirror_wc_sc(df: pd.DataFrame) -> int:
     sc_blank = df["SC"].map(_is_blank)
     m1 = (~wc_blank) & sc_blank   # WC present, SC missing -> SC = WC
     m2 = (~sc_blank) & wc_blank   # SC present, WC missing -> WC = SC
-    df.loc[m1, "SC"] = df.loc[m1, "WC"]
-    df.loc[m2, "WC"] = df.loc[m2, "SC"]
+    # pandas 3 raises when strings go into an all-NaN float column that pandas 2 silently
+    # turned into object; widen exactly the target column when there is something to write.
+    if m1.any():
+        pdcompat.widen(df, ["SC"])
+        df.loc[m1, "SC"] = df.loc[m1, "WC"]
+    if m2.any():
+        pdcompat.widen(df, ["WC"])
+        df.loc[m2, "WC"] = df.loc[m2, "SC"]
     return int(m1.sum() + m2.sum())
 
 
@@ -143,7 +149,9 @@ async def _api_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: 
         ctx.log("No DI (DOI) column — API pass skipped")
         return {"total": 0, "enriched": 0}
 
-    with_doi = df[df["DI"].astype(str).str.strip().ne("") & df["DI"].astype(str).str.upper().ne("NAN")]
+    # A missing DOI (NaN / None / "nan" / whitespace) is not a DOI; astype(str) kept NaN
+    # missing under pandas 3, which made every such row look like it had one.
+    with_doi = df[~df["DI"].map(_is_blank)]
     total = len(with_doi)
     ctx.log(f"API: scanning {total} records with a DOI")
 
@@ -184,14 +192,14 @@ async def _api_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: 
                     ok, _score, why = same_work_titles(fresh[idx], api_title)
                     if not ok:
                         suspect = True
-                        df.at[idx, "DI"] = ""   # revert: the DOI points to a different work
+                        pdcompat.set_cell(df, idx, "DI", "")   # revert: the DOI points to a different work
                         if verdicts is not None:
                             verdicts[idx] = "suspect"
                         ctx.log(f"DOI {doi}: returned title does not match the record ({why}) — DOI removed")
             updated = 0
             for k, v in ({} if suspect else new_data).items():
                 if k in df.columns and _is_blank(df.at[idx, k]) and not _is_blank(v):
-                    df.at[idx, k] = v
+                    pdcompat.set_cell(df, idx, k, v)
                     updated += 1
             if updated:
                 enriched += 1
@@ -388,7 +396,7 @@ async def _doi_pass(ctx: JobContext, df: pd.DataFrame, *, lo: float = 0.05, hi: 
                 dec = api_utils.DoiDecision(None, "api_error", reason=f"lookup error: {e}")
             stats["scanned"] += 1
             if dec.outcome == "filled" and dec.doi:
-                df.at[idx, "DI"] = dec.doi
+                pdcompat.set_cell(df, idx, "DI", dec.doi)
                 existing[api_utils.doi_key(dec.doi)] = uid
                 stats["filled"] += 1
                 stats["_fresh"][idx] = str(row["TI"])
@@ -611,7 +619,7 @@ async def _complete_addresses_pass(ctx: JobContext, df: pd.DataFrame, email: str
             old = "" if pd.isna(df.at[idx, col]) else str(df.at[idx, col])
             new = append_country_to_c1(old, append_map)
             if new != old:
-                df.at[idx, col] = new
+                pdcompat.set_cell(df, idx, col, new)
                 changed = True
         if changed:
             rows_changed += 1

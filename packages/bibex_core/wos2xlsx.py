@@ -105,7 +105,9 @@ def isi2df(D):
         di_col = df['DI'].copy()
 
     for col in df.columns:
-        if df[col].dtype == 'object':
+        # object OR pandas string dtype (pandas 3 reads text as 'str'); cell-wise
+        # Python str.upper keeps the result identical on every pandas version.
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].apply(lambda x: str(x).upper() if pd.notnull(x) else x)
 
     if di_col is not None:

@@ -12,6 +12,17 @@ from pathlib import Path
 
 import pandas as pd
 
+from services import pdcompat
+
+
+def _cell(row, key: str) -> str:
+    """A cell as text; missing values (None, NaN, legacy "nan") become ""."""
+    v = row.get(key, "")
+    if pdcompat.is_missing(v):
+        return ""
+    t = str(v)
+    return "" if t.strip().lower() == "nan" else t
+
 
 def _escape(value: str) -> str:
     if not value:
@@ -54,9 +65,9 @@ def write_bibtex(df: pd.DataFrame, output: Path) -> Path:
     used_keys: set[str] = set()
     lines: list[str] = []
     for i, row in df.iterrows():
-        au = row.get("AU", "") or ""
-        py = str(row.get("PY", "") or "").strip()
-        ti = row.get("TI", "") or ""
+        au = _cell(row, "AU")
+        py = _cell(row, "PY").strip()
+        ti = _cell(row, "TI")
         # cite key: SmithEtAl2020Title
         first_author = re.split(r";|,|\band\b", str(au))[0].strip()
         first_author = _slug(first_author.split()[0] if first_author else "Anon", 20)
@@ -67,21 +78,21 @@ def write_bibtex(df: pd.DataFrame, output: Path) -> Path:
             key = f"{base}_{n}"; n += 1
         used_keys.add(key)
 
-        etype = _entry_type(row.get("DT", "") or "")
+        etype = _entry_type(_cell(row, "DT"))
         lines.append(f"@{etype}{{{key},")
         fields = {
             "author": _normalize_authors(au),
             "title": str(ti),
-            "journal": str(row.get("SO", "") or ""),
+            "journal": _cell(row, "SO"),
             "year": py,
-            "volume": str(row.get("VL", "") or ""),
-            "number": str(row.get("IS", "") or ""),
-            "pages": str(row.get("PG", "") or ""),
-            "doi": str(row.get("DI", "") or ""),
-            "url": str(row.get("URL", "") or ""),
-            "abstract": str(row.get("AB", "") or ""),
-            "keywords": _normalize_keywords(row.get("DE", "") or ""),
-            "publisher": str(row.get("PU", "") or ""),
+            "volume": _cell(row, "VL"),
+            "number": _cell(row, "IS"),
+            "pages": _cell(row, "PG"),
+            "doi": _cell(row, "DI"),
+            "url": _cell(row, "URL"),
+            "abstract": _cell(row, "AB"),
+            "keywords": _normalize_keywords(_cell(row, "DE")),
+            "publisher": _cell(row, "PU"),
         }
         for k, v in fields.items():
             v = v.strip()

@@ -8,6 +8,7 @@ and writes an entry to the audit log.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -18,10 +19,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from jobs.runner import job_runner
-from services import analyses, audit, dataset_io, filter_engine, merger, storage
+from services import analyses, audit, dataset_io, filter_engine, merger, pdcompat, storage
 
 
 router = APIRouter(prefix="/projects/{project_id}/records", tags=["records"])
+
+# What the record editor may write into a numeric column: an optional sign, digits with an
+# optional decimal part, and an optional exponent ("2024", "-1.5", "3e2").
+_PLAIN_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
 def _snapshot_dataset(project_id: str, df: pd.DataFrame, reason: str) -> str:
@@ -219,11 +224,26 @@ def update_record(project_id: str, payload: UpdatePayload):
             raise HTTPException(404, "record_not_found")
         idx = idxs[0]
 
+        # Reject a value the column cannot hold before anything is snapshotted or written.
+        for k, v in fields.items():
+            if isinstance(v, (list, dict, set, tuple)):
+                raise HTTPException(400, "invalid_field_value")
+            if (k in df.columns and pd.api.types.is_numeric_dtype(df[k])
+                    and not pd.api.types.is_bool_dtype(df[k])
+                    and isinstance(v, str) and v.strip()):
+                # A plain decimal number only: float() would also accept "nan", "inf" and
+                # "1_0", which the save step cannot store as numbers (the whole column
+                # would silently turn into text).
+                if not _PLAIN_NUMBER.fullmatch(v.strip()):
+                    raise HTTPException(400, "invalid_numeric_value")
+
         snapshot = _snapshot_dataset(project_id, df, "edit")
         for k, v in fields.items():
             if k not in df.columns:
                 df[k] = ""
-            df.at[idx, k] = "" if v is None else v
+            # The UI sends strings; set_cell widens a numeric column to object exactly when
+            # pandas 3 would raise (pandas 2 did the same silently). The save restores numerics.
+            pdcompat.set_cell(df, idx, k, "" if v is None else v)
         saved_path = _save_dataset(project_id, df)
 
         audit.write(

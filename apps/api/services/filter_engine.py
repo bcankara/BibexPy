@@ -14,7 +14,7 @@ from typing import Any, Iterable, Optional
 
 import pandas as pd
 
-from services import analyses, dataset_io, merger
+from services import analyses, dataset_io, merger, pdcompat
 
 _log = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ def _apply_in(df: pd.DataFrame, col: str, values: list[str]) -> pd.Series:
     if not values or not _has_col(df, col):
         return pd.Series(True, index=df.index)
     norm = [str(v).strip().upper() for v in values if v]
-    series = df[col].astype(str).str.upper().str.strip()
+    series = pdcompat.upper(df[col]).str.strip()
     return series.isin(norm)
 
 
@@ -243,7 +243,7 @@ def _apply_contains_any(df: pd.DataFrame, col: str, values: list[str]) -> pd.Ser
     needles = [str(v).strip().upper() for v in values if v]
     if not needles:
         return pd.Series(True, index=df.index)
-    series = df[col].astype(str).str.upper()
+    series = pdcompat.upper(df[col])
     pattern = "|".join(re.escape(n) for n in needles)
     return series.str.contains(pattern, na=False, regex=True)
 
@@ -258,9 +258,10 @@ def _fulltext_query(df: pd.DataFrame, query: str, fields: list[str]) -> pd.Serie
     if not fields:
         return pd.Series(True, index=df.index)
 
-    combined = df[fields[0]].astype(str).str.upper()
+    # Missing cells count as "" (pandas 3 keeps NaN, which would poison the concatenation).
+    combined = pdcompat.upper(df[fields[0]])
     for f in fields[1:]:
-        combined = combined + " || " + df[f].astype(str).str.upper()
+        combined = combined + " || " + pdcompat.upper(df[f])
 
     q = query.strip().upper()
     if not q:
@@ -303,13 +304,11 @@ def _apply_quality(df: pd.DataFrame, quality: dict[str, Any]) -> pd.Series:
     for field in quality.get("missing", []) or []:
         if not _has_col(df, field):
             continue
-        s = df[field].astype(str).str.strip()
-        mask &= (s == "") | (s.str.upper() == "NAN")
+        mask &= pdcompat.blank(df[field])
     for field in quality.get("has", []) or []:
         if not _has_col(df, field):
             continue
-        s = df[field].astype(str).str.strip()
-        mask &= (s != "") & (s.str.upper() != "NAN")
+        mask &= ~pdcompat.blank(df[field])
     return mask
 
 
@@ -349,10 +348,10 @@ DEFAULT_FACET_FIELDS = ["PY", "DT", "LA", "DB"]
 
 
 def _value_counts(series: pd.Series, top: int = 30) -> list[dict]:
-    s = series.astype(str).str.strip()
+    s = pdcompat.text(series).str.strip()
     s = s[(s != "") & (s.str.upper() != "NAN")]
-    counts = s.value_counts().head(top)
-    return [{"value": str(k), "count": int(v)} for k, v in counts.items()]
+    # Count desc, then value asc: value_counts leaves ties in an order that differs by pandas version.
+    return [{"value": str(k), "count": n} for k, n in pdcompat.value_counts_sorted(s, top)]
 
 
 def _doc_type_facet(series: pd.Series, top: int = 20) -> list[dict]:

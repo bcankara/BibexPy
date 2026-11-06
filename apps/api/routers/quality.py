@@ -19,7 +19,7 @@ from fastapi.routing import APIRoute
 import pandas as pd
 
 from config import settings
-from services import analyses, audit, filter_engine, storage
+from services import analyses, audit, filter_engine, pdcompat, storage
 
 
 router = APIRouter(prefix="/projects/{project_id}/quality", tags=["quality"])
@@ -66,8 +66,8 @@ FIELD_WEIGHTS = {
 
 
 def _is_filled(series: pd.Series) -> pd.Series:
-    s = series.astype(str).str.strip()
-    return (s != "") & (s.str.upper() != "NAN") & s.notna()
+    # Missing, whitespace-only and the legacy text "nan" all count as empty.
+    return ~pdcompat.blank(series)
 
 
 def _compute_stats(df: pd.DataFrame) -> dict:
@@ -97,8 +97,8 @@ def _compute_stats(df: pd.DataFrame) -> dict:
 
     db_dist = {}
     if "DB" in df.columns:
-        db_dist = df["DB"].astype(str).str.strip().value_counts().head(10).to_dict()
-        db_dist = {str(k): int(v) for k, v in db_dist.items()}
+        db_dist = {str(k): n for k, n in
+                   pdcompat.value_counts_sorted(pdcompat.text(df["DB"]).str.strip(), 10)}
 
     return {
         "total_records": total,
@@ -280,8 +280,9 @@ def get_charts(project_id: str):
                 df2 = df2.dropna(subset=["_y"])
                 df2["_y"] = df2["_y"].astype(int)
                 # Take the 5 most frequent types
-                top_types = df2["DT"].astype(str).str.upper().value_counts().head(5).index.tolist()
-                ct = pd.crosstab(df2["_y"], df2["DT"].astype(str).str.upper())
+                dt_upper = pdcompat.upper(df2["DT"])
+                top_types = [k for k, _ in pdcompat.value_counts_sorted(dt_upper, 5)]
+                ct = pd.crosstab(df2["_y"], dt_upper)
                 ct = ct[[c for c in top_types if c in ct.columns]]
                 out["year_by_doctype"] = {
                     "types": top_types,
@@ -293,18 +294,21 @@ def get_charts(project_id: str):
 
     # Top 15 journals (SO)
     if "SO" in df.columns:
-        so_counts = df["SO"].astype(str).str.strip().replace("", pd.NA).dropna().value_counts().head(15)
-        out["top_journals"] = [{"name": str(k), "count": int(v)} for k, v in so_counts.items()]
+        so = pdcompat.text(df["SO"]).str.strip()
+        out["top_journals"] = [{"name": str(k), "count": n}
+                               for k, n in pdcompat.value_counts_sorted(so[so != ""], 15)]
 
     # Doc type distribution (pie)
     if "DT" in df.columns:
-        dt_counts = df["DT"].astype(str).str.strip().str.upper().replace("", pd.NA).dropna().value_counts().head(10)
-        out["doc_types"] = [{"name": str(k), "count": int(v)} for k, v in dt_counts.items()]
+        dt = pdcompat.upper(df["DT"]).str.strip()
+        out["doc_types"] = [{"name": str(k), "count": n}
+                            for k, n in pdcompat.value_counts_sorted(dt[dt != ""], 10)]
 
     # Language distribution
     if "LA" in df.columns:
-        la_counts = df["LA"].astype(str).str.strip().str.upper().replace("", pd.NA).dropna().value_counts().head(10)
-        out["languages"] = [{"name": str(k), "count": int(v)} for k, v in la_counts.items()]
+        la = pdcompat.upper(df["LA"]).str.strip()
+        out["languages"] = [{"name": str(k), "count": n}
+                            for k, n in pdcompat.value_counts_sorted(la[la != ""], 10)]
 
     # Citation distribution (histogram buckets)
     if "TC" in df.columns:

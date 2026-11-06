@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from config import settings
 from jobs.runner import JobContext, run_cpu
-from services import analyses, dataset_io, merger, storage
+from services import analyses, dataset_io, merger, pdcompat, storage
 from .blocking import (
     build_author_blocks, build_affiliation_blocks, build_author_splits,
     build_country_blocks, build_org_rollup,
@@ -191,6 +191,16 @@ def _member_variants(m: dict, key: str) -> list:
     return [v for v in vs if v]
 
 
+def _legacy_str(s: pd.Series) -> pd.Series:
+    """``s.astype(str)`` as pandas 2 gave it: a missing cell becomes the text ``"nan"``.
+
+    pandas 3 keeps it missing, which would make the callback see a float; going through
+    this helper keeps the output of both versions identical.
+    """
+    return pd.Series(["nan" if pdcompat.is_missing(v) else str(v) for v in s.tolist()],
+                     index=s.index, dtype=object)
+
+
 def _apply_c1_map(df: pd.DataFrame, cols: list[str], fn) -> int:
     """Apply fn to the C1/C1raw columns and return the number of rows that ACTUALLY changed.
 
@@ -199,7 +209,7 @@ def _apply_c1_map(df: pd.DataFrame, cols: list[str], fn) -> int:
     same). Now only the rows that actually changed are counted (in any column)."""
     changed = pd.Series(False, index=df.index)
     for col in cols:
-        before = df[col].astype(str)
+        before = _legacy_str(df[col])
         after = before.apply(fn)
         df[col] = after
         changed = changed | (after != before)
@@ -374,6 +384,7 @@ def _apply_filled_cells(full: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
             if j is None:
                 continue
             if not orcid_mod._is_blank(val) and orcid_mod._is_blank(ov[j]):
+                pdcompat.widen(out, [col])   # pandas 3: all-NaN float column cannot hold text
                 out.iat[j, ci] = val
     return out
 
@@ -894,7 +905,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
             def _repl(s: str) -> str:
                 return ";".join(canonical if _nkey(x) in variant_keys else x.strip() for x in str(s).split(";"))
 
-            before_col = df["AU"].astype(str)
+            before_col = _legacy_str(df["AU"])
             df["AU"] = before_col.apply(_repl)
             affected += int((df["AU"] != before_col).sum())
 
@@ -1092,7 +1103,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
                     else:
                         new_parts.append(x.strip())
                 if hit:
-                    df.at[label, "AU"] = ";".join(new_parts)
+                    pdcompat.set_cell(df, label, "AU", ";".join(new_parts))
                     affected += 1
                     if len(changed_uids) < SPLIT_CHANGED_UIDS_CAP:
                         changed_uids.append(uid)

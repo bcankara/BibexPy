@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from services import pdcompat
+
 
 TYPE_MAP = {
     "ARTICLE": "JOUR",
@@ -20,6 +22,15 @@ TYPE_MAP = {
     "BOOK CHAPTER": "CHAP",
     "EDITORIAL": "JOUR",
 }
+
+
+def _cell(row, key: str) -> str:
+    """A cell as stripped text; missing values (None, NaN, legacy "nan") become ""."""
+    v = row.get(key, "")
+    if pdcompat.is_missing(v):
+        return ""
+    t = str(v).strip()
+    return "" if t.lower() == "nan" else t
 
 
 def _ty(dt: str) -> str:
@@ -33,34 +44,34 @@ def _split(value: str) -> list[str]:
 def write_ris(df: pd.DataFrame, output: Path) -> Path:
     with output.open("w", encoding="utf-8") as f:
         for _, row in df.iterrows():
-            f.write(f"TY  - {_ty(row.get('DT', '') or '')}\n")
-            for au in _split(row.get("AU", "")):
+            f.write(f"TY  - {_ty(_cell(row, 'DT'))}\n")
+            for au in _split(_cell(row, "AU")):
                 f.write(f"AU  - {au}\n")
-            ti = str(row.get("TI", "") or "").strip()
+            ti = _cell(row, "TI")
             if ti: f.write(f"TI  - {ti}\n")
-            so = str(row.get("SO", "") or "").strip()
+            so = _cell(row, "SO")
             if so: f.write(f"JO  - {so}\n")
-            ji = str(row.get("JI", "") or "").strip()
+            ji = _cell(row, "JI")
             if ji: f.write(f"J2  - {ji}\n")
-            py = str(row.get("PY", "") or "").strip()
+            py = _cell(row, "PY")
             if py: f.write(f"PY  - {py}\n")
-            vl = str(row.get("VL", "") or "").strip()
+            vl = _cell(row, "VL")
             if vl: f.write(f"VL  - {vl}\n")
-            issue = str(row.get("IS", "") or "").strip()
+            issue = _cell(row, "IS")
             if issue: f.write(f"IS  - {issue}\n")
-            pg = str(row.get("PG", "") or "").strip()
+            pg = _cell(row, "PG")
             if pg: f.write(f"SP  - {pg}\n")
-            di = str(row.get("DI", "") or "").strip()
+            di = _cell(row, "DI")
             if di: f.write(f"DO  - {di}\n")
-            url = str(row.get("URL", "") or "").strip()
+            url = _cell(row, "URL")
             if url: f.write(f"UR  - {url}\n")
-            ab = str(row.get("AB", "") or "").strip()
+            ab = _cell(row, "AB")
             if ab: f.write(f"AB  - {ab}\n")
-            for kw in _split(row.get("DE", "")):
+            for kw in _split(_cell(row, "DE")):
                 f.write(f"KW  - {kw}\n")
-            pu = str(row.get("PU", "") or "").strip()
+            pu = _cell(row, "PU")
             if pu: f.write(f"PB  - {pu}\n")
-            sn = str(row.get("SN", "") or "").strip()
+            sn = _cell(row, "SN")
             if sn: f.write(f"SN  - {sn}\n")
             f.write("ER  - \n\n")
     return output

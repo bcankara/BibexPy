@@ -1,12 +1,19 @@
 # FastAPI stack
 fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
+# Explicit pieces of uvicorn[standard], minus PyYAML (no wheel for Python 3.15).
+# watchfiles is only needed for the dev server (main.py runs uvicorn with reload=True).
+uvicorn>=0.27.0
+httptools>=0.5.0
+websockets>=10.4
+watchfiles>=0.13
+uvloop>=0.15.1; sys_platform != "win32" and platform_python_implementation != "PyPy"
 python-multipart>=0.0.9
 pydantic>=2.6.0
 pydantic-settings>=2.2.0
 sse-starlette>=2.0.0
 reportlab>=4.0
 pyarrow>=15
+pandas>=2.2,<4
 
 # bibex_core dependencies (the editable install brings bibex_core's own requirements)
 -e ../../packages/bibex_core

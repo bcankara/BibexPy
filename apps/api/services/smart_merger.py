@@ -28,7 +28,7 @@ from fastapi import HTTPException
 from bibex_core.cr_normalize import count_refs, normalize_cr
 from config import settings
 from jobs.runner import JobContext, run_cpu
-from services import analyses, audit, dataset_io, filter_engine, storage
+from services import analyses, audit, dataset_io, filter_engine, pdcompat, storage
 from services.disambiguation.similarity import jaro_winkler, name_initials, normalize_name
 
 
@@ -692,6 +692,25 @@ def _apply_preference(field: str, w_val: Any, s_val: Any) -> tuple[Any, str]:
     return s_val, "scopus"
 
 
+_INT_LIKE_RE = re.compile(r"\d+(\.0+)?")
+
+
+def _same_for_conflict(w_val: Any, s_val: Any) -> bool:
+    """Conflict-log equality: case/space-insensitive text, or the same whole number.
+
+    A WoS volume that went through an xlsx round trip is '154.0' while Scopus has '154';
+    those are the same value, not a conflict. Only which rows are LOGGED depends on this;
+    the chosen/merged value never does.
+    """
+    a = _to_str(w_val).lower().strip()
+    b = _to_str(s_val).lower().strip()
+    if a == b:
+        return True
+    if _INT_LIKE_RE.fullmatch(a) and _INT_LIKE_RE.fullmatch(b):
+        return _clean_num(a) == _clean_num(b)
+    return False
+
+
 def merge_pair_with_preferences(
     pair_id: str,
     w: dict,
@@ -722,7 +741,7 @@ def merge_pair_with_preferences(
 
         # Conflict log: both sides are filled AND the values differ
         if not _is_empty(w_val) and not _is_empty(s_val):
-            if _to_str(w_val).lower().strip() != _to_str(s_val).lower().strip():
+            if not _same_for_conflict(w_val, s_val):
                 conflicts.append({
                     "pair_id": pair_id,
                     "field": col,
@@ -1228,7 +1247,7 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
     cr_stats: dict[str, int] = {"normalized": 0, "nr_filled": 0}
 
     def _stage_field_merge():
-        all_columns = list(set(list(wos_df.columns) + list(scp_df.columns)))
+        all_columns = pdcompat.ordered_union(wos_df.columns, scp_df.columns)
         conflicts: list[dict] = []
         merged_rows: list[dict] = []
         field_source_distribution: dict[str, int] = {}
@@ -1250,10 +1269,11 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
         # 6. Unmatched WoS / Scopus rows → appended to the main df as they are
         wos_not_matched = wos_df.loc[~wos_df.index.isin(matched_wos)].copy()
         scp_not_matched = scp_df.loc[~scp_df.index.isin(matched_scp)].copy()
-        # Drop the _norm_* columns
-        for df in (wos_not_matched, scp_not_matched):
-            drop_cols = [c for c in df.columns if c.startswith("_norm_")]
-            df.drop(columns=drop_cols, inplace=True, errors="ignore")
+        # Drop the _norm_* columns (not inplace: deprecated in pandas 3, removed in 4)
+        wos_not_matched = wos_not_matched.drop(
+            columns=[c for c in wos_not_matched.columns if c.startswith("_norm_")], errors="ignore")
+        scp_not_matched = scp_not_matched.drop(
+            columns=[c for c in scp_not_matched.columns if c.startswith("_norm_")], errors="ignore")
 
         merged_df = pd.DataFrame(merged_rows)
         # _norm_* drop
@@ -1289,7 +1309,7 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
         # the Scopus-sourced rows of the merged dataset.
         # normalize_cr is idempotent; WoS rows come back as they are.
         if "CR" in final_df.columns:
-            before = final_df["CR"].fillna("").astype(str)
+            before = pdcompat.text(final_df["CR"])
             after = before.map(normalize_cr)
             # Only filled cells are written — empty/NaN CR cells are left as they are.
             filled_cr = before.str.strip() != ""

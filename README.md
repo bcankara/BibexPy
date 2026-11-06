@@ -115,6 +115,19 @@ replies `bibexpy : The term 'bibexpy' is not recognized…`. Nothing is broken �
 
 On macOS/Linux the `bibexpy` command is normally on PATH right after `pip install`.
 
+## Python and pandas support
+
+BibexPy 2.4.x installs on Python 3.10 to 3.15 and works with both pandas 2.2+ and pandas 3.
+CI checks that every dependency installs from ready-made wheels on Windows, macOS and Linux
+for each of those Python versions, and runs the test suite (Python 3.12) on pandas 2 and on
+pandas 3. On the bundled sample, every output (merged dataset, exports, logs) is identical
+under the two pandas versions.
+
+pandas 2 is no longer developed (the last release, 2.3.3, came out in September 2025) and
+it has no installers for Python 3.15 and later. This is a transition period: 2.4.x keeps
+supporting pandas 2 for now, but BibexPy 2.5 will require pandas 3 and therefore Python
+3.11 or newer. If you are on Python 3.10, you can keep using 2.4.x.
+
 ## What's new in v2
 
 - **Built-in sample dataset** — the first launch creates a ready-to-explore **Simple

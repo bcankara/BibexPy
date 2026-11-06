@@ -7,6 +7,17 @@ from unidecode import unidecode
 
 from bibex_core.cr_normalize import normalize_cr, count_refs
 
+def _year_key(py: pd.Series) -> pd.Series:
+    """Year as a string key part, identical on pandas 2 and 3.
+
+    pandas 2 astype(str) turns a missing year into the string 'nan'; pandas 3
+    keeps NaN, which then propagates through string concatenation and makes the
+    whole title+year key NaN (groupby drops it, duplicated() collapses it).
+    Mapping through str() on object cells reproduces the pandas 2 key exactly.
+    """
+    return py.astype(object).map(str)
+
+
 def trim(text: str) -> str:
     """Removes extra spaces from text"""
     if pd.isna(text):
@@ -313,8 +324,9 @@ def merge_references(wos_refs: str, scopus_refs: str) -> str:
     wos_dict = {create_ref_key(ref): ref for ref in wos_list}
     scopus_dict = {create_ref_key(ref): ref for ref in scopus_list}
     
-    # Get all unique keys
-    all_keys = set(wos_dict.keys()) | set(scopus_dict.keys())
+    # All unique keys in first-seen order (WoS references first, then Scopus-only ones).
+    # A set would make the merged CR order depend on the process hash seed.
+    all_keys = list(dict.fromkeys([*wos_dict.keys(), *scopus_dict.keys()]))
     
     # Build the merged references
     merged_refs = []
@@ -866,7 +878,7 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
                 M['clean_title'] = M['clean_title'].apply(trim)
 
                 # Group by title and year
-                M['title_year'] = M['clean_title'] + ' ' + M['PY'].astype(str)
+                M['title_year'] = M['clean_title'] + ' ' + _year_key(M['PY'])
 
                 # Select the most complete data for each group
                 grouped = M.groupby('title_year', as_index=False).agg(
@@ -887,7 +899,7 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
             if 'TI' in M.columns and 'PY' in M.columns:
                 clean_titles = M['TI'].apply(lambda x: re.sub(r'[^a-zA-Z0-9\s]', '', str(x)).lower())
                 clean_titles = clean_titles.apply(trim)
-                title_year = clean_titles + ' ' + M['PY'].astype(str)
+                title_year = clean_titles + ' ' + _year_key(M['PY'])
                 duplicates = title_year.duplicated()
                 M = M[~duplicates]
 
@@ -1209,7 +1221,7 @@ def merge_db_sources(*dataframes: pd.DataFrame, remove_duplicated: bool = True, 
     # coupling networks because of unparseable Scopus-format CR.
     # normalize_cr is idempotent; WoS rows are returned as they are.
     if 'CR' in M.columns:
-        before = M['CR'].fillna('').astype(str)
+        before = M['CR'].astype(object).map(lambda v: '' if pd.isna(v) else str(v))
         after = before.map(normalize_cr)
         # Only non-empty cells are written — empty/NaN CR cells are left as they are.
         filled_cr = before.str.strip() != ''

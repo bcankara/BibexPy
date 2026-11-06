@@ -15,7 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from bibex_core.modules.api_utils import _get_with_retry
-from services import dataset_io
+from services import dataset_io, pdcompat
 from .similarity import normalize_name
 from .blocking import _SPLIT_SUFFIX_RE
 
@@ -267,7 +267,7 @@ def enrich_rows_from_doi(df, row_uids, *, email: str | None) -> dict:
         changed = False
         for col, val in updates.items():
             if val and _is_blank(df.at[idx, col]):
-                df.at[idx, col] = val
+                pdcompat.set_cell(df, idx, col, val)   # pandas 3: all-NaN float column
                 changed = True
         if changed:
             rows_filled += 1

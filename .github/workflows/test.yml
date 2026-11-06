@@ -54,3 +54,60 @@ jobs:
           BIBEXPY_SAMPLE_DATA: ${{ github.workspace }}/python_pkg/src/bibexpy/_samples/simple_project
         working-directory: apps/api
         run: python -m pytest tests -q --ignore=tests/test_convert.py
+
+  # Install matrix: does a fresh `pip install bibexpy` dependency set resolve from
+  # wheels on every supported OS / Python? A runtime dependency without a wheel for a
+  # new Python (PyYAML via uvicorn[standard] on 3.15 was the case that prompted this)
+  # silently turns into a source build that fails on Windows. No test suite here: it
+  # only installs the declared runtime dependencies and imports every top-level module.
+  install:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
+    name: install (${{ matrix.os }}, py${{ matrix.python }})
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+      - name: Generate requirements from python_pkg/pyproject.toml
+        run: |
+          python -m pip install --upgrade pip
+          # tomllib is in the standard library from 3.11; 3.10 needs tomli.
+          python -m pip install tomli
+          python - <<'PY'
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+          with open("python_pkg/pyproject.toml", "rb") as fh:
+              deps = tomllib.load(fh)["project"]["dependencies"]
+          with open("runtime-requirements.txt", "w") as out:
+              out.write("\n".join(deps) + "\n")
+          print("\n".join(deps))
+          PY
+      - name: Install runtime dependencies (wheels only)
+        # --only-binary=:all: makes a missing wheel a hard failure instead of a
+        # slow source build, which is exactly what this job exists to catch.
+        run: |
+          python -m pip install --only-binary=:all: -r runtime-requirements.txt
+      - name: Import every top-level module
+        run: |
+          python - <<'PY'
+          import importlib
+          mods = ["pandas", "numpy", "pyarrow", "sklearn", "reportlab", "fastapi",
+                  "uvicorn", "pydantic", "openpyxl", "nltk", "requests", "unidecode",
+                  "sse_starlette", "multipart", "dotenv", "tqdm", "colorama"]
+          for name in mods:
+              importlib.import_module(name)
+              print("imported", name)
+          import pandas
+          print("pandas", pandas.__version__)
+          PY
