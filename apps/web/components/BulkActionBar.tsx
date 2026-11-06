@@ -6,6 +6,8 @@ import { api, translateApiError } from "@/lib/api-client";
 import { useT } from "@/lib/i18n";
 import { useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
+import { LOCKED_CLASS } from "./BlockingOverlay";
 
 type Props = {
   projectId: string;
@@ -27,14 +29,18 @@ export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // An exclusive job of the project runs: deleting records would be refused (HTTP 409).
+  const { busy: jobBusy } = useProjectBusy(projectId);
+  const busyTitle = jobBusy ? t("lock.busyReason") : undefined;
 
   if (count === 0) return null;
 
   async function doDelete() {
+    if (jobBusy) return;
     setBusy(true); setError(null);
     try {
       // The selection set holds record UIDs only (RecordsTable selects by UID).
-      const uids = Array.from(selected);
+      const uids = Array.from(selected, (u) => String(u));
       if (uids.length === 0) {
         setError(t("bulk.noSelected"));
         return;
@@ -79,7 +85,9 @@ export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props
               size="sm"
               variant="secondary"
               onClick={() => setConfirm("delete")}
-              className="bg-danger/30 hover:bg-danger/50 text-white border-0"
+              disabled={jobBusy}
+              title={busyTitle}
+              className={cn("bg-danger/30 hover:bg-danger/50 text-white border-0", LOCKED_CLASS)}
             >
               <Trash2 className="h-3.5 w-3.5" />
               {t("common.delete")}
@@ -105,7 +113,7 @@ export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props
             <Button size="sm" variant="secondary" onClick={() => setConfirm(null)} disabled={busy} className="bg-white/10 text-white border-0">
               {t("common.cancel")}
             </Button>
-            <Button size="sm" onClick={doDelete} disabled={busy} className="bg-danger hover:bg-danger/80 text-white">
+            <Button size="sm" onClick={doDelete} disabled={busy || jobBusy} title={busyTitle} className={cn("bg-danger hover:bg-danger/80 text-white", LOCKED_CLASS)}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               {t("common.delete")} ({count})
             </Button>

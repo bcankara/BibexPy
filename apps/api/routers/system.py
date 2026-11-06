@@ -35,6 +35,18 @@ def _list_windows_drives() -> list[str]:
     return drives
 
 
+@router.get("/uid-migration")
+def uid_migration_status():
+    """Progress of the one-time row-key conversion that runs at the first start of this version.
+
+    {state: idle|running|done|error, projects_total, projects_done, analyses_total,
+     analyses_done, current_project_id, current_project_name, current_analysis,
+     error, errors: [{project_id, project_name, analysis_id, message}], started_at, finished_at}
+    """
+    from services import uid_migration
+    return uid_migration.get_status()
+
+
 @router.get("/find-by-name")
 def find_by_name(name: str, limit: int = 8):
     """Find the possible full paths of the given folder name.

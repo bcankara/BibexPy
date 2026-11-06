@@ -151,54 +151,151 @@ def _coerce_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
 # Every operation that refers to rows across requests (record edit/delete,
 # disambiguation proposals, borderline decisions, provenance logs) refers to the
 # UID, never to a row position: positions shift after any delete, filter or restore.
+#
+# The UID is a sequential integer 1..N (like a database primary key), int64 in the
+# frame and in the parquet file. Rules:
+#   * a key is issued once and never changes or is reused; deleting rows leaves gaps
+#     (1, 2, 4, 5 ...) - renumbering would turn the key back into a row position;
+#   * the analysis meta keeps a high-water mark (``uid_max``) of the largest key ever
+#     issued, so a repair always issues keys above every key a snapshot may still hold;
+#   * comparisons go through :func:`uid_key` (requests carry text, frames carry ints).
 
 UID_COL = "UID"
 _UID_BLANKS = frozenset({"", "nan", "none", "<na>"})
 
+# Keys stay far below the int64 limit so uid_max + 1 can never overflow.
+UID_LIMIT = 2 ** 62
 
-def new_uid() -> str:
-    """A fresh row UID: "r_" + 16 hex digits (64 random bits)."""
-    return f"r_{uuid4().hex[:16]}"
+
+def uid_key(value: Any) -> str:
+    """Canonical text form of a UID for comparisons and lookups.
+
+    Integer keys compare equal however they arrive: 12, 12.0, "12" and " 12 " all give "12"
+    (a request carries strings, a parquet column int64, a float column after a concat).
+    Any other text is returned stripped; blanks, None and NaN give "".
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        if value != value:
+            return ""
+        if value.is_integer():
+            return str(int(value))
+    if isinstance(value, (int,)) and not isinstance(value, bool):
+        return str(value)
+    try:
+        import numpy as _np
+        if isinstance(value, _np.integer):
+            return str(int(value))
+        if isinstance(value, _np.floating):
+            f = float(value)
+            return "" if f != f else (str(int(f)) if f.is_integer() else str(f))
+    except ImportError:  # pragma: no cover
+        pass
+    text = str(value).strip()
+    if text.lower() in _UID_BLANKS:
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
+def uid_int(value: Any) -> Optional[int]:
+    """The positive integer a UID value stands for, or None (blank, text, zero, negative)."""
+    text = uid_key(value)
+    if text and text.isascii() and text.isdigit():
+        n = int(text)
+        if 1 <= n < UID_LIMIT:
+            return n
+    return None
 
 
 def _uid_text(df: pd.DataFrame) -> pd.Series:
-    return df[UID_COL].map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v).strip())
+    return df[UID_COL].map(uid_key)
 
 
-def ensure_uid(df: pd.DataFrame) -> bool:
-    """Give every row a unique UID, IN PLACE. Valid, unique UIDs are never changed.
+def _uid_ints(df: pd.DataFrame) -> tuple[Any, Any]:
+    """(values, valid): int64 array of the positive-integer keys (0 where none) and a bool mask."""
+    import numpy as np
 
-    Adds the UID column when it is missing; blank UIDs and repeats of an earlier
-    UID (the first occurrence keeps it) get a new value. Returns True when anything
-    was added or changed, i.e. the caller has to persist the frame.
-    """
+    n = len(df)
     if UID_COL not in df.columns:
-        taken: set[str] = set()
-        values = []
-        for _ in range(len(df)):
-            u = new_uid()
-            while u in taken:
-                u = new_uid()
-            taken.add(u)
-            values.append(u)
-        # Positional assignment (a list, not a Series): the frame may carry duplicate index labels.
-        df[UID_COL] = pd.Series(values, dtype=object).to_numpy()
-        return True
-    text = _uid_text(df)
-    blank = text.str.lower().isin(_UID_BLANKS)
-    dup = text.duplicated(keep="first") & ~blank
-    if not blank.any() and not dup.any():
+        return np.zeros(n, dtype="int64"), np.zeros(n, dtype=bool)
+    col = df[UID_COL]
+    if col.dtype.kind in "iu":
+        try:
+            # A nullable Int64 column holding <NA>, or a uint64 value above the int64 range,
+            # cannot take this fast path: it falls through to the per-value one below.
+            values = col.to_numpy(dtype="int64", copy=True)
+        except (ValueError, TypeError, OverflowError):
+            values = None
+        if values is not None:
+            valid = (values >= 1) & (values < UID_LIMIT)
+            values[~valid] = 0
+            return values, valid
+    values = np.zeros(n, dtype="int64")
+    valid = np.zeros(n, dtype=bool)
+    for pos, v in enumerate(col.to_numpy(dtype=object)):
+        k = uid_int(v)
+        if k is not None:
+            values[pos] = k
+            valid[pos] = True
+    return values, valid
+
+
+def max_uid(df: pd.DataFrame) -> int:
+    """The largest valid key in the frame (0 when there is none)."""
+    values, valid = _uid_ints(df)
+    return int(values[valid].max()) if valid.any() else 0
+
+
+def assign_sequential_uid(df: pd.DataFrame) -> int:
+    """Number a NEW dataset 1..N in its final row order, IN PLACE (int64). Returns N.
+
+    For a dataset that is being born (single-source analysis, ...): any UID the frame carried
+    from an earlier export is replaced - BibexPy's own key starts here. Never use it on an
+    existing dataset: keys are issued once (see :func:`ensure_uid` for repairs).
+    """
+    import numpy as np
+
+    df[UID_COL] = np.arange(1, len(df) + 1, dtype="int64")
+    return int(len(df))
+
+
+def ensure_uid(df: pd.DataFrame, floor: Optional[int] = None) -> bool:
+    """Give every row a valid, unique sequential UID, IN PLACE. Valid keys are never changed.
+
+    A key is valid when it is a positive integer that no earlier row already holds (the
+    first occurrence keeps it). A missing column, a blank, a non-integer value ("r_..."
+    text of an old version) or a repeat gets a NEW key greater than ``max(floor, largest
+    valid key in df)``, issued in row order. ``floor`` is the analysis's high-water mark
+    (``uid_max``): it keeps a repair from re-issuing a key that was handed out earlier
+    and may still sit in a snapshot. The column always ends as int64.
+
+    Returns True when anything was added or changed (including a dtype conversion), i.e.
+    the caller has to persist the frame - and, when it has an analysis context, raise
+    that analysis's uid_max to :func:`max_uid` of the frame BEFORE writing.
+    """
+    import numpy as np
+
+    n = len(df)
+    was_int64 = UID_COL in df.columns and df[UID_COL].dtype == np.dtype("int64")
+    values, valid = _uid_ints(df)
+    if valid.any():
+        # Repeats of an earlier key lose it (positional: the index may repeat after a concat).
+        repeat = pd.Series(values).duplicated(keep="first").to_numpy() & valid
+        valid = valid & ~repeat
+        values[repeat] = 0
+    need = ~valid
+    count = int(need.sum())
+    if count:
+        start = max(int(floor or 0), int(values[valid].max()) if valid.any() else 0)
+        if start + count >= UID_LIMIT:
+            raise ValueError("uid_invariant_violation: key space exhausted")
+        values[need] = np.arange(start + 1, start + count + 1, dtype="int64")
+    if count == 0 and was_int64:
         return False
-    taken = set(text[~blank & ~dup])
-    # Work on positions, never on index labels: after a concat the index can repeat, and a
-    # label-based write would give several rows the same new UID (or overwrite a valid one).
-    values = df[UID_COL].to_numpy(dtype=object, copy=True)  # untouched rows keep their exact value
-    for pos in (blank | dup).to_numpy().nonzero()[0]:
-        u = new_uid()
-        while u in taken:
-            u = new_uid()
-        taken.add(u)
-        values[pos] = u
+    # Positional assignment of a plain array: the frame may carry duplicate index labels.
     df[UID_COL] = values
     return True
 

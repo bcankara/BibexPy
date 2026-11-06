@@ -36,6 +36,22 @@ export const API_ORIGIN = BASE.replace(/\/api$/, "");
 export const DOCS_URL = `${API_ORIGIN}/docs`;
 
 /**
+ * Row key of a record. The backend assigns sequential integers (1..N, never reused), but a
+ * value may arrive as a number (JSON) or as text (query strings, older payloads); always
+ * compare and send keys through `uidKey`.
+ */
+export type Uid = string | number;
+
+/** Canonical text of a row key ("12" for 12, "12", " 12 "); "" when there is none. */
+export function uidKey(value: unknown): string {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+/** One record row as returned by the records/filter endpoints (UID is an integer there). */
+export type RecordRow = Record<string, string | number | null> & { UID?: Uid | null };
+
+/**
  * Translates an API error according to the active locale.
  *
  * The backend (FastAPI) HTTPException `detail` now returns a snake_case CODE
@@ -394,10 +410,13 @@ export const api = {
   doiLogUrl: (id: string) => `${BASE}/projects/${id}/enrich/doi-log`,
   qualityCharts: (id: string) => http<QualityCharts>(`/projects/${id}/quality/charts`),
 
+  // One-time conversion of saved analyses to sequential row keys (runs in the background at startup).
+  uidMigrationStatus: () => http<UidMigrationStatus>("/system/uid-migration"),
+
   // Records — delete & snapshots
   // Rows are addressed by UID only (no DOI / position keys). UIDs that are not in the
   // current dataset are skipped by the backend and counted in `not_found`.
-  deleteRecords: (id: string, body: { uids: string[]; reason?: string }) =>
+  deleteRecords: (id: string, body: { uids: Uid[]; reason?: string }) =>
     http<{ deleted: number; kept: number; total_before: number; snapshot: string | null; not_found?: number }>(
       `/projects/${id}/records/delete`,
       { method: "POST", body: JSON.stringify(body) }
@@ -409,7 +428,7 @@ export const api = {
       method: "POST", body: JSON.stringify({ snapshot }),
     }),
   // UID is mandatory; unknown UID -> 404 record_not_found; a "UID" key inside `fields` -> 400 uid_immutable.
-  updateRecord: (id: string, body: { uid: string; fields: Record<string, string> }) =>
+  updateRecord: (id: string, body: { uid: Uid; fields: Record<string, string> }) =>
     http<{ updated: number; fields: number; snapshot: string | null }>(`/projects/${id}/records/update`, {
       method: "POST", body: JSON.stringify(body),
     }),
@@ -697,9 +716,9 @@ export type AnalysesListResponse = {
 
 export type BorderlinePair = {
   pair_id: string;
-  /** Stable record identity of the two sides. */
-  wos_uid?: string;
-  scp_uid?: string;
+  /** Stable record identity of the two sides (sequential row keys of the merged dataset). */
+  wos_uid?: Uid;
+  scp_uid?: Uid;
   /** Legacy positional fields (old queues only); never used to address rows. */
   wos_index?: number;
   scp_index?: number;
@@ -784,7 +803,7 @@ export type ClusterMember = {
   coauthors?: string[];
   year_range?: string[];
   /** Row UIDs of the records this member appears in (never positions). */
-  records?: string[];
+  records?: Uid[];
 };
 
 export type Cluster = {
@@ -802,7 +821,7 @@ export type Cluster = {
 
 export type SplitGroup = {
   /** Row UIDs (never positions). */
-  records: string[];
+  records: Uid[];
   fields: string[];
   suffix: string;         // "" = the largest group (stays plain); "(b)" "(c)" ...
 };
@@ -855,12 +874,12 @@ export type ApplyResult = {
   /** UIDs of the proposal that were no longer in the dataset (skipped, never remapped). */
   skipped_missing?: number;
   /** First UIDs that were changed (capped by the backend). */
-  changed_uids?: string[];
+  changed_uids?: Uid[];
 };
 
 export type ProposalSet = {
   kind: string;
-  /** "uid_v1" for UID-addressed proposal files. */
+  /** "uid_v2" for proposal files addressed by sequential row keys. */
   schema?: string;
   analysis_id?: string | null;
   generated_at?: number;
@@ -896,12 +915,37 @@ export type FilterRequest = {
   include_facets?: boolean;
 };
 
+/** One analysis the migration could not convert (the analysis keeps working with its old keys). */
+export type UidMigrationError = {
+  project?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+  analysis?: string | null;
+  analysis_id?: string | null;
+  analysis_name?: string | null;
+  message?: string | null;
+  error?: string | null;
+};
+
+/** Progress of the one-time record migration (GET /api/system/uid-migration). */
+export type UidMigrationStatus = {
+  state: "idle" | "running" | "done" | "error";
+  projects_total?: number;
+  projects_done?: number;
+  analyses_done?: number;
+  current_project_name?: string | null;
+  /** A single failure text (whole run failed). */
+  error?: string | null;
+  /** Per-analysis failures; the run continues past them. */
+  errors?: Array<string | UidMigrationError> | null;
+};
+
 export type FilterResponse = {
   total: number;
   offset: number;
   limit: number;
   columns: string[];
-  records: Record<string, string | null>[];
+  records: RecordRow[];
   facets?: Facets;
   facets_all?: Facets;
 };

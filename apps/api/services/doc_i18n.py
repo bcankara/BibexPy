@@ -217,6 +217,7 @@ _EN: dict[str, str] = {
     "action.job_failed": "Job failed",
     "action.job_cancelled": "Job cancelled",
     "action.copy_browser": "Copied via browser",
+    "audit.titles.uidMigration": "Records updated for the new version: {records} record(s) in {analysis} now use sequential IDs",
 }
 
 _TR: dict[str, str] = {
@@ -399,6 +400,7 @@ _TR: dict[str, str] = {
     "action.job_failed": "İş başarısız",
     "action.job_cancelled": "İş iptal edildi",
     "action.copy_browser": "Tarayıcı ile kopyalandı",
+    "audit.titles.uidMigration": "Kayıtlar yeni sürüm için güncellendi: {analysis} analizindeki {records} kayıt artık sıralı kimlik kullanıyor",
 }
 
 STRINGS: dict[str, dict[str, str]] = {"en": _EN, "tr": _TR}

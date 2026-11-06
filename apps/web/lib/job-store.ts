@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { api, translateApiError, type JobInfo } from "./api-client";
 import type { Locale } from "./i18n";
@@ -32,6 +32,10 @@ export type ProjectJobs = {
   active: StoreJob[];
   /** True after the first server lookup finished (success or failure). */
   ready: boolean;
+  /** Files being transferred right now for this project (0 = no upload in flight). */
+  uploading: number;
+  /** A merge was just started by the user and the start request has not returned yet. */
+  mergeStarting: boolean;
 };
 
 export type JobOutcome = "completed" | "failed" | "cancelled" | "lost";
@@ -45,7 +49,9 @@ const RECONNECT_MAX_ATTEMPTS = 20;
 /** Finished jobs kept per project in memory. */
 const KEEP_FINISHED = 20;
 
-const EMPTY: ProjectJobs = Object.freeze({ jobs: [], active: [], ready: false }) as ProjectJobs;
+const EMPTY: ProjectJobs = Object.freeze({
+  jobs: [], active: [], ready: false, uploading: 0, mergeStarting: false,
+}) as ProjectJobs;
 
 export function isActive(job: { status: string }): boolean {
   return job.status === "queued" || job.status === "running";
@@ -70,6 +76,16 @@ const subscribers = new Set<() => void>();
 const finishListeners = new Set<(e: JobFinishedEvent) => void>();
 /** Job ids whose end was already announced (listeners / toast / status event fire once). */
 const announced = new Set<string>();
+/**
+ * Browser-side state that must outlive the component that started it (SPA navigation or the
+ * browser's back button unmounts the page, but the request keeps running):
+ *   - files being uploaded, per project (the project layout renders the blocking overlay);
+ *   - merge starts whose POST has not returned yet (overlay appears before the job exists);
+ *   - the last upload failure, handed once to whichever upload section is mounted.
+ */
+const uploadCounts = new Map<string, number>();
+const mergeStarts = new Map<string, number>();
+const uploadFailures = new Map<string, unknown>();
 
 function emit(projectId: string | null | undefined): void {
   if (projectId) projectVersion.set(projectId, (projectVersion.get(projectId) ?? 0) + 1);
@@ -95,9 +111,56 @@ function projectSnapshot(projectId: string): ProjectJobs {
     jobs: list,
     active: list.filter(isActive),
     ready: readyProjects.has(projectId),
+    uploading: uploadCounts.get(projectId) ?? 0,
+    mergeStarting: (mergeStarts.get(projectId) ?? 0) > 0,
   };
   snapshots.set(projectId, { v, value });
   return value;
+}
+
+/**
+ * Register an upload of `count` files for a project. The returned function ends it
+ * (idempotent); pass the error when the transfer failed so the upload section can show it,
+ * even if it was re-mounted after a navigation.
+ */
+export function beginProjectUpload(projectId: string, count: number): (error?: unknown) => void {
+  uploadCounts.set(projectId, (uploadCounts.get(projectId) ?? 0) + Math.max(1, count));
+  uploadFailures.delete(projectId);
+  emit(projectId);
+  let ended = false;
+  return (error?: unknown) => {
+    if (ended) return;
+    ended = true;
+    const left = (uploadCounts.get(projectId) ?? 0) - Math.max(1, count);
+    if (left > 0) uploadCounts.set(projectId, left); else uploadCounts.delete(projectId);
+    if (error !== undefined) uploadFailures.set(projectId, error);
+    emit(projectId);
+  };
+}
+
+/** The error of the last failed upload of this project (returned once, then forgotten). */
+export function takeUploadFailure(projectId: string): unknown {
+  if (!uploadFailures.has(projectId)) return undefined;
+  const e = uploadFailures.get(projectId);
+  uploadFailures.delete(projectId);
+  return e ?? null;
+}
+
+/**
+ * Mark "a merge is being started" so the blocking overlay and the busy state appear the moment
+ * the user clicks, not when the start request returns. Returns the function that clears it.
+ */
+export function beginMergeStart(projectId: string): () => void {
+  mergeStarts.set(projectId, (mergeStarts.get(projectId) ?? 0) + 1);
+  emit(projectId);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const left = (mergeStarts.get(projectId) ?? 1) - 1;
+    if (left > 0) mergeStarts.set(projectId, left); else mergeStarts.delete(projectId);
+    emit(projectId);
+  };
 }
 
 /** Non-hook read access (event handlers). */
@@ -453,6 +516,54 @@ export function useProjectJobs(projectId: string): ProjectJobs {
     () => projectSnapshot(projectId),
     () => EMPTY,
   );
+}
+
+export type ProjectBusy = {
+  /**
+   * Data-changing controls must be disabled: an exclusive job of the project is queued/running,
+   * a merge is being started, or the job list was not read from the server yet (so there is no
+   * enabled window between a page reload and the first lookup).
+   */
+  busy: boolean;
+  /** An active merge job (it blocks the whole app with an overlay), or null. */
+  blocking: StoreJob | null;
+  /** The job to name in a "wait until it finishes" reason (the blocking merge first), or null. */
+  reason: StoreJob | null;
+  /** True after the first server lookup finished; before that `busy` is reported as true. */
+  ready: boolean;
+  /** A merge start request is in flight (the job does not exist in the store yet). */
+  mergeStarting: boolean;
+  /** Files being uploaded right now (0 = none). */
+  uploading: number;
+};
+
+/**
+ * Busy state of a project, derived from the shared store. It only READS the store: the
+ * project layout (jobs banner + blocking overlay) keeps the store hydrated, so any number
+ * of controls can call this without adding pollers.
+ * A job that was just started and is still the anonymous placeholder (empty kind, the real
+ * `exclusive` flag not read yet) counts as busy, so controls do not flicker enabled.
+ * Until the first server lookup of the project finished (`ready === false`) the project is
+ * treated as busy as well.
+ */
+export function useProjectBusy(projectId: string): ProjectBusy {
+  const snap = useSyncExternalStore(
+    subscribe,
+    () => projectSnapshot(projectId),
+    () => EMPTY,
+  );
+  return useMemo(() => {
+    const exclusive = snap.active.filter((j) => j.exclusive || j.kind === "");
+    const blocking = snap.active.find((j) => j.kind === "merge") ?? null;
+    return {
+      busy: !snap.ready || snap.mergeStarting || exclusive.length > 0,
+      blocking,
+      reason: exclusive.length > 0 ? (blocking ?? exclusive[0]) : null,
+      ready: snap.ready,
+      mergeStarting: snap.mergeStarting,
+      uploading: snap.uploading,
+    };
+  }, [snap]);
 }
 
 /** One job by id (re-attach safe: fetches and streams it if the store does not know it yet). */

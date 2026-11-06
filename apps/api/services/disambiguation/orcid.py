@@ -153,7 +153,13 @@ def uid_label_map(df) -> dict[str, object]:
     """
     if dataset_io.UID_COL not in df.columns:
         raise ValueError("uid_invariant_violation: dataset has no UID column")
-    return {str(u).strip(): label for label, u in df[dataset_io.UID_COL].items()}
+    # Keyed by the canonical UID text (dataset_io.uid_key), so "12", 12 and 12.0 all find the row.
+    out: dict[str, object] = {}
+    for label, u in df[dataset_io.UID_COL].items():
+        key = dataset_io.uid_key(u)
+        if key:
+            out[key] = label
+    return out
 
 
 def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: bool,
@@ -186,9 +192,9 @@ def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: b
     found: set[str] = set()
 
     for uid in records:
-        idx = uid_map.get(uid) if isinstance(uid, str) else None
+        idx = uid_map.get(dataset_io.uid_key(uid))
         if idx is None:
-            continue  # UID not in this frame (or a legacy position): never mapped to another row
+            continue  # UID not in this frame: never mapped to another row
         # 1) OI already present in the data
         if has_oi:
             for nm, oid in parse_oi_cell(df.at[idx, "OI"]).items():
@@ -229,8 +235,8 @@ def enrich_rows_from_doi(df, row_uids, *, email: str | None) -> dict:
     rows_filled = 0
     dois_fetched = 0
     seen_doi: set[str] = set()
-    for uid in dict.fromkeys(row_uids):  # deduplicate, preserve order
-        idx = uid_map.get(uid) if isinstance(uid, str) else None
+    for uid in dict.fromkeys(dataset_io.uid_key(u) for u in row_uids):  # deduplicate, preserve order
+        idx = uid_map.get(uid)
         if idx is None:
             continue
         doi = df.at[idx, "DI"]

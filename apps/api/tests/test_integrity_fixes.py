@@ -233,7 +233,7 @@ def project(client):
     pid = client.post("/api/projects", json={"name": "Integrity"}).json()["id"]
     analysis_id, adir = analyses.create_analysis(pid, "smart")
     df = pd.DataFrame({
-        "UID": [f"u{i}" for i in range(6)],
+        "UID": list(range(1, 7)),                       # sequential keys: row i has key i + 1
         "TI": [f"Title {i}" for i in range(6)],
         "PY": [2020, 2021, 2022, 2020, 2021, 2022],
     })
@@ -246,12 +246,12 @@ def test_endpoints_report_request_in_flight_as_409(client, project):
     pid, _ = project
     runner = _jr().job_runner
     with runner.mutation(pid):
-        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["u0"]})
+        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["1"]})
         assert r.status_code == 409 and r.json()["detail"] == "dataset_busy_request_running"
         r = client.post(f"/api/projects/{pid}/enrich/fill-all")
         assert r.status_code == 409 and r.json()["detail"] == "dataset_busy_request_running"
     # Released: the same delete works now.
-    r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["u0"]})
+    r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["1"]})
     assert r.status_code == 200 and r.json()["deleted"] == 1
 
 
@@ -261,7 +261,7 @@ def test_update_record_failed_save_leaves_the_cached_frame_untouched(client, pro
 
     pid, _ = project
     cached = filter_engine.load_merged(pid)
-    assert cached.loc[cached["UID"] == "u1", "TI"].iloc[0] == "Title 1"
+    assert cached.loc[cached["UID"] == 2, "TI"].iloc[0] == "Title 1"
 
     def failing_save(project_id, df):
         raise OSError("disk full")
@@ -269,10 +269,10 @@ def test_update_record_failed_save_leaves_the_cached_frame_untouched(client, pro
     monkeypatch.setattr(records_router, "_save_dataset", failing_save)
     with pytest.raises(OSError):
         client.post(f"/api/projects/{pid}/records/update",
-                    json={"uid": "u1", "fields": {"TI": "EDITED", "NEWCOL": "x"}})
+                    json={"uid": "2", "fields": {"TI": "EDITED", "NEWCOL": "x"}})
     # The shared cache holds no phantom edit and no phantom column.
     again = filter_engine.load_merged(pid)
-    assert again.loc[again["UID"] == "u1", "TI"].iloc[0] == "Title 1"
+    assert again.loc[again["UID"] == 2, "TI"].iloc[0] == "Title 1"
     assert "NEWCOL" not in again.columns
     assert "NEWCOL" not in cached.columns
 
@@ -280,11 +280,11 @@ def test_update_record_failed_save_leaves_the_cached_frame_untouched(client, pro
 def test_update_record_success_still_persists(client, project):
     pid, _ = project
     r = client.post(f"/api/projects/{pid}/records/update",
-                    json={"uid": "u2", "fields": {"TI": "EDITED"}})
+                    json={"uid": "3", "fields": {"TI": "EDITED"}})
     assert r.status_code == 200
     from services import filter_engine
     df = filter_engine.load_merged(pid)
-    assert df.loc[df["UID"] == "u2", "TI"].iloc[0] == "EDITED"
+    assert df.loc[df["UID"] == 3, "TI"].iloc[0] == "EDITED"
 
 
 def test_delete_project_is_blocked_while_a_job_or_request_is_active(client, project):
@@ -417,7 +417,7 @@ def _orcid_project(client, n=10):
     pid = client.post("/api/projects", json={"name": "Orcid"}).json()["id"]
     aid, adir = analyses.create_analysis(pid, "smart")
     df = pd.DataFrame({
-        "UID": [f"u{i}" for i in range(n)],
+        "UID": list(range(1, n + 1)),
         "AU": [f"Smith J; Other{i} A" for i in range(n)],
         "DI": [f"10.1/{i}" for i in range(n)],
         "OI": [""] * n,
@@ -440,7 +440,7 @@ def test_orcid_writeback_with_max_records_keeps_every_row(client, monkeypatch):
 
     out = dio.read_dataset(adir / "merged.parquet")
     assert len(out) == 10                                     # nothing truncated
-    assert list(out["UID"]) == [f"u{i}" for i in range(10)]
+    assert list(out["UID"]) == list(range(1, 11))
     assert list(out["OI"][:3]) == ["oi-0", "oi-1", "oi-2"]    # filled cells applied
     assert all(not str(v).strip() for v in out["OI"][3:])     # the rest untouched
     # The pre-write snapshot is the FULL original, not the 3-row slice.

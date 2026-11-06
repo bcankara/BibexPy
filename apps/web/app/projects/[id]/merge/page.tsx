@@ -5,7 +5,7 @@ import {
   api, type MergeSummary, type AnalysisItem, type UploadedFile, translateApiError, translateTitle,
 } from "@/lib/api-client";
 import {
-  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectJobs,
+  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectBusy, useProjectJobs,
 } from "@/lib/job-store";
 import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { Button } from "@/components/Button";
@@ -40,6 +40,8 @@ export default function MergePage() {
   const jobId = startedJobId ?? runningMerge?.id ?? null;
   // Another exclusive job (enrichment, disambiguation) holds the project: merging must wait.
   const blockingJob = activeJobs.find((j) => j.exclusive && j.kind !== "merge") ?? null;
+  // Any exclusive job (also one that was just started and is still a placeholder in the store).
+  const { busy: jobBusy } = useProjectBusy(id);
   const [summary, setSummary] = useState<MergeSummary | null>(null);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisItem[]>([]);
@@ -82,7 +84,7 @@ export default function MergePage() {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function start() {
-    if (busy || jobId || blockingJob) return;
+    if (busy || jobId || blockingJob || jobBusy) return;
     setBusy(true); setError(null);
     try {
       setJobId(await startTrackedJob(id, api.startMerge(id)));

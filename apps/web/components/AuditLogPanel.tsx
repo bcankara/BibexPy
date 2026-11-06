@@ -12,6 +12,7 @@ import { formatDateTime, formatNumber, formatPercent } from "@/lib/i18n/format";
 import { auditKindLabel, fieldSourceLabel, stageLabel } from "@/lib/i18n/labels";
 import { useConfirm, useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
 
 // Icon + colour per audit kind. Labels come from auditKindLabel() (audit.kinds.<kind>).
 const KIND_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -54,6 +55,8 @@ export function AuditLogPanel({ projectId, open, onClose, onRestored }: Props) {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
+  // An exclusive job of the project runs: restoring a snapshot would be refused (HTTP 409).
+  const { busy: jobBusy } = useProjectBusy(projectId);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -90,7 +93,7 @@ export function AuditLogPanel({ projectId, open, onClose, onRestored }: Props) {
   }
 
   async function handleRestore(snapshot: string) {
-    if (restoringSnapshot) return;
+    if (restoringSnapshot || jobBusy) return;
     const ok = await confirm({
       title: t("audit.restoreTitle"),
       message: t("audit.restoreConfirm"),
@@ -183,6 +186,7 @@ export function AuditLogPanel({ projectId, open, onClose, onRestored }: Props) {
                   entry={e}
                   onRestore={handleRestore}
                   restoring={!!e.snapshot && restoringSnapshot === e.snapshot}
+                  locked={jobBusy}
                 />
               ))}
             </ol>
@@ -306,7 +310,13 @@ function SummaryCell({ label, value, sub, tone }: {
 }
 
 
-function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onRestore: (snapshot: string) => void; restoring?: boolean }) {
+function AuditEntryRow({ entry, onRestore, restoring, locked = false }: {
+  entry: AuditEntry;
+  onRestore: (snapshot: string) => void;
+  restoring?: boolean;
+  /** A job holds the project: restoring a snapshot is disabled. */
+  locked?: boolean;
+}) {
   const { t, locale } = useI18n();
   const iconMeta = KIND_ICONS[entry.kind === "enrich_selected_requested" ? "enrich_selected" : entry.kind] ?? { icon: <FileText className="h-3.5 w-3.5" />, color: "text-muted" };
   const label = auditKindLabel(t, entry.kind);
@@ -367,9 +377,9 @@ function AuditEntryRow({ entry, onRestore, restoring }: { entry: AuditEntry; onR
               </span>
               <button
                 onClick={() => onRestore(entry.snapshot!)}
-                disabled={restoring}
-                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60"
-                title={t("audit.restoreTitle")}
+                disabled={restoring || locked}
+                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60 disabled:cursor-not-allowed"
+                title={locked ? t("lock.busyReason") : t("audit.restoreTitle")}
               >
                 {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
                 {t("audit.restore")}

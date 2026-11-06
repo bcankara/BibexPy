@@ -138,8 +138,9 @@ async def _finish_single_source(
 ) -> dict[str, Any]:
     import asyncio
     output_dataset = adir / "merged.parquet"
-    # The dataset is born here: every row gets its permanent UID before the first write.
-    dataset_io.ensure_uid(df)
+    # The dataset is born here: every row gets its permanent sequential key 1..N (in the final
+    # row order) before the first write, and the analysis records it as its high-water mark.
+    uid_top = dataset_io.assign_sequential_uid(df)
     await dataset_io.write_dataset_uncancellable(df, output_dataset)
     ctx.progress(0.7)
 
@@ -160,6 +161,7 @@ async def _finish_single_source(
     except Exception:
         pass
 
+    analyses.mark_uid_scheme(project_id, analysis_id, uid_top)
     analyses.finalize_analysis(project_id, analysis_id)
     storage.touch_project(project_id)
     ctx.progress(1.0)

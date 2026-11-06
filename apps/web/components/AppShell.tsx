@@ -9,6 +9,7 @@ import {
 import { useI18n, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { api, DOCS_URL } from "@/lib/api-client";
+import { MigrationGate } from "./MigrationGate";
 
 /**
  * AppShell — AutoCAD/Office ribbon pattern:
@@ -142,6 +143,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="flex-1">{children}</main>
+
+      {/* One-time record migration after an update: blocks every page (home included) while it runs. */}
+      <MigrationGate />
 
       {/* Footer — hidden on the home page (Launcher carries its own links/citation).
           Professional 3-section layout: brand+description+social / Resources / Project + bottom bar. */}

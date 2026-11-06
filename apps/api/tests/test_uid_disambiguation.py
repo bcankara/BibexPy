@@ -1,10 +1,12 @@
-"""UID everywhere - disambiguation (package U2).
+"""UID everywhere - disambiguation (sequential integer keys).
 
 Disambiguation proposals are stored and applied in a LATER request, after rows may have
 been deleted, filtered or restored. These tests pin that every row reference inside a
-proposal is the row UID (never a position), that applying resolves the UIDs in the CURRENT
-dataset (a vanished UID is skipped and counted, never mapped to another row), and that
-proposal files from before UIDs / from another analysis are refused.
+proposal is the row UID (never a position; a sequential integer key written as canonical
+text), that applying resolves the UIDs in the CURRENT dataset (a vanished UID is skipped
+and counted, never mapped to another row), that repairs issue keys above the analysis
+high-water mark (never reusing one), and that proposal files from before the sequential
+keys / from another analysis are refused.
 """
 
 import asyncio
@@ -80,6 +82,10 @@ _ROWS = [
 ]
 
 
+# Keys of a dataset that already carries a UID column: deliberately far from the row positions.
+_KEY0 = 100
+
+
 def _make_project(client, rows=_ROWS, with_uid=False):
     from services import analyses, dataset_io as dio
 
@@ -92,7 +98,7 @@ def _make_project(client, rows=_ROWS, with_uid=False):
         "TI": [f"Title {i}" for i in range(len(rows))],
     })
     if with_uid:
-        df.insert(0, "UID", [f"u{i}" for i in range(len(rows))])
+        df.insert(0, "UID", pd.Series([_KEY0 + i for i in range(len(rows))], dtype="int64"))
     dio.atomic_write_dataset(df, adir / "merged.parquet")
     analyses.finalize_analysis(pid, aid)
     return pid, aid, adir
@@ -114,6 +120,16 @@ def _dataset(adir):
     return dio.read_dataset(adir / "merged.parquet")
 
 
+def dio_key(value):
+    from services import dataset_io as dio
+    return dio.uid_key(value)
+
+
+def _keys(df, col="TI"):
+    """title -> canonical UID text, as a request / proposal file carries it."""
+    return {t: dio_key(u) for t, u in zip(df[col], df["UID"])}
+
+
 def _split_for(adir, name="SMITH J"):
     splits = [s for s in _proposals(adir)["splits"] if s["name"] == name]
     assert len(splits) == 1, splits
@@ -130,10 +146,12 @@ def test_scan_persists_uids_and_emits_uid_records(client, monkeypatch):
 
     df = _dataset(adir)
     assert "UID" in df.columns and df["UID"].is_unique and not df["UID"].isna().any()
-    uid_of_ti = dict(zip(df["TI"], df["UID"]))
+    # a dataset born without keys gets the sequential 1..N, as an int64 column
+    assert str(df["UID"].dtype) == "int64" and list(df["UID"]) == list(range(1, len(_ROWS) + 1))
+    uid_of_ti = _keys(df)
 
     props = _proposals(adir)
-    assert props["schema"] == "uid_v1" and props["analysis_id"] == aid
+    assert props["schema"] == "uid_v2" and props["analysis_id"] == aid
     split = _split_for(adir)
     groups = {g["suffix"]: g for g in split["groups"]}
     assert set(groups) == {"", "(b)"}
@@ -145,9 +163,30 @@ def test_scan_persists_uids_and_emits_uid_records(client, monkeypatch):
 def test_scan_keeps_existing_uids(client, monkeypatch):
     pid, aid, adir = _make_project(client, with_uid=True)
     _scan_authors(pid, monkeypatch)
-    assert list(_dataset(adir)["UID"]) == [f"u{i}" for i in range(len(_ROWS))]
+    assert list(_dataset(adir)["UID"]) == [_KEY0 + i for i in range(len(_ROWS))]
     groups = {g["suffix"]: g for g in _split_for(adir)["groups"]}
-    assert set(groups["(b)"]["records"]) == {"u5", "u6"}
+    assert set(groups["(b)"]["records"]) == {str(_KEY0 + 5), str(_KEY0 + 6)}
+
+
+def test_scan_repairs_above_the_high_water_mark_and_never_reuses_a_key(client, monkeypatch):
+    """A row without a key gets uid_max+1.. - not max-in-frame+1 - so a key that once existed
+    (and was deleted) is never issued again. The new uid_max is persisted."""
+    from services import analyses
+
+    pid, aid, adir = _make_project(client, with_uid=True)
+    analyses.bump_uid_max(pid, aid, 500)                      # keys up to 500 were issued once
+    df = _dataset(adir)
+    uid = df["UID"].astype("float64")
+    uid.iloc[3] = float("nan")                                # one row lost its key
+    df["UID"] = uid
+    df.to_parquet(adir / "merged.parquet", index=False)       # bypass the writer's check
+
+    _scan_authors(pid, monkeypatch)
+    after = _dataset(adir)
+    assert str(after["UID"].dtype) == "int64" and after["UID"].is_unique
+    assert after["UID"].iloc[3] == 501
+    assert [int(x) for x in after["UID"].iloc[[0, 1, 2, 4]]] == [_KEY0, _KEY0 + 1, _KEY0 + 2, _KEY0 + 4]
+    assert analyses.get_uid_max(pid, aid) == 501
 
 
 def test_all_scan_kinds_write_the_uid_schema_and_uid_records(client, monkeypatch):
@@ -167,8 +206,8 @@ def test_all_scan_kinds_write_the_uid_schema_and_uid_records(client, monkeypatch
     run(pipeline.run_org_rollup(_Ctx(), pid))
     for kind in ("countries", "organizations"):
         props = json.loads((adir / f"disambiguation_{kind}.json").read_text(encoding="utf-8"))
-        assert props["schema"] == "uid_v1" and props["analysis_id"] == aid
-        uids = set(_dataset(adir)["UID"])
+        assert props["schema"] == "uid_v2" and props["analysis_id"] == aid
+        uids = {dio_key(u) for u in _dataset(adir)["UID"]}
         for c in props["clusters"]:
             for m in c["members"]:
                 assert all(r in uids for r in m.get("records", []))
@@ -181,7 +220,7 @@ def test_blocking_records_are_uids_sorted_by_position_and_truncated_before_mappi
 
     n = 120
     df = pd.DataFrame({
-        "UID": [f"r_{(n - i):016x}" for i in range(n)],     # UID order is the REVERSE of position order
+        "UID": [n - i for i in range(n)],                    # UID order is the REVERSE of position order
         "AU": ["SMITH JOHN" if i % 2 == 0 else "SMITH JON" for i in range(n)],
         "PY": [2020] * n,
     })
@@ -191,7 +230,22 @@ def test_blocking_records_are_uids_sorted_by_position_and_truncated_before_mappi
     recs = cands[0]["records"]
     assert len(recs) == 50 and all(isinstance(r, str) for r in recs)
     # the first 50 POSITIONS were kept (then mapped), in position order
-    assert recs == [f"r_{(n - i):016x}" for i in range(50)]
+    assert recs == [str(n - i) for i in range(50)]
+
+
+def test_blocking_emits_the_same_text_for_int_float_and_string_keys():
+    from services.disambiguation import blocking
+
+    base = {"AU": ["SMITH JOHN", "SMITH JON", "SMITH JOHN"], "PY": [2020, 2021, 2022]}
+    seen = []
+    for keys in ([7, 8, 9], [7.0, 8.0, 9.0], ["7", " 8 ", "9.0"]):
+        df = pd.DataFrame({"UID": keys, **base})
+        recs = [r for s in blocking.build_author_splits(df) for g in s["groups"] for r in g["records"]]
+        recs += [r for b in blocking.build_author_blocks(df, sim_threshold=0.5)
+                 for c in b.get("auto", []) + b.get("members", []) for r in c["records"]]
+        seen.append(recs)
+        assert all(isinstance(r, str) and r in {"7", "8", "9"} for r in recs)
+    assert seen[0] == seen[1] == seen[2] and seen[0]
 
 
 def test_blocking_refuses_a_frame_without_uids():
@@ -209,7 +263,7 @@ def test_every_blocking_builder_emits_uid_strings():
 
     n = 6
     df = pd.DataFrame({
-        "UID": [f"u{i}" for i in range(n)],
+        "UID": [i + 1 for i in range(n)],
         "AU": ["SMITH J", "SMITH JOHN"] * 3,
         "C1": [
             "[A] Univ Ankara, Ankara, Turkey", "[A] Ankara Univ, Ankara, Turkiye",
@@ -228,7 +282,7 @@ def test_every_blocking_builder_emits_uid_strings():
     for s in blocking.build_author_splits(df):
         for g in s["groups"]:
             seen.extend(g["records"])
-    assert seen and all(isinstance(r, str) and r.startswith("u") for r in seen)
+    assert seen and all(isinstance(r, str) and r.isdigit() and 1 <= int(r) <= n for r in seen)
 
 
 # ── orcid.py: UID lookups ─────────────────────────────────────────────────
@@ -237,17 +291,21 @@ def test_orcid_lookup_resolves_uids_not_positions():
     from services.disambiguation import orcid
 
     df = pd.DataFrame({
-        "UID": ["u0", "u1", "u2"],
+        "UID": [1, 2, 3],
         "OI": ["Smith, J/0000-0001-0000-0001", "Smith, J/0000-0001-0000-0002", ""],
     })
-    cand = {"name_variants": ["SMITH J"], "records": ["u1"]}
+    cand = {"name_variants": ["SMITH J"], "records": ["2"]}
     umap = orcid.uid_label_map(df)
     assert orcid.orcids_for_candidate(df, cand, email=None, allow_api=False, uid_map=umap) == {"0000-0001-0000-0002"}
-    # an unknown UID and a legacy int position are skipped, never mapped to another row
-    cand = {"name_variants": ["SMITH J"], "records": ["u9", 0, "u2"]}
+    # an unknown UID (and position 0, which is no key) is skipped, never mapped to another row
+    cand = {"name_variants": ["SMITH J"], "records": ["9", 0, "3"]}
     assert orcid.orcids_for_candidate(df, cand, email=None, allow_api=False, uid_map=umap) == set()
+    # the key compares by its canonical text: "2", 2, 2.0 and " 2 " are the same row
+    for rec in (2, 2.0, " 2 "):
+        assert orcid.orcids_for_candidate(df, {"name_variants": ["SMITH J"], "records": [rec]},
+                                          email=None, allow_api=False, uid_map=umap) == {"0000-0001-0000-0002"}
     # the map is also built on demand
-    assert orcid.orcids_for_candidate(df, {"name_variants": ["SMITH J"], "records": ["u0"]},
+    assert orcid.orcids_for_candidate(df, {"name_variants": ["SMITH J"], "records": ["1"]},
                                       email=None, allow_api=False) == {"0000-0001-0000-0001"}
 
 
@@ -257,8 +315,8 @@ def test_enrich_rows_from_doi_takes_uids(monkeypatch):
     monkeypatch.setattr(orcid, "fetch_orcids_for_doi",
                         lambda doi, email=None: (("Smith J", f"orcid-{doi}", "", "TR"),))
     # row labels deliberately differ from positions and UIDs
-    df = pd.DataFrame({"UID": ["a", "b", "c"], "DI": ["d0", "d1", "d2"]}, index=[10, 20, 30])
-    out = orcid.enrich_rows_from_doi(df, ["b", "zzz", 1], email=None)
+    df = pd.DataFrame({"UID": [1, 2, 3], "DI": ["d0", "d1", "d2"]}, index=[10, 20, 30])
+    out = orcid.enrich_rows_from_doi(df, ["2", "999", 2.0, 0], email=None)
     assert out["rows_filled"] == 1
     assert df.loc[20, "OI"] == "Smith J/orcid-d1"
     assert df.loc[[10, 30], "OI"].isna().all()
@@ -267,9 +325,10 @@ def test_enrich_rows_from_doi_takes_uids(monkeypatch):
 def test_apply_filled_cells_aligns_by_uid_not_position():
     from services.disambiguation import pipeline
 
-    full = pd.DataFrame({"UID": ["a", "b", "c", "d"], "OI": ["", "", "keep", ""]})
-    # the scan-time slice is in a DIFFERENT order than `full` (and `d` no longer exists in `full`)
-    part = pd.DataFrame({"UID": ["c", "b", "x"], "OI": ["overwrite", "new-b", "new-x"]})
+    full = pd.DataFrame({"UID": [1, 2, 3, 4], "OI": ["", "", "keep", ""]})
+    # the scan-time slice is in a DIFFERENT order than `full`, its keys arrive as floats, and
+    # key 99 does not exist in `full`
+    part = pd.DataFrame({"UID": [3.0, 2.0, 99.0], "OI": ["overwrite", "new-b", "new-x"]})
     out = pipeline._apply_filled_cells(full, part)
     assert list(out["OI"]) == ["", "new-b", "keep", ""]
 
@@ -285,8 +344,8 @@ def test_split_lands_on_the_intended_records_after_delete_and_filter(client, mon
     pid, aid, adir = _make_project(client)
     _scan_authors(pid, monkeypatch)
     df0 = _dataset(adir)
-    uid_by_title = dict(zip(df0["TI"], df0["UID"]))
-    au_by_uid_before = dict(zip(df0["UID"], df0["AU"]))
+    uid_by_title = _keys(df0)
+    au_by_uid_before = {dio_key(u): a for u, a in zip(df0["UID"], df0["AU"])}
     split = _split_for(adir)
 
     # 1) delete row 0 (comes BEFORE the targets) by UID
@@ -311,7 +370,7 @@ def test_split_lands_on_the_intended_records_after_delete_and_filter(client, mon
     assert set(body["changed_uids"]) == {uid_by_title["Title 5"], uid_by_title["Title 6"]}
 
     after = _dataset(adir)
-    au_after = dict(zip(after["UID"], after["AU"]))
+    au_after = {dio_key(u): a for u, a in zip(after["UID"], after["AU"])}
     target = {uid_by_title["Title 5"], uid_by_title["Title 6"]}
     for uid, au in au_after.items():
         if uid in target:
@@ -333,8 +392,8 @@ def test_split_lands_on_the_intended_records_after_a_snapshot_restore(client, mo
     pid, aid, adir = _make_project(client)
     _scan_authors(pid, monkeypatch)
     df0 = _dataset(adir)
-    uid_by_title = dict(zip(df0["TI"], df0["UID"]))
-    au_before = dict(zip(df0["UID"], df0["AU"]))
+    uid_by_title = _keys(df0)
+    au_before = {dio_key(u): a for u, a in zip(df0["UID"], df0["AU"])}
     split = _split_for(adir)
 
     r1 = client.post(f"/api/projects/{pid}/records/delete", json={"uids": [uid_by_title["Title 0"]]})
@@ -345,7 +404,8 @@ def test_split_lands_on_the_intended_records_after_a_snapshot_restore(client, mo
     r3 = client.post(f"/api/projects/{pid}/records/restore-snapshot", json={"snapshot": snap_before_second_delete})
     assert r3.status_code == 200, r3.text
     now = _dataset(adir)
-    assert uid_by_title["Title 0"] not in set(now["UID"]) and uid_by_title["Title 5"] in set(now["UID"])
+    now_keys = {dio_key(u) for u in now["UID"]}
+    assert uid_by_title["Title 0"] not in now_keys and uid_by_title["Title 5"] in now_keys
 
     r = _apply(client, pid, [{"split_id": split["split_id"]}])
     assert r.status_code == 200, r.text
@@ -354,6 +414,7 @@ def test_split_lands_on_the_intended_records_after_a_snapshot_restore(client, mo
     assert body["applied_rows"] == 2 and body["skipped_missing"] == 0 and set(body["changed_uids"]) == target
     after = _dataset(adir)
     for uid, au in zip(after["UID"], after["AU"]):
+        uid = dio_key(uid)
         if uid in target:
             assert "SMITH J (b)" in [x.strip() for x in au.split(";")]
         else:
@@ -364,7 +425,7 @@ def test_a_deleted_target_uid_is_skipped_and_counted(client, monkeypatch):
     pid, aid, adir = _make_project(client)
     _scan_authors(pid, monkeypatch)
     df0 = _dataset(adir)
-    uid_by_title = dict(zip(df0["TI"], df0["UID"]))
+    uid_by_title = _keys(df0)
     split = _split_for(adir)
 
     # one of the two (b) records is deleted before the apply
@@ -377,7 +438,7 @@ def test_a_deleted_target_uid_is_skipped_and_counted(client, monkeypatch):
     assert body["applied_rows"] == 1 and body["skipped_missing"] == 1
     assert body["changed_uids"] == [uid_by_title["Title 5"]]
     after = _dataset(adir)
-    assert gone not in set(after["UID"])
+    assert gone not in {dio_key(u) for u in after["UID"]}
     assert sum("SMITH J (b)" in a for a in after["AU"]) == 1
     audit = json.loads((adir / "disambiguation_audit_authors_split.json").read_text(encoding="utf-8"))
     assert audit[-1]["skipped_missing"] == 1 and audit[-1]["applied_rows"] == 1
@@ -387,7 +448,7 @@ def test_all_targets_gone_is_a_noop_with_counts(client, monkeypatch):
     pid, aid, adir = _make_project(client)
     _scan_authors(pid, monkeypatch)
     df0 = _dataset(adir)
-    uid_by_title = dict(zip(df0["TI"], df0["UID"]))
+    uid_by_title = _keys(df0)
     split = _split_for(adir)
     gone = [uid_by_title["Title 5"], uid_by_title["Title 6"]]
     assert client.post(f"/api/projects/{pid}/records/delete", json={"uids": gone}).status_code == 200
@@ -406,7 +467,7 @@ def test_unknown_split_id_is_skipped_and_counted(client, monkeypatch):
     before = _dataset(adir)
     r = _apply(client, pid, [{"split_id": "does_not_exist",
                               "name": "SMITH J",
-                              "groups": [{"suffix": "(b)", "records": list(before["UID"])}]}])
+                              "groups": [{"suffix": "(b)", "records": [dio_key(u) for u in before["UID"]]}]}])
     assert r.status_code == 200
     body = r.json()["split"]
     assert body["replacements"] == 0 and body["skipped_unknown_split"] == 1
@@ -442,6 +503,23 @@ def test_legacy_proposals_with_int_records_are_refused(client, monkeypatch):
     (adir / "disambiguation_authors.json").write_text(json.dumps(legacy), encoding="utf-8")
     before = _dataset(adir)
     r = _apply(client, pid, [{"split_id": "smith_j_0"}])
+    assert r.status_code == 409 and r.json()["detail"] == "proposals_stale_rescan"
+    pd.testing.assert_frame_equal(_dataset(adir), before)
+
+
+def test_proposals_with_the_random_key_schema_are_refused(client, monkeypatch):
+    """A proposal file written with the older random "r_..." keys (schema uid_v1) is stale."""
+    pid, aid, adir = _make_project(client)
+    _scan_authors(pid, monkeypatch)
+    split = _split_for(adir)
+    props = _proposals(adir)
+    props["schema"] = "uid_v1"
+    for g in split["groups"]:
+        g["records"] = [f"r_{int(r):016x}" for r in g["records"]]
+    props["splits"] = [split]
+    (adir / "disambiguation_authors.json").write_text(json.dumps(props), encoding="utf-8")
+    before = _dataset(adir)
+    r = _apply(client, pid, [{"split_id": split["split_id"]}])
     assert r.status_code == 409 and r.json()["detail"] == "proposals_stale_rescan"
     pd.testing.assert_frame_equal(_dataset(adir), before)
 
@@ -497,6 +575,7 @@ def test_disambiguation_restore_of_a_uidless_snapshot_yields_valid_uids(client, 
     assert r.status_code == 200, r.text
     df = _dataset(adir)
     assert "UID" in df.columns and df["UID"].is_unique and len(df) == len(_ROWS)
+    assert str(df["UID"].dtype) == "int64" and (df["UID"] > 0).all()
     dio.check_uid(df)
 
 
@@ -515,4 +594,4 @@ def test_disambiguation_restore_repairs_duplicate_uids(client):
     rel = str(snap.relative_to(storage.settings.storage_path))
     assert client.post(f"/api/projects/{pid}/disambiguate/restore", json={"snapshot": rel}).status_code == 200
     df = _dataset(adir)
-    assert df["UID"].is_unique and not (df["UID"] == "").any()
+    assert df["UID"].is_unique and str(df["UID"].dtype) == "int64" and (df["UID"] > 0).all()

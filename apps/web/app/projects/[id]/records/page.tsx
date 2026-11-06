@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api, translateApiError, type FilterResponse, type FilterSpec, type Preset } from "@/lib/api-client";
+import { api, translateApiError, uidKey, type FilterResponse, type FilterSpec, type Preset, type RecordRow } from "@/lib/api-client";
 import { Card, CardBody, CardHeader } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -16,6 +16,7 @@ import { formatNumber } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
 import { StepNav } from "@/components/StepNav";
+import { useProjectBusy } from "@/lib/job-store";
 
 const EMPTY: FilterSpec = {};
 const PAGE_SIZE = 50;
@@ -25,6 +26,9 @@ export default function RecordsPage() {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
+  // An exclusive job of the project runs (enrichment, disambiguation, merge): every control that
+  // changes the dataset is disabled. Reading, filtering and browsing stay available.
+  const { busy: jobBusy } = useProjectBusy(id);
   const [spec, setSpec] = useState<FilterSpec>(EMPTY);
   const [data, setData] = useState<FilterResponse | null>(null);
   const [error, setErrorText] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export default function RecordsPage() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetName, setPresetName] = useState("");
   const [activePreset, setActivePreset] = useState<string | null>(null);
-  const [selectedRecord, setSelectedRecord] = useState<Record<string, string | null> | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<RecordRow | null>(null);
   const [editStart, setEditStart] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -146,7 +150,7 @@ export default function RecordsPage() {
    * toast is shown. */
   const [applyingFilter, setApplyingFilter] = useState(false);
   async function applyFilterToDataset() {
-    if (!data || activeCount === 0 || applyingFilter) return;
+    if (!data || activeCount === 0 || applyingFilter || jobBusy) return;
     const totalAll = data.facets_all?.total ?? data.total;
     const removed = totalAll - data.total;
     if (removed <= 0) return;
@@ -190,16 +194,16 @@ export default function RecordsPage() {
     refresh(0);
   }, [refresh]);
 
-  async function handleDeleteRow(row: Record<string, string | null>) {
+  async function handleDeleteRow(row: RecordRow) {
     // Rows are addressed by UID only; a row without a UID cannot be deleted.
-    const uid = (row.UID ?? "").trim();
-    if (!uid) return;
+    const uid = uidKey(row.UID);
+    if (!uid || jobBusy) return;
     if (!(await confirm({ message: t("records.deleteRowConfirm"), tone: "danger" }))) return;
     try {
       const r = await api.deleteRecords(id, { uids: [uid] });
       if ((r.not_found ?? 0) > 0) toast(t("records.rowAlreadyGone"), { tone: "warning" });
       setSelectedRows((prev) => { const n = new Set(prev); n.delete(uid); return n; });
-      if ((selectedRecord?.UID ?? "") === uid) { setSelectedRecord(null); setEditStart(false); }
+      if (uidKey(selectedRecord?.UID) === uid) { setSelectedRecord(null); setEditStart(false); }
       refresh(0);
     } catch (e) {
       setError(translateApiError(t, e, "records.queryFailed"), e);
@@ -221,6 +225,13 @@ export default function RecordsPage() {
         }
       />
       <div className="max-w-[1480px] mx-auto px-6 py-6 space-y-4">
+
+        {jobBusy && (
+          <div className="flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs text-cyan-900">
+            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+            {t("lock.dataLocked")}
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-red-700">
@@ -307,6 +318,7 @@ export default function RecordsPage() {
               onClear={() => setSpec(EMPTY)}
               onApply={applyFilterToDataset}
               applying={applyingFilter}
+              locked={jobBusy}
             />
 
             {data ? (
@@ -314,8 +326,9 @@ export default function RecordsPage() {
                 data={data}
                 onPage={refresh}
                 onRowClick={(r) => { setSelectedRecord(r); setEditStart(false); }}
-                onEditRow={(r) => { setSelectedRecord(r); setEditStart(true); }}
-                onDeleteRow={handleDeleteRow}
+                // Row actions are hidden while a job holds the project (edit/delete would be refused).
+                onEditRow={jobBusy ? undefined : (r) => { setSelectedRecord(r); setEditStart(true); }}
+                onDeleteRow={jobBusy ? undefined : handleDeleteRow}
                 selected={selectedRows}
                 onSelectionChange={setSelectedRows}
               />
@@ -359,7 +372,7 @@ export default function RecordsPage() {
   );
 }
 
-function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying = false }: {
+function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying = false, locked = false }: {
   data: FilterResponse | null;
   activeCount: number;
   loading: boolean;
@@ -367,6 +380,8 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying
   onClear: () => void;
   onApply: () => void;
   applying?: boolean;
+  /** A job holds the project: applying the filter to the dataset is disabled. */
+  locked?: boolean;
 }) {
   const { t, locale } = useI18n();
   if (!data) return null;
@@ -400,9 +415,9 @@ function StatsBar({ data, activeCount, loading, spec, onClear, onApply, applying
           {data.total < totalAll && (
             <button
               onClick={onApply}
-              disabled={applying}
+              disabled={applying || locked}
               className="text-xs font-semibold px-2 py-1 rounded-md border border-success/40 bg-success-soft text-emerald-700 hover:bg-success-soft/70 flex items-center gap-1 disabled:opacity-70 disabled:cursor-wait"
-              title={t("records.filter.applyDetail")}
+              title={locked ? t("lock.busyReason") : t("records.filter.applyDetail")}
             >
               {applying
                 ? <><Loader2 className="h-3 w-3 animate-spin" /> {t("records.filter.applying")}</>

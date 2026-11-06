@@ -10,7 +10,9 @@ the currently active analysis via an active.json pointer.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -41,8 +43,32 @@ def analysis_dir(project_id: str, analysis_id: str) -> Path:
 #  CRUD
 # ─────────────────────────────────────────────────────────────
 
+# Read-modify-write of meta.json happens from request threads, jobs and the startup
+# migration; one process-wide lock keeps two of them from losing each other's field.
+_META_LOCK = threading.RLock()
+
+
 def _write_meta(adir: Path, meta: dict[str, Any]) -> None:
-    (adir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    """Write meta.json atomically: a concurrent reader sees the old or the new file, never half."""
+    target = adir / "meta.json"
+    tmp = adir / f"meta.json.{os.getpid()}.{threading.get_ident()}.tmp~"
+    try:
+        tmp.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        last: BaseException | None = None
+        for _ in range(6):
+            try:
+                os.replace(tmp, target)
+                return
+            except PermissionError as e:  # briefly open by a reader (Windows)
+                last = e
+                time.sleep(0.05)
+        raise last  # type: ignore[misc]
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def _read_meta(adir: Path) -> dict[str, Any]:
@@ -98,11 +124,102 @@ def finalize_analysis(project_id: str, analysis_id: str) -> None:
     adir = analysis_dir(project_id, analysis_id)
     if not adir.exists():
         return
-    meta = _read_meta(adir)
-    meta["file_count"] = sum(1 for p in adir.iterdir() if p.is_file() and p.name != "meta.json")
-    meta["completed_at"] = time.time()
-    _write_meta(adir, meta)
+    with _META_LOCK:
+        meta = _read_meta(adir)
+        meta["file_count"] = sum(1 for p in adir.iterdir()
+                                 if p.is_file() and p.name != "meta.json" and not p.name.endswith(".tmp~"))
+        meta["completed_at"] = time.time()
+        _write_meta(adir, meta)
     set_active_analysis(project_id, analysis_id)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Row-key high-water mark (uid_scheme / uid_max)
+# ─────────────────────────────────────────────────────────────
+# Row keys are sequential integers that are issued once and never reused. The meta keeps
+# ``uid_scheme: "seq_v1"`` and ``uid_max``, the largest key ever issued in the analysis, so a
+# repair (a row without a key, a repeated key) always takes a number above every key a
+# snapshot of this analysis may still hold.
+
+UID_SCHEME = "seq_v1"
+
+
+def get_uid_max(project_id: str, analysis_id: Optional[str]) -> int:
+    """uid_max of an analysis (0 when unknown or not recorded yet)."""
+    if not analysis_id:
+        return 0
+    value = _read_meta(analysis_dir(project_id, analysis_id)).get("uid_max")
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def bump_uid_max(project_id: str, analysis_id: Optional[str], value: int) -> int:
+    """Raise uid_max to ``value`` when that is higher (never lowers it). Returns the stored value."""
+    if not analysis_id:
+        return int(value)
+    adir = analysis_dir(project_id, analysis_id)
+    if not adir.exists():
+        return int(value)
+    with _META_LOCK:
+        meta = _read_meta(adir)
+        if not meta:
+            return int(value)  # no readable meta: never invent one just to hold a counter
+        try:
+            current = max(0, int(meta.get("uid_max")))
+        except (TypeError, ValueError):
+            current = 0
+        if int(value) > current:
+            meta["uid_max"] = int(value)
+            _write_meta(adir, meta)
+            return int(value)
+        return current
+
+
+def mark_uid_scheme(project_id: str, analysis_id: str, uid_max: int) -> None:
+    """Record that the analysis uses sequential keys, with ``uid_max`` as its high-water mark."""
+    adir = analysis_dir(project_id, analysis_id)
+    with _META_LOCK:
+        meta = _read_meta(adir)
+        if not meta:
+            return
+        meta["uid_scheme"] = UID_SCHEME
+        try:
+            current = max(0, int(meta.get("uid_max")))
+        except (TypeError, ValueError):
+            current = 0
+        meta["uid_max"] = max(current, int(uid_max))
+        _write_meta(adir, meta)
+
+
+def ensure_dataset_uid(project_id: str, df, analysis_id: Optional[str] = None) -> bool:
+    """`dataset_io.ensure_uid` with the analysis's high-water mark as floor.
+
+    ``analysis_id`` defaults to the active analysis; a caller working on a pinned dataset
+    (a long job) passes the folder name of that dataset. uid_max is raised to the frame's
+    largest key BEFORE the caller persists the frame, so a crash in between can only leave
+    a gap in the numbering, never a key that is issued twice. True = the frame changed.
+    """
+    aid = analysis_id or get_active_analysis_id(project_id)
+    # One lock hold from reading the floor to raising it: two threads repairing frames of the
+    # same analysis must not both issue the same new keys from the same floor.
+    with _META_LOCK:
+        changed = dataset_io.ensure_uid(df, floor=get_uid_max(project_id, aid))
+        top = dataset_io.max_uid(df)
+        if top and aid and top > get_uid_max(project_id, aid):
+            bump_uid_max(project_id, aid, top)
+    return changed
+
+
+def analysis_id_of_path(project_id: str, path: Path) -> Optional[str]:
+    """The analysis a dataset/snapshot path lives in (its folder or the parent of snapshots/)."""
+    base = (storage.project_dir(project_id) / "analyses").resolve()  # no mkdir: a pure lookup
+    try:
+        rel = Path(path).resolve().relative_to(base)
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 def list_analyses(project_id: str) -> list[dict[str, Any]]:
@@ -360,6 +477,16 @@ def _audit_migration(project_id: str):
     module-level cycle).
     """
     def cb(target: Path, snapshot: Optional[Path]) -> None:
+        # The migrated frame got sequential keys (ensure_parquet): record the high-water mark.
+        try:
+            import pandas as pd
+            keys = pd.read_parquet(target, columns=[dataset_io.UID_COL])
+            top = dataset_io.max_uid(keys)
+            aid = analysis_id_of_path(project_id, target)
+            if top and aid:
+                bump_uid_max(project_id, aid, top)
+        except Exception:
+            pass  # best effort: ensure_dataset_uid raises uid_max on the next load anyway
         from services import audit
         audit.write(
             project_id,

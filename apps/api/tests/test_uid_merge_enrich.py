@@ -2,17 +2,17 @@
 
 Pins the identity rules of package U3:
 
-* WoS and Scopus source rows get a UID right after loading; a matched pair keeps the
-  WoS row's UID, an unmatched row keeps its own, and the merge result is unchanged
-  (bundled sample: 3735 records, 422 matched pairs, 20 borderline pairs).
-* match_audit.xlsx / borderline_queue.xlsx name the rows by UID.
+* While matching, the source rows carry TEMPORARY ids (never persisted); the permanent keys
+  1..N are assigned in the final row order (merged pairs, unmatched WoS, unmatched Scopus) and
+  the merge result is unchanged (bundled sample: 3735 records, 422 matched pairs, 20 borderline).
+* match_audit.xlsx (`uid`), borderline_queue.xlsx (wos_uid/scp_uid) and Lost_*_Records.xlsx
+  are translated to the final keys before they are written.
 * Accepting a borderline pair locates the rows by UID first, never by position, and a
   UID that is no longer in the dataset is reported instead of mapped to another row.
 * The enrichment jobs persist UIDs before their snapshot and never write 'row N' labels.
 """
 
 import asyncio
-import re
 import sys
 import time
 from pathlib import Path
@@ -27,13 +27,13 @@ if str(_PACKAGES) not in sys.path:
     sys.path.insert(0, str(_PACKAGES))
 
 from services.smart_merger import (  # noqa: E402
-    _assign_source_uids,
+    _assign_final_keys,
+    _assign_source_ids,
     _merge_accepted_pairs,
     merge_pair_with_preferences,
 )
 
 _SAMPLE = _API_ROOT.parents[1] / "python_pkg" / "src" / "bibexpy" / "_samples" / "simple_project"
-_UID_RE = re.compile(r"^r_[0-9a-f]{16}$")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -95,69 +95,99 @@ def _pair(pid="p1", **over):
 
 def _uid_dataset():
     df = _dataset_without_uid()
-    df.insert(0, "UID", ["r_" + f"{i:016x}" for i in (1, 2, 3)])
+    df.insert(0, "UID", [1, 2, 3])
     return df
 
 
 # ── source UID assignment / pair merge (unit) ────────────────────────────
 
-def test_source_frames_get_unique_uids_and_keep_valid_ones():
-    wos = pd.DataFrame({"TI": ["a", "b", "c"]})
-    scp = pd.DataFrame({"TI": ["a", "b"], "UID": ["r_" + "0" * 16, "r_" + "1" * 16]})
-    wos["UID"] = ["r_" + "0" * 16, "", "r_" + "2" * 16]          # clashes with scp[0], one blank
-    _assign_source_uids(wos, scp)
-    allu = list(wos["UID"]) + list(scp["UID"])
-    assert len(set(allu)) == 5 and all(_UID_RE.match(u) for u in allu)
-    assert wos["UID"].iloc[0] == "r_" + "0" * 16 and wos["UID"].iloc[2] == "r_" + "2" * 16
-    assert scp["UID"].iloc[0] != "r_" + "0" * 16                  # the Scopus repeat was renewed
-    assert scp["UID"].iloc[1] == "r_" + "1" * 16                  # valid unique UID untouched
+def test_source_frames_get_temporary_ids_that_never_collide():
+    wos = pd.DataFrame({"TI": ["a", "b", "c"], "UID": [1, 2, 3]})     # a re-imported export's own keys
+    scp = pd.DataFrame({"TI": ["a", "b"], "UID": [1, 2]}, index=[7, 7])   # repeated labels, same keys
+    _assign_source_ids(wos, scp)
+    assert list(wos["UID"]) == ["w0", "w1", "w2"] and list(scp["UID"]) == ["s0", "s1"]
+    assert not set(wos["UID"]) & set(scp["UID"])
 
 
-def test_scopus_uid_clash_is_renewed_by_position_even_with_repeated_index_labels():
-    wos = pd.DataFrame({"TI": ["a"], "UID": ["r_" + "0" * 16]})
-    scp = pd.DataFrame({"TI": ["b", "c", "d"],
-                        "UID": ["r_" + "0" * 16, "r_" + "1" * 16, "r_" + "0" * 16]},
-                       index=[7, 7, 7])                                # repeated labels
-    _assign_source_uids(wos, scp)
-    allu = list(wos["UID"]) + list(scp["UID"])
-    assert len(set(allu)) == 4 and all(_UID_RE.match(u) for u in allu)
-    assert scp["UID"].iloc[1] == "r_" + "1" * 16                      # the valid unique one is untouched
-
-
-def test_source_frames_without_uid_column_get_one():
+def test_source_frames_without_uid_column_get_temporary_ids():
     wos, scp = pd.DataFrame({"TI": ["a", "b"]}), pd.DataFrame({"TI": ["c"]})
-    _assign_source_uids(wos, scp)
-    allu = list(wos["UID"]) + list(scp["UID"])
-    assert len(set(allu)) == 3 and all(_UID_RE.match(u) for u in allu)
+    _assign_source_ids(wos, scp)
+    assert list(wos["UID"]) == ["w0", "w1"] and list(scp["UID"]) == ["s0"]
+
+
+def _stage_frames():
+    """Pair (w0, s1) matched; w1, w2 and s0, s2 unmatched; (w1, s0) is a pending borderline pair."""
+    wos = pd.DataFrame({"TI": ["m", "x", "y"], "UID": ["w0", "w1", "w2"]})
+    scp = pd.DataFrame({"TI": ["x2", "m2", "z"], "UID": ["s0", "s1", "s2"]})
+    matches = [{"pair_id": "p000001", "wos_tmp": "w0", "scp_tmp": "s1", "wos_index": 0, "scp_index": 1}]
+    borderline = [{"pair_id": "p000002", "wos_uid": "w1", "scp_uid": "s0"}]
+    wos_nm, scp_nm = wos.iloc[[1, 2]].copy(), scp.iloc[[0, 2]].copy()
+    merged = pd.DataFrame({"TI": ["m"], "UID": ["w0"]})                # the pair keeps the WoS temp id
+    final = pd.concat([merged, wos_nm, scp_nm], ignore_index=True)
+    return final, matches, borderline, wos_nm, scp_nm
+
+
+def test_final_keys_are_sequential_in_final_row_order_and_references_are_translated():
+    final, matches, borderline, wos_nm, scp_nm = _stage_frames()
+    assert _assign_final_keys(final, matches, borderline, wos_nm, scp_nm) == 5
+    assert list(final["UID"]) == [1, 2, 3, 4, 5] and final["UID"].dtype == "int64"
+    assert list(final["TI"]) == ["m", "x", "y", "x2", "z"]
+    assert matches[0]["uid"] == 1                                       # audit: the merged row's key
+    assert borderline[0]["wos_uid"] == 2 and borderline[0]["scp_uid"] == 4   # both rows live in the dataset
+    assert list(wos_nm["UID"]) == [2, 3] and list(scp_nm["UID"]) == [4, 5]   # Lost_* files carry final keys
+    assert wos_nm["UID"].dtype == "int64"
+
+
+def test_final_keys_refuse_a_frame_that_is_not_in_the_expected_order():
+    final, matches, borderline, wos_nm, scp_nm = _stage_frames()
+    final = final.iloc[::-1].reset_index(drop=True)
+    with pytest.raises(RuntimeError, match="merge_uid_mismatch"):
+        _assign_final_keys(final, matches, borderline, wos_nm, scp_nm)
+
+
+def test_final_keys_for_a_merge_without_matches():
+    wos = pd.DataFrame({"TI": ["a"], "UID": ["w0"]})
+    scp = pd.DataFrame({"TI": ["b"], "UID": ["s0"]})
+    final = pd.concat([pd.DataFrame(), wos, scp], ignore_index=True)
+    assert _assign_final_keys(final, [], [], wos.copy(), scp.copy()) == 2
+    assert list(final["UID"]) == [1, 2]
 
 
 def test_matched_pair_keeps_the_wos_uid_and_logs_no_uid_conflict():
-    w = {"UID": "r_w", "TI": "t", "AB": "", "TC": 3}
-    s = {"UID": "r_s", "TI": "t", "AB": "abstract", "TC": 4}
+    w = {"UID": "w3", "TI": "t", "AB": "", "TC": 3}
+    s = {"UID": "s9", "TI": "t", "AB": "abstract", "TC": 4}
     merged, conflicts = merge_pair_with_preferences("p1", w, s, ["UID", "TI", "AB", "TC"])
-    assert merged["UID"] == "r_w"
+    assert merged["UID"] == "w3"
     assert all(c["field"] != "UID" for c in conflicts)
     assert any(c["field"] == "TC" for c in conflicts)             # real conflicts still logged
-    # An empty WoS UID can only come from a corrupt frame; the Scopus UID is then the fallback.
+    # An empty WoS id can only come from a corrupt frame; the Scopus id is then the fallback.
     merged, _ = merge_pair_with_preferences("p1", {**w, "UID": ""}, s, ["UID", "TI"])
-    assert merged["UID"] == "r_s"
+    assert merged["UID"] == "s9"
 
 
 # ── accepting a pair: UID first, no positional / lookalike mapping ───────
 
 def test_pair_with_uids_merges_exactly_those_rows():
     df = _uid_dataset()
-    pair = _pair(wos_uid="r_" + f"{1:016x}", scp_uid="r_" + f"{2:016x}")
+    pair = _pair(wos_uid=1, scp_uid=2)
     out, outcomes, _ = _merge_accepted_pairs(df, [pair], set())
     assert outcomes == {"p1": "merged"}
-    assert list(out["UID"]) == ["r_" + f"{1:016x}", "r_" + f"{3:016x}"]
-    assert out.loc[out["UID"] == "r_" + f"{1:016x}", "AB"].iloc[0] == "Scopus abstract"
+    assert list(out["UID"]) == [1, 3]                                  # the pair keeps the WoS key; 2 is retired
+    assert out.loc[out["UID"] == 1, "AB"].iloc[0] == "Scopus abstract"
+
+
+def test_pair_uids_match_however_the_queue_spells_them():
+    # An Excel round trip can hand the keys back as floats, numeric text or numpy ints.
+    import numpy as np
+    for w, s_ in ((1.0, 2.0), ("1", "2"), (np.int64(1), np.int64(2)), (" 1 ", "2.0")):
+        out, outcomes, _ = _merge_accepted_pairs(_uid_dataset(), [_pair(wos_uid=w, scp_uid=s_)], set())
+        assert outcomes == {"p1": "merged"} and list(out["UID"]) == [1, 3], (w, s_)
 
 
 def test_uid_lookup_survives_row_reordering_and_deletions():
     df = _uid_dataset().iloc[::-1].reset_index(drop=True)           # positions all changed
     df = pd.concat([df.iloc[:0], df], ignore_index=True)
-    pair = _pair(wos_uid="r_" + f"{1:016x}", scp_uid="r_" + f"{2:016x}")
+    pair = _pair(wos_uid=1, scp_uid=2)
     out, outcomes, _ = _merge_accepted_pairs(df, [pair], set())
     assert outcomes == {"p1": "merged"} and len(out) == 2
     assert "2-s2.0-1" not in set(out["UT"])
@@ -167,14 +197,14 @@ def test_missing_uid_is_reported_not_mapped_to_a_lookalike():
     # The pair's WoS UID is gone, but another WoS row carries the same UT/title: the old
     # identifier fallback would have merged into it. With UIDs in the queue it must not.
     df = _uid_dataset()
-    df.loc[0, "UID"] = "r_" + "f" * 16                              # a different row now holds WOS:1
-    pair = _pair(wos_uid="r_" + f"{1:016x}", scp_uid="r_" + f"{2:016x}")
+    df.loc[0, "UID"] = 999                                          # a different key now holds WOS:1
+    pair = _pair(wos_uid=1, scp_uid=2)
     out, outcomes, _ = _merge_accepted_pairs(df, [pair], set())
     assert outcomes == {"p1": "unresolved:wos_missing"}
     assert len(out) == 3 and "2-s2.0-1" in set(out["UT"])
     # Scopus side gone -> the decision is effectively applied; nothing else is touched.
     df = _uid_dataset()
-    pair = _pair(wos_uid="r_" + f"{1:016x}", scp_uid="r_" + "e" * 16)
+    pair = _pair(wos_uid=1, scp_uid=555)
     out, outcomes, _ = _merge_accepted_pairs(df, [pair], set())
     assert outcomes == {"p1": "noop_scp_missing"} and len(out) == 3
 
@@ -207,10 +237,10 @@ def test_decide_borderline_persists_uids_before_the_snapshot(sample_client):
     res = smart_merger.decide_borderline(pid, [{"pair_id": "p1", "decision": "accept"}])
     assert res["merged_pairs"] == 1 and res["snapshot"]
     after = dataset_io.read_dataset(adir / "merged.parquet")
-    assert len(after) == 2 and after["UID"].is_unique and all(_UID_RE.match(u) for u in after["UID"])
+    assert list(after["UID"]) == [1, 3] and after["UID"].dtype == "int64"   # keys 1..3 were issued first
     snap = dataset_io.read_dataset(Path(smart_merger.storage.settings.storage_path) / res["snapshot"])
-    assert len(snap) == 3 and snap["UID"].is_unique                    # snapshot carries the same UIDs
-    assert set(after["UID"]) <= set(snap["UID"])
+    assert list(snap["UID"]) == [1, 2, 3]                              # snapshot carries the same UIDs
+    assert analyses.get_uid_max(pid, aid) == 3                         # the high-water mark was recorded
     # list_borderline tolerates a queue without uid columns
     items = smart_merger.list_borderline(pid)
     assert items[0]["wos_uid"] is None and items[0]["scp_uid"] is None
@@ -255,29 +285,46 @@ def test_sample_merge_result_is_unchanged_and_every_row_has_a_uid(sample_client)
     adir = path.parent
     df = dataset_io.read_dataset(path)
     assert len(df) == 3735
-    uids = df["UID"].astype(str)
-    assert uids.is_unique and all(_UID_RE.match(u) for u in uids)
+    # Sequential keys 1..N in the final row order, like a database primary key.
+    assert df["UID"].dtype == "int64" and list(df["UID"]) == list(range(1, 3736))
+    meta = analyses.get_analysis_meta(pid, adir.name)
+    assert meta["uid_scheme"] == "seq_v1" and meta["uid_max"] == 3735
 
-    # Matched rows keep the WoS UID; the Scopus UID is retired.
+    # Final order: merged pairs first, then the unmatched WoS rows, then the unmatched Scopus rows.
+    assert (df["DB"].iloc[:422] == "BIBEXPY_SMART").all()
+    assert (df["DB"].iloc[422:] != "BIBEXPY_SMART").all()
+
+    # match_audit: one `uid` per pair = the key of the merged row; no temporary ids persisted.
     audit = pd.read_excel(adir / "match_audit.xlsx")
-    assert len(audit) == 422 and {"wos_uid", "scp_uid"} <= set(audit.columns)
-    final = set(uids)
-    assert audit["wos_uid"].astype(str).isin(final).all()
-    assert not audit["scp_uid"].astype(str).isin(final).any()
-    smart_rows = set(df.loc[df["DB"] == "BIBEXPY_SMART", "UID"].astype(str))
-    assert smart_rows == set(audit["wos_uid"].astype(str))
+    assert len(audit) == 422 and "uid" in audit.columns
+    assert "wos_uid" not in audit.columns and "scp_uid" not in audit.columns
+    assert sorted(audit["uid"]) == list(range(1, 423))
+    smart_rows = set(df.loc[df["DB"] == "BIBEXPY_SMART", "UID"])
+    assert smart_rows == set(audit["uid"])
 
-    # The queue names both rows by UID, and both are in the dataset (unmatched rows keep their own).
+    # The queue names both rows by their final keys, and both are in the dataset.
+    final = set(df["UID"])
     queue = pd.read_excel(adir / "borderline_queue.xlsx")
     assert len(queue) == 20 and {"wos_uid", "scp_uid"} <= set(queue.columns)
-    assert queue["wos_uid"].astype(str).isin(final).all() and queue["scp_uid"].astype(str).isin(final).all()
+    assert queue["wos_uid"].isin(final).all() and queue["scp_uid"].isin(final).all()
     assert (queue["wos_uid"] != queue["scp_uid"]).all()
+    for _, row in queue.iterrows():                                    # the keys point at the right rows
+        w = df.loc[df["UID"] == row["wos_uid"]].iloc[0]
+        s_ = df.loc[df["UID"] == row["scp_uid"]].iloc[0]
+        if w["DB"] == "ISI":                                           # (a row matched elsewhere is a merged row)
+            assert str(w["TI"]).strip()[:200] == str(row["wos_title"]).strip()
+        if s_["DB"] == "SCOPUS":
+            assert str(s_["TI"]).strip()[:200] == str(row["scp_title"]).strip()
     items = smart_merger.list_borderline(pid)
-    assert items and all(it["wos_uid"] in final and it["scp_uid"] in final for it in items)
+    assert items and all(int(it["wos_uid"]) in final and int(it["scp_uid"]) in final for it in items)
 
-    # Lost_* sheets (unmatched rows) carry the UIDs that live on in the dataset.
+    # Lost_* sheets (unmatched rows) carry the final keys of the same rows.
     lost = pd.read_excel(adir / "Lost_Wos_Records.xlsx")
-    assert lost["UID"].astype(str).isin(final).all()
+    assert lost["UID"].isin(final).all() and lost["UID"].min() == 423
+    by_key = df.set_index("UID")["UT"]
+    assert (lost["UT"].astype(str).values == by_key.loc[lost["UID"]].astype(str).values).all()
+    lost_scp = pd.read_excel(adir / "Lost_Scopus_Records.xlsx")
+    assert lost_scp["UID"].isin(final).all() and lost_scp["UID"].max() == 3735
 
 
 def test_accept_after_deleting_unrelated_rows_and_restoring_merges_exactly_two_uids(sample_client):
@@ -339,8 +386,9 @@ class _Ctx:
 
 def test_uid_of_never_invents_a_positional_label():
     from services import enricher
-    df = pd.DataFrame({"UID": ["r_a", "", None], "TI": ["x", "y", "z"]})
-    assert enricher._uid_of(df, 0) == "r_a"
+    df = pd.DataFrame({"UID": pd.Series([7, "", None], dtype=object), "TI": ["x", "y", "z"]})
+    assert enricher._uid_of(df, 0) == "7"
+    assert enricher._uid_of(pd.DataFrame({"UID": [12]}), 0) == "12"
     for idx in (1, 2):
         with pytest.raises(RuntimeError, match="^uid_missing"):
             enricher._uid_of(df, idx)
@@ -383,7 +431,7 @@ def test_fill_all_on_a_uid_less_dataset_persists_uids_and_the_provenance_uses_th
 
     result = asyncio.run(enricher.run_fill_all(_Ctx(), "p1"))
     final_uids = list(dataset_io.read_dataset(src)["UID"])
-    assert len(set(final_uids)) == 2 and all(_UID_RE.match(u) for u in final_uids)
+    assert final_uids == [1, 2]
     assert seen["on_disk_at_snapshot"] == final_uids == seen["in_snapshot"]
 
     csv_path = next(src.parent.glob("doi_lookup_*.csv"))

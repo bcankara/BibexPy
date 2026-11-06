@@ -37,14 +37,16 @@ def _uid_of_label(df: pd.DataFrame) -> dict[int, str]:
 
     Proposals are stored and applied in a later request, after rows may have been
     deleted, filtered or restored, so they must never carry row positions: every
-    "record" a builder emits is the row UID. The dataset has to carry a valid UID
-    column (the scan ensures it before calling a builder); a frame without one is
-    refused instead of silently falling back to positions.
+    "record" a builder emits is the row UID (the canonical text of its sequential integer
+    key). The dataset has to carry a valid UID column (the scan ensures it before calling
+    a builder); a frame without one is refused instead of silently falling back to positions.
     """
     if dataset_io.UID_COL not in df.columns:
         raise ValueError("uid_invariant_violation: dataset has no UID column")
     dataset_io.check_uid(df)
-    return {int(label): str(u).strip() for label, u in zip(df.index, df[dataset_io.UID_COL])}
+    # uid_key: the canonical text of the key ("12" for 12 / 12.0 / "12"), so a proposal file
+    # compares equal to any later reading of the dataset whatever dtype the column has.
+    return {int(label): dataset_io.uid_key(u) for label, u in zip(df.index, df[dataset_io.UID_COL])}
 
 
 def _uids(labels: Iterable[int], uid_of: dict[int, str], limit: Optional[int] = None) -> list[str]:

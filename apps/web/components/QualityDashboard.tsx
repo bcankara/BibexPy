@@ -14,7 +14,7 @@ import { useConfirm, useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
 import {
   cancelJob, isBusyError, jobErrorText, jobOwnerHref, jobStatusLine, refreshProjectJobs,
-  start as startTrackedJob, useJobFinished, useProjectJobs, getProjectJobs, type StoreJob,
+  start as startTrackedJob, useJobFinished, useProjectBusy, useProjectJobs, getProjectJobs, type StoreJob,
 } from "@/lib/job-store";
 
 type Props = {
@@ -81,6 +81,8 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
     ?? null;
   // Any OTHER exclusive job of the project (e.g. a disambiguation scan) blocks a new fill.
   const blockingJob = activeJobs.find((j) => j.exclusive && j.id !== job?.id) ?? null;
+  // Also covers a job that was just started and is still an anonymous placeholder in the store.
+  const { busy: jobBusy } = useProjectBusy(projectId);
 
   const refreshStats = useCallback(async () => {
     try {
@@ -127,7 +129,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   const running = !!job;
 
   async function startFillAll() {
-    if (running || !stats || starting || blockingJob) return;
+    if (running || !stats || starting || blockingJob || (jobBusy && !job)) return;
     const ok = await confirm({
       title: t("records.quality.startAllTitle"),
       message: t("records.quality.startAllConfirm", { n: formatNumber(fillableCount, locale) }),
@@ -198,7 +200,8 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
   const provenanceUrl = doiReport?.provenance ? doiLogUrl(projectId) : null;
   const openalexExhausted = (doiReport?.sources_exhausted ?? []).includes("openalex");
   // Do not offer a new run before the first job lookup finished or while a job holds the project.
-  const startDisabled = fillableCount === 0 || starting || !!blockingJob || !jobsReady;
+  const lockedByJob = jobBusy && !job;
+  const startDisabled = fillableCount === 0 || starting || !!blockingJob || lockedByJob || !jobsReady;
 
   return (
     <Card>
@@ -256,7 +259,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                 <button
                   onClick={startFillAll}
                   disabled={startDisabled}
-                  title={t("records.quality.startAllHint")}
+                  title={lockedByJob ? t("lock.busyReason") : t("records.quality.startAllHint")}
                   className="group flex items-center gap-2.5 rounded-xl bg-white px-5 py-3 text-cyan-700 font-extrabold shadow-md ring-1 ring-white/60 transition hover:scale-[1.03] hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 flex-shrink-0"
                 >
                   {starting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5 fill-current" />}
@@ -344,6 +347,7 @@ export function QualityDashboard({ projectId, onChanged }: Props) {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button onClick={startFillAll} disabled={startDisabled}
+                    title={lockedByJob ? t("lock.busyReason") : undefined}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 disabled:opacity-50 flex items-center gap-1.5">
                     {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
                     {t("records.quality.runAgain")}

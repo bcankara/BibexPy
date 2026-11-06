@@ -19,6 +19,7 @@ import { auditKindLabel, userActionLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
 import { useConfirm, useToast } from "@/components/Dialogs";
 import { useProjectId } from "@/lib/use-project-id";
+import { useProjectBusy } from "@/lib/job-store";
 
 const KIND_ICONS: Record<string, { icon: React.ReactNode; tone: string }> = {
   project_create:          { icon: <FolderPlus className="h-4 w-4" />, tone: "info" },
@@ -59,6 +60,8 @@ const TONE_BG: Record<string, string> = {
 
 export default function ReportPage() {
   const id = useProjectId();
+  // An exclusive job of the project runs: restoring a snapshot would be refused (HTTP 409).
+  const { busy: jobBusy } = useProjectBusy(id);
   const { t, locale } = useI18n();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
@@ -97,7 +100,7 @@ export default function ReportPage() {
   }, [id]);
 
   async function handleRestore(snapshot: string) {
-    if (restoringSnapshot) return;
+    if (restoringSnapshot || jobBusy) return;
     const ok = await confirm({
       title: t("audit.restoreTitle"),
       message: t("audit.restoreConfirm"),
@@ -205,6 +208,7 @@ export default function ReportPage() {
                     idx={entries.length - i}
                     onRestore={handleRestore}
                     restoring={!!e.snapshot && restoringSnapshot === e.snapshot}
+                    locked={jobBusy}
                   />
                 ))}
               </ol>
@@ -373,7 +377,14 @@ function SummaryCard({ icon, label, value, tone = "brand", small }: {
   );
 }
 
-function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; idx: number; onRestore: (snapshot: string) => void; restoring?: boolean }) {
+function ReportEntry({ entry, idx, onRestore, restoring, locked = false }: {
+  entry: AuditEntry;
+  idx: number;
+  onRestore: (snapshot: string) => void;
+  restoring?: boolean;
+  /** A job holds the project: restoring a snapshot is disabled. */
+  locked?: boolean;
+}) {
   const { t, locale } = useI18n();
   const meta = KIND_ICONS[entry.kind === "enrich_selected_requested" ? "enrich_selected" : entry.kind] ?? { icon: <FileText className="h-4 w-4" />, tone: "neutral" };
   const label = auditKindLabel(t, entry.kind);
@@ -408,9 +419,9 @@ function ReportEntry({ entry, idx, onRestore, restoring }: { entry: AuditEntry; 
               </span>
               <button
                 onClick={() => onRestore(entry.snapshot!)}
-                disabled={restoring}
-                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60"
-                title={t("audit.restoreTitle")}
+                disabled={restoring || locked}
+                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1 px-2 py-0.5 rounded-md border border-warning/40 bg-warning-soft/60 hover:bg-warning-soft transition disabled:opacity-60 disabled:cursor-not-allowed"
+                title={locked ? t("lock.busyReason") : t("audit.restoreTitle")}
               >
                 {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
                 {t("audit.restore")}

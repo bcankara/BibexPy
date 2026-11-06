@@ -12,6 +12,8 @@ import { useI18n, type Locale } from "@/lib/i18n";
 import { formatBytes, formatDateTime } from "@/lib/i18n/format";
 import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
+import { LOCKED_CLASS } from "@/components/BlockingOverlay";
 
 type Props = {
   projectId: string;
@@ -41,10 +43,15 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
   const [acting, setActing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // An exclusive job of the project runs: activating or deleting an analysis is locked.
+  const { busy: jobBusy } = useProjectBusy(projectId);
+  const locked = !!busy || jobBusy;
+  const busyTitle = jobBusy ? t("lock.busyReason") : undefined;
 
   if (items.length === 0) return null;
 
   async function activate(id: string) {
+    if (locked) return;
     setActing(id);
     setError(null);
     try {
@@ -58,6 +65,7 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
   }
 
   async function remove(id: string) {
+    if (locked) return;
     setActing(id);
     setError(null);
     try {
@@ -137,8 +145,9 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Button
                         variant="ghost"
-                        className="h-7 text-xs px-2"
-                        disabled={busy || acting === a.id}
+                        className={cn("h-7 text-xs px-2", LOCKED_CLASS)}
+                        disabled={locked || acting === a.id}
+                        title={busyTitle}
                         onClick={() => activate(a.id)}
                       >
                         {acting === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
@@ -148,8 +157,9 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
                         <div className="flex items-center gap-1">
                           <Button
                             variant="ghost"
-                            className="h-7 text-xs px-2 text-danger hover:bg-danger-soft"
-                            disabled={acting === a.id}
+                            className={cn("h-7 text-xs px-2 text-danger hover:bg-danger-soft", LOCKED_CLASS)}
+                            disabled={acting === a.id || jobBusy}
+                            title={busyTitle}
                             onClick={() => remove(a.id)}
                           >
                             {t("analyses.deleteConfirm")}
@@ -165,10 +175,10 @@ export function OtherAnalysesCollapse({ projectId, items, busy, onChanged }: Pro
                         </div>
                       ) : (
                         <button
-                          className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft"
-                          disabled={busy || acting === a.id}
+                          className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={locked || acting === a.id}
                           onClick={() => setConfirmDelete(a.id)}
-                          title={t("common.delete")}
+                          title={busyTitle ?? t("common.delete")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>

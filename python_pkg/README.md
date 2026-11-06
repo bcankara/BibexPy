@@ -72,7 +72,13 @@ always works. To enable the short command as well:
 - **ORCID-first** author disambiguation + **address harmonization** (organization roll-up,
   country standardization).
 - **Multi-source enrichment** (CrossRef, OpenAlex, Scopus, DataCite, Unpaywall, Europe PMC,
-  Semantic Scholar) with reverse-DOI recovery — verifiable sources only.
+  Semantic Scholar) with precision-first reverse-DOI recovery — verifiable sources only.
+- **Stable record IDs** — sequential IDs (1, 2, 3 …) that every edit, deletion, split and
+  restore refers to, never a row position. Analyses saved by earlier versions are converted
+  once, automatically, on the first start.
+- **Long jobs survive reloads** — merges, enrichment and disambiguation keep running on the
+  local server; uploads and merges lock the screen until they finish.
+- **English and Turkish** interface, operation logs and PDF diagrams.
 - Reproducible, preset-based **filtering** and a bibliometrically weighted **quality dashboard**.
 - Full **provenance**: append-only audit log, snapshots, isolated analyses, auto-generated
   methodology narrative.

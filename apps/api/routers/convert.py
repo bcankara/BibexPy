@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from jobs.runner import job_runner
 from services import audit, converter, storage
 
 router = APIRouter(prefix="/projects/{project_id}/convert", tags=["convert"])
@@ -63,30 +64,34 @@ def _audit_convert(project_id: str, kind: str, inputs: list[str] | str, output: 
 
 @router.post("/csv-to-xlsx", response_model=ConvertResult)
 def csv_to_xlsx(project_id: str, payload: ConvertCsvRequest):
-    p = converter.csv_to_xlsx(project_id, payload.files, payload.output)
-    _audit_convert(project_id, "Scopus CSV → XLSX", payload.files, p)
-    return _result(p)
+    with job_runner.mutation(project_id):
+        p = converter.csv_to_xlsx(project_id, payload.files, payload.output)
+        _audit_convert(project_id, "Scopus CSV → XLSX", payload.files, p)
+        return _result(p)
 
 
 @router.post("/wos-to-xlsx", response_model=ConvertResult)
 def wos_to_xlsx(project_id: str, payload: ConvertWosRequest):
-    p = converter.wos_to_xlsx(project_id, payload.files, payload.output)
-    _audit_convert(project_id, "WoS TXT → XLSX", payload.files, p)
-    return _result(p)
+    with job_runner.mutation(project_id):
+        p = converter.wos_to_xlsx(project_id, payload.files, payload.output)
+        _audit_convert(project_id, "WoS TXT → XLSX", payload.files, p)
+        return _result(p)
 
 
 @router.post("/xlsx-to-wos-txt", response_model=ConvertResult)
 def xlsx_to_wos_txt(project_id: str, payload: ConvertXlsxRequest):
-    p = converter.xlsx_to_wos_txt(project_id, payload.file, payload.output)
-    _audit_convert(project_id, "XLSX → WoS TXT", payload.file, p)
-    return _result(p)
+    with job_runner.mutation(project_id):
+        p = converter.xlsx_to_wos_txt(project_id, payload.file, payload.output)
+        _audit_convert(project_id, "XLSX → WoS TXT", payload.file, p)
+        return _result(p)
 
 
 @router.post("/xlsx-to-tsv", response_model=ConvertResult)
 def xlsx_to_tsv(project_id: str, payload: ConvertXlsxRequest):
-    p = converter.xlsx_to_tsv(project_id, payload.file, payload.output)
-    _audit_convert(project_id, "XLSX → TSV", payload.file, p)
-    return _result(p)
+    with job_runner.mutation(project_id):
+        p = converter.xlsx_to_tsv(project_id, payload.file, payload.output)
+        _audit_convert(project_id, "XLSX → TSV", payload.file, p)
+        return _result(p)
 
 
 @router.get("/download/{filename}")

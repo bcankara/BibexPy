@@ -13,6 +13,8 @@ import { useI18n, type Locale } from "@/lib/i18n";
 import { formatBytes, formatDate, formatDateTime, formatNumber, formatPercent } from "@/lib/i18n/format";
 import { analysisDisplayLabel } from "@/lib/i18n/labels";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
+import { LOCKED_CLASS } from "@/components/BlockingOverlay";
 
 type Props = {
   projectId: string;
@@ -45,6 +47,9 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // An exclusive job of the project runs: starting a new analysis or deleting this one is locked.
+  const { busy: jobBusy } = useProjectBusy(projectId);
+  const busyTitle = jobBusy ? t("lock.busyReason") : undefined;
 
   const method = (analysis.method as keyof typeof METHOD_META) ?? "unknown";
   const methodKey = (((method as string) in METHOD_META ? method : "unknown")) as keyof typeof METHOD_META;
@@ -55,6 +60,7 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
   const displayLabel = analysisDisplayLabel(t, locale, analysis);
 
   async function handleDelete() {
+    if (jobBusy) return;
     setDeleting(true);
     setError(null);
     try {
@@ -103,7 +109,7 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
 
           {/* CTA */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Button variant="secondary" onClick={onNewAnalysis} className="flex items-center gap-1.5">
+            <Button variant="secondary" onClick={onNewAnalysis} disabled={jobBusy} title={busyTitle} className={cn("flex items-center gap-1.5", LOCKED_CLASS)}>
               <Plus className="h-4 w-4" /> {t("analyses.newAnalysis")}
             </Button>
             <DeleteMenu
@@ -111,6 +117,8 @@ export function ActiveAnalysisHero({ projectId, summary, analysis, onNewAnalysis
               setConfirmDelete={setConfirmDelete}
               deleting={deleting}
               onDelete={handleDelete}
+              locked={jobBusy}
+              lockedTitle={busyTitle}
               t={t}
             />
           </div>
@@ -193,12 +201,15 @@ function MiniStat({ label, value, sub }: { label: string; value: string; sub?: s
 }
 
 function DeleteMenu({
-  confirmDelete, setConfirmDelete, deleting, onDelete, t,
+  confirmDelete, setConfirmDelete, deleting, onDelete, locked = false, lockedTitle, t,
 }: {
   confirmDelete: boolean;
   setConfirmDelete: (b: boolean) => void;
   deleting: boolean;
   onDelete: () => void;
+  /** A job holds the project: deleting the analysis is disabled. */
+  locked?: boolean;
+  lockedTitle?: string;
   t: (k: string) => string;
 }) {
   if (confirmDelete) {
@@ -206,8 +217,9 @@ function DeleteMenu({
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
-          className="h-9 text-xs text-danger hover:bg-danger-soft px-2.5"
-          disabled={deleting}
+          className={cn("h-9 text-xs text-danger hover:bg-danger-soft px-2.5", LOCKED_CLASS)}
+          disabled={deleting || locked}
+          title={lockedTitle}
           onClick={onDelete}
         >
           {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -227,8 +239,9 @@ function DeleteMenu({
   return (
     <button
       onClick={() => setConfirmDelete(true)}
-      className="h-9 w-9 inline-flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft"
-      title={t("common.delete")}
+      disabled={locked}
+      className="h-9 w-9 inline-flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft disabled:opacity-50 disabled:cursor-not-allowed"
+      title={lockedTitle ?? t("common.delete")}
     >
       <MoreHorizontal className="h-4 w-4" />
     </button>

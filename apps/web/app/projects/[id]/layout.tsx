@@ -1,4 +1,5 @@
 import { ProjectJobsBanner } from "@/components/ProjectJobsBanner";
+import { ProjectBlockingOverlay } from "@/components/BlockingOverlay";
 
 /**
  * Placeholder `_` ID for the static export — a single HTML file is produced, and the
@@ -22,9 +23,12 @@ export default function ProjectLayout({
   // The jobs banner is a client component (reads the project id from the URL); the layout
   // stays a server component so that generateStaticParams above keeps working. The layout
   // persists across the sibling project pages, so the banner survives page navigation.
+  // ProjectBlockingOverlay (client) blocks the whole app while a merge job of this project
+  // runs; it reads the shared job store, so it also reappears after a reload.
   return (
     <>
       <ProjectJobsBanner />
+      <ProjectBlockingOverlay />
       {children}
     </>
   );

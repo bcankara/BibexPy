@@ -1493,7 +1493,8 @@
       "exportDeleted": "Dışa aktarma silindi: {name}",
       "converted": "Dönüştürüldü: {name}",
       "fileDeleted": "Dosya silindi: {name}",
-      "borderlineDecisions": "Belirsiz çiftler: {accept} kabul / {reject} red / {skip} atlandı"
+      "borderlineDecisions": "Belirsiz çiftler: {accept} kabul / {reject} red / {skip} atlandı",
+      "uidMigration": "Kayıtlar yeni sürüm için güncellendi: {analysis} analizindeki {records} kayıt artık sıralı kimlik kullanıyor"
     },
     "userActions": {
       "job_completed": "İş tamamlandı",
@@ -1761,5 +1762,31 @@
       "media": "Ortam",
       "root": "Kök"
     }
+  },
+  "lock": {
+    "busyReason": "Bir işlem çalışıyor — bitmesini bekleyin.",
+    "dataLocked": "Bu projede bir işlem çalışıyor. Bitene kadar veri değişikliği kapalı; gezinebilir, filtreleyebilir ve dışa aktarabilirsiniz.",
+    "mergeNote": "Birleştirme sunucuda çalışıyor. Bitene kadar her şey kilitli.",
+    "uploadNote": "Yükleme bitene kadar bu sayfayı kapatmayın veya terk etmeyin.",
+    "uploading": "{n} dosya yükleniyor…",
+    "cancelMerge": "Birleştirmeyi iptal et",
+    "cancelOperation": "İşlemi iptal et",
+    "cancelConfirm": "Bu işlem iptal edilsin mi? Durdurulur ve tamamlanmaz.",
+    "confirmCancel": "Evet, iptal et",
+    "keepRunning": "Çalışmaya devam etsin",
+    "checking": "Proje kontrol ediliyor…",
+    "mergeStarting": "Birleştirme başlatılıyor…"
+  },
+  "migration": {
+    "title": "Kayıtlarınız yeni sürüm için güncelleniyor",
+    "note": "BibexPy, kayıtlı analizlerinizi yeni kayıt biçimine dönüştürüyor. Bu işlem yalnızca bir kez yapılır ve bir dakika kadar sürebilir. Lütfen uygulamayı kapatmayın.",
+    "preparing": "Hazırlanıyor…",
+    "projects": "{done} / {total} proje güncellendi",
+    "current": "Şu an güncellenen: {project}",
+    "doneTitle": "Kayıtlarınız güncel",
+    "doneNote": "Kayıtlı tüm analizler yeni sürüme göre güncellendi. Sayfa birazdan yeniden yüklenecek.",
+    "errorTitle": "Bazı analizler güncellenemedi",
+    "errorNote": "Geri kalan her şey güncellendi. Aşağıdaki analizler önceki kayıt biçimiyle çalışmaya devam eder; birinde bir tutarsızlık görürseniz birleştirmeyi yeniden çalıştırın.",
+    "continue": "Devam et"
   }
 }

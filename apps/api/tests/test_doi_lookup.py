@@ -675,10 +675,10 @@ def _rows_for_enricher():
     cols = ("UID", "TI", "AU", "AF", "PY", "SO", "JI", "J9", "SN", "EI", "VL", "BP", "DT", "AB")
     rows = []
     for r in (exact_rec, pf_rec, amb_rec, po_rec, comp_rec):
-        rows.append({**{c: "" for c in cols}, **r, "UID": f"u{len(rows)}", "DI": ""})
-    rows.append({**{c: "" for c in cols}, "UID": "nomatch", "TI": "A TITLE THAT NO SOURCE EVER HEARD OF BEFORE", "PY": "2024", "DI": ""})
+        rows.append({**{c: "" for c in cols}, **r, "UID": len(rows) + 1, "DI": ""})
+    rows.append({**{c: "" for c in cols}, "UID": 6, "TI": "A TITLE THAT NO SOURCE EVER HEARD OF BEFORE", "PY": "2024", "DI": ""})
     # the journal DOI of the preprint-first record already sits on another row (a duplicate Smart Merge missed)
-    rows.append({**{c: "" for c in cols}, "UID": "holder", "TI": "SOME OTHER ROW", "DI": "https://doi.org/" + pf_truth.upper()})
+    rows.append({**{c: "" for c in cols}, "UID": 7, "TI": "SOME OTHER ROW", "DI": "https://doi.org/" + pf_truth.upper()})
     df = pd.DataFrame(rows)
     return df, answers, {"exact": exact_truth.lower(), "component": comp_truth.lower(), "pf_truth": pf_truth.lower()}
 
@@ -723,7 +723,7 @@ def test_doi_pass_end_to_end(tmp_path, monkeypatch):
     assert list(rows[0].keys()) == list(enricher._PROVENANCE_COLUMNS)
     by_outcome = {r["outcome"]: r for r in rows if r["outcome"] != "filled"}
     assert len(rows) == 6 and [r["outcome"] for r in rows].count("filled") == 2
-    assert by_outcome["duplicate"]["duplicate_of"] == "holder" and by_outcome["duplicate"]["written_doi"] == ""
+    assert by_outcome["duplicate"]["duplicate_of"] == "7" and by_outcome["duplicate"]["written_doi"] == ""
     assert "do not use as the journal DOI" in by_outcome["preprint_only"]["warning"]
     assert by_outcome["preprint_only"]["preprint_doi"].startswith("10.2139/ssrn")
     assert by_outcome["ambiguous"]["written_doi"] == "" and by_outcome["no_match"]["source"] == ""
@@ -842,7 +842,7 @@ def test_api_pass_removes_a_doi_whose_title_does_not_match_the_record(tmp_path, 
     assert d["filled"] == 1 and d["skipped"]["suspect"] == 1 and d["skipped"]["no_match"] == 2
     with open(next(start.parent.glob("doi_lookup_*.csv")), encoding="utf-8-sig", newline="") as fh:
         rows = {r["UID"]: r for r in csv.DictReader(fh)}
-    row = rows[done["UID"].iloc[4]]
+    row = rows[str(done["UID"].iloc[4])]
     assert row["outcome"] == "suspect_after_fetch" and row["written_doi"] == "" and row["warning"]
 
 

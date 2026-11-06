@@ -9,13 +9,13 @@ import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { FilterResponse } from "@/lib/api-client";
+import { uidKey, type FilterResponse, type RecordRow } from "@/lib/api-client";
 import { Button } from "./Button";
 import { useI18n, useT } from "@/lib/i18n";
 import { formatNumber } from "@/lib/i18n/format";
 import { cn } from "@/lib/cn";
 
-type Row = Record<string, string | null>;
+type Row = RecordRow;
 
 type Props = {
   data: FilterResponse;
@@ -61,9 +61,9 @@ export function RecordsTable({
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(offset + limit, total);
 
-  // Selection identity is the record UID and nothing else. A row without a UID
-  // has no identity (key = "") and cannot be selected.
-  const getKey = (r: Row): string => (r.UID ?? "").trim();
+  // Selection identity is the record UID and nothing else (sequential integer keys, always
+  // compared as text). A row without a UID has no identity (key = "") and cannot be selected.
+  const getKey = (r: Row): string => uidKey(r.UID);
   const isSelectable = (r: Row) => getKey(r) !== "";
   const selectionEnabled = !!onSelectionChange;
   const actionsEnabled = !!(onEditRow || onDeleteRow);
@@ -148,8 +148,9 @@ export function RecordsTable({
     minSize: 60,
     maxSize: 800,
     cell: (info) => {
-      const v = info.getValue() as string | null;
-      if (v == null || v === "") return <span className="text-slate-300">—</span>;
+      const raw = info.getValue() as string | number | null;
+      const v = raw == null ? "" : String(raw);
+      if (v === "") return <span className="text-slate-300">—</span>;
       // Numeric columns
       if (c === "PY" || c === "TC" || c === "NR") {
         return <span className="font-mono tabular-nums">{v}</span>;
@@ -180,7 +181,7 @@ export function RecordsTable({
     onColumnSizingChange: setColumnSizing,
     // Row id = UID (never the page-local array index). Rows without a UID fall
     // back to a page-local marker that is only used as a React key.
-    getRowId: (r, i) => (r.UID ? String(r.UID) : `__nouid_${i}`),
+    getRowId: (r, i) => (uidKey(r.UID) !== "" ? uidKey(r.UID) : `__nouid_${i}`),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode: "onChange",

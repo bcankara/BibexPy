@@ -4,12 +4,13 @@ import {
   X, ExternalLink, Copy, Check, FileText, Users, Tag, Quote, BookOpen, Building2,
   Pencil, Save, Loader2,
 } from "lucide-react";
-import { api, translateApiError } from "@/lib/api-client";
+import { api, translateApiError, uidKey, type RecordRow } from "@/lib/api-client";
 import { useT } from "@/lib/i18n";
 import { useToast } from "./Dialogs";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
 
-type Row = Record<string, string | null>;
+type Row = RecordRow;
 
 type Props = {
   record: Row | null;
@@ -106,6 +107,9 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
   const t = useT();
   const toast = useToast();
   const GROUPS = useMemo(() => buildGroups(t), [t]);
+  // An exclusive job of the project runs: saving would be refused (HTTP 409), so editing is locked.
+  const { busy: jobBusy } = useProjectBusy(projectId);
+  const busyTitle = jobBusy ? t("lock.busyReason") : undefined;
   const [mounted, setMounted] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -167,7 +171,8 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
   }
 
   async function save() {
-    const uid = (rec.UID ?? "").trim();
+    if (jobBusy) return;
+    const uid = uidKey(rec.UID);
     if (!uid) {
       // A record without a UID has no identity and cannot be updated.
       toast(t("recordDetail.noUid"), { tone: "danger" });
@@ -251,10 +256,10 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
             <h2 className="font-semibold text-base leading-snug text-ink">{title}</h2>
             {authors && <p className="text-xs text-muted mt-1 line-clamp-2">{authors}</p>}
             {journal && <p className="text-xs text-muted italic mt-0.5">{journal}</p>}
-            {rec.UID && (
+            {uidKey(rec.UID) !== "" && (
               <p className="text-[11px] text-muted mt-1" title={t("recordDetail.uidHint")}>
                 <span className="font-medium">{t("recordDetail.uidLabel")}</span>{" "}
-                <span className="font-mono select-all">{rec.UID}</span>
+                <span className="font-mono select-all">{uidKey(rec.UID)}</span>
               </p>
             )}
             {doi && !editing && (
@@ -272,7 +277,8 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
               <>
                 <button
                   onClick={save}
-                  disabled={saving}
+                  disabled={saving || jobBusy}
+                  title={busyTitle}
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-brand-500 hover:bg-brand-600 text-white disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -289,7 +295,9 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
             ) : (
               <button
                 onClick={startEdit}
-                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-border text-muted hover:text-brand-700 hover:border-brand-400"
+                disabled={jobBusy}
+                title={busyTitle}
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-border text-muted hover:text-brand-700 hover:border-brand-400 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Pencil className="h-3.5 w-3.5" /> {t("recordDetail.edit")}
               </button>
@@ -351,7 +359,7 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
                   </h3>
                   <dl className="space-y-1.5">
                     {g.fields.map((f) => (
-                      <Field key={f.key} k={f.key} label={f.label} value={rec[f.key]!} format={f.format} />
+                      <Field key={f.key} k={f.key} label={f.label} value={String(rec[f.key])} format={f.format} />
                     ))}
                   </dl>
                 </section>
@@ -363,7 +371,7 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onReco
                   </h3>
                   <dl className="space-y-1.5">
                     {otherFields.map((k) => (
-                      <Field key={k} k={k} label={k} value={rec[k]!} format="compact" />
+                      <Field key={k} k={k} label={k} value={String(rec[k])} format="compact" />
                     ))}
                   </dl>
                 </section>

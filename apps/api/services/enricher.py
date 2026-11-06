@@ -47,8 +47,10 @@ def _snapshot(project_id: str, df: pd.DataFrame, tag: str, base: Path | None = N
     return str(p.relative_to(storage.settings.storage_path))
 
 
-def _read_with_uid_sync(src: Path) -> pd.DataFrame:
+def _read_with_uid_sync(project_id: str, src: Path) -> pd.DataFrame:
     """Read the dataset and make sure every row has a valid UID, persisting it when it was added.
+
+    Repairs take keys above the uid_max of the analysis the dataset lives in (raised before the write).
 
     Runs inside the job (job exclusivity guards the file), BEFORE the pre-run snapshot, so the
     snapshot, the provenance CSV and the final write all carry the same UIDs. A failed persist
@@ -56,7 +58,7 @@ def _read_with_uid_sync(src: Path) -> pd.DataFrame:
     differ from the ones it reported.
     """
     df = dataset_io.read_dataset(src)
-    if dataset_io.ensure_uid(df):
+    if analyses.ensure_dataset_uid(project_id, df, analysis_id=analyses.analysis_id_of_path(project_id, src)):
         try:
             dataset_io.atomic_write_dataset(df, src)
         except Exception as e:
@@ -64,10 +66,10 @@ def _read_with_uid_sync(src: Path) -> pd.DataFrame:
     return df
 
 
-async def _read_with_uid(src: Path) -> pd.DataFrame:
+async def _read_with_uid(project_id: str, src: Path) -> pd.DataFrame:
     # Uncancellable: a cancel must not end the task (and release the exclusivity lock)
     # while the UID write is still running.
-    return await dataset_io.run_uncancellable(_read_with_uid_sync, src)
+    return await dataset_io.run_uncancellable(_read_with_uid_sync, project_id, src)
 
 
 def _is_blank(v) -> bool:
@@ -246,8 +248,10 @@ def _uid_of(df: pd.DataFrame, idx) -> str:
     """The row's UID. Every job persists UIDs right after loading (`_read_with_uid`), so a
     blank or missing UID is a bug; a positional 'row N' label would end up in the
     provenance CSV and stop matching the dataset after any delete/filter."""
-    if "UID" in df.columns and not _is_blank(df.at[idx, "UID"]):
-        return str(df.at[idx, "UID"]).strip()
+    if "UID" in df.columns:
+        key = dataset_io.uid_key(df.at[idx, "UID"])
+        if key:
+            return key
     raise RuntimeError(f"uid_missing: row {idx} has no UID")
 
 
@@ -445,7 +449,7 @@ async def run_fill_all(ctx: JobContext, project_id: str) -> dict[str, Any]:
     analysis_id = (out_dir.name if analyses.analysis_dir(project_id, out_dir.name) == out_dir
                    else analyses.get_active_analysis_id(project_id))
     api_utils.set_openalex_api_key(settings.openalex_api_key or None)
-    df = await _read_with_uid(src)
+    df = await _read_with_uid(project_id, src)
     ctx.log(f"Loaded: {len(df)} records", key="jobs.status.loading", params={"n": int(len(df))})
     snap = _snapshot(project_id, df, "fill_all", base=out_dir)
     ctx.log("Snapshot taken")
@@ -624,7 +628,7 @@ async def run_api_enrichment(ctx: JobContext, project_id: str, sources: list[str
     src = await asyncio.to_thread(_active_path, project_id)
     out_dir = src.parent
     api_utils.set_openalex_api_key(settings.openalex_api_key or None)
-    df = await _read_with_uid(src)
+    df = await _read_with_uid(project_id, src)
     ctx.log(f"Loaded: {len(df)} records", key="jobs.status.loading", params={"n": int(len(df))})
     snap = _snapshot(project_id, df, "api", base=out_dir)
     ctx.progress(0.05)

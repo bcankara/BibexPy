@@ -442,7 +442,7 @@ def project(client):
     pid = client.post("/api/projects", json={"name": "JobGuards"}).json()["id"]
     analysis_id, adir = analyses.create_analysis(pid, "smart")
     df = pd.DataFrame({
-        "UID": [f"u{i}" for i in range(6)],
+        "UID": list(range(1, 7)),                       # sequential keys
         "TI": [f"Title {i}" for i in range(6)],
         "DT": ["Article", "Article", "Article", "Review", "Review", "Article"],
         "PY": [2020, 2021, 2022, 2020, 2021, 2022],
@@ -476,9 +476,9 @@ def test_jobs_endpoint_active_filter(client):
 def test_records_delete_is_blocked_while_a_job_runs(client, project):
     pid, _ = project
     with busy(pid):
-        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["u0"]})
+        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["1"]})
         assert _is_busy(r), r.text
-    r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["u0"]})
+    r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["1"]})
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] == 1
 
@@ -487,13 +487,13 @@ def test_records_update_and_restore_are_blocked_while_a_job_runs(client, project
     pid, _ = project
     with busy(pid):
         r = client.post(f"/api/projects/{pid}/records/update",
-                        json={"uid": "u1", "fields": {"TI": "Edited"}})
+                        json={"uid": "2", "fields": {"TI": "Edited"}})
         assert _is_busy(r), r.text
         r = client.post(f"/api/projects/{pid}/records/restore-snapshot",
                         json={"snapshot": "whatever.parquet"})
         assert _is_busy(r), r.text
     r = client.post(f"/api/projects/{pid}/records/update",
-                    json={"uid": "u1", "fields": {"TI": "Edited"}})
+                    json={"uid": "2", "fields": {"TI": "Edited"}})
     assert r.status_code == 200, r.text
 
 
@@ -579,5 +579,5 @@ def test_merge_start_is_exclusive_and_blocked_while_busy(client, project, monkey
 def test_a_non_exclusive_job_does_not_block_mutations(client, project):
     pid, _ = project
     with busy(pid, exclusive=False):
-        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["u2"]})
+        r = client.post(f"/api/projects/{pid}/records/delete", json={"uids": ["3"]})
         assert r.status_code == 200, r.text

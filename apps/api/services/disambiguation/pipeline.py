@@ -53,10 +53,12 @@ def _project_dir(project_id: str) -> Path:
     return analyses.work_dir(project_id)
 
 
-# Proposal files refer to rows by UID. "uid_v1" marks that format; a file without it
-# (written before UIDs, with int row positions in "records") or one written for another
-# analysis is STALE and is never applied: the user has to re-scan.
-PROPOSALS_SCHEMA = "uid_v1"
+# Proposal files refer to rows by UID. "uid_v2" marks that format (sequential integer keys,
+# written as canonical text in "records"); a file without it (written before UIDs with int row
+# positions, or with the older random "r_..." keys) or one written for another analysis is
+# STALE and is never applied: the user has to re-scan. The one-time uid migration rewrites
+# the files it can translate to "uid_v2"; everything else stays refused.
+PROPOSALS_SCHEMA = "uid_v2"
 
 
 def _persist_uid(df: pd.DataFrame, path: Path) -> None:
@@ -75,6 +77,17 @@ def _persist_uid(df: pd.DataFrame, path: Path) -> None:
         pass
 
 
+def _repair_uid(project_id: str, df: pd.DataFrame) -> bool:
+    """Repair the UID column of `df` IN PLACE; returns True when anything changed.
+
+    Keys are never reused: new keys are issued above the analysis high-water mark
+    (`uid_max` in the analysis meta) and above the largest key present in the frame, and
+    the new mark is recorded BEFORE the caller writes the frame, so a crash in between can
+    only leave a gap, never a key that is issued twice.
+    """
+    return analyses.ensure_dataset_uid(project_id, df)
+
+
 def _load_merged(project_id: str) -> pd.DataFrame:
     """Load the active dataset for a scan (runs INSIDE the exclusive job): every row
     gets a valid UID and, if any was added, it is persisted before the scan starts."""
@@ -82,7 +95,7 @@ def _load_merged(project_id: str) -> pd.DataFrame:
     if p is None:
         raise HTTPException(409, "no_merged_data")
     df = dataset_io.read_dataset(p)
-    if dataset_io.ensure_uid(df):
+    if _repair_uid(project_id, df):
         _persist_uid(df, p)
     return df
 
@@ -95,7 +108,7 @@ def _proposals_header(project_id: str) -> dict[str, Any]:
 def _read_proposals_checked(project_id: str, kind: str) -> tuple[dict[str, Any], bool]:
     """The stored proposals of `kind` for an APPLY. Returns (proposals, file_exists).
 
-    A file that is not schema uid_v1, or was scanned from another analysis than the
+    A file that is not schema uid_v2, or was scanned from another analysis than the
     active one, is refused with 409 `proposals_stale_rescan`. A missing file is not an
     error (nothing to apply)."""
     p = _project_dir(project_id) / f"disambiguation_{kind}.json"
@@ -346,8 +359,8 @@ def _apply_filled_cells(full: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
     if uid_col not in full.columns or uid_col not in part.columns:
         raise ValueError("uid_invariant_violation: UID column missing, cannot align filled cells")
     out = full.copy(deep=True)
-    pos_of = {str(u).strip(): i for i, u in enumerate(out[uid_col].tolist())}
-    part_uids = [str(u).strip() for u in part[uid_col].tolist()]
+    pos_of = {dataset_io.uid_key(u): i for i, u in enumerate(out[uid_col].tolist())}
+    part_uids = [dataset_io.uid_key(u) for u in part[uid_col].tolist()]
     for col in _ORCID_FILL_COLS:
         if col not in part.columns:
             continue
@@ -840,7 +853,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     df = dataset_io.read_dataset(src)
     # Value-based apply (whole-column replacement): it never addresses rows, but the frame
     # it writes must satisfy the UID invariant. In memory only; persisted by the write below.
-    dataset_io.ensure_uid(df)
+    _repair_uid(project_id, df)
 
     # NOTE: the snapshot is taken at the END of the job, and only if a change is actually
     # going to be made (affected>0) — so that 'zero change' applies don't produce a
@@ -1015,7 +1028,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     never mapped to another row. The name-token check stays: the suffix is only written
     where the row's AU really contains the split name.
 
-    409 `proposals_stale_rescan` when the proposal file is not schema uid_v1 or belongs to
+    409 `proposals_stale_rescan` when the proposal file is not schema uid_v2 or belongs to
     another analysis. Must be called inside job_runner.mutation.
     """
     project_dir = _project_dir(project_id)
@@ -1029,7 +1042,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     proposals, proposals_exist = _read_proposals_checked(project_id, "authors")
     lookup = {sp.get("split_id"): sp for sp in proposals.get("splits", [])}
     # UIDs are guaranteed before any lookup; persisted so the stored references stay valid.
-    if dataset_io.ensure_uid(df):
+    if _repair_uid(project_id, df):
         _persist_uid(df, src)
 
     # The snapshot is taken at the END of the job, only if affected>0 (an empty apply is a no-op).
@@ -1061,8 +1074,9 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
             if not suffix:
                 continue  # plain group — leave it alone
             new_name = f"{name} {suffix}"
-            for uid in g.get("records", []):
-                label = label_of.get(uid) if isinstance(uid, str) else None
+            for raw_uid in g.get("records", []):
+                uid = dataset_io.uid_key(raw_uid)
+                label = label_of.get(uid) if uid else None
                 if label is None:
                     skipped_missing += 1  # the row is gone from the current dataset
                     continue
@@ -1147,9 +1161,11 @@ def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
     # NOT a byte copy but a format-converting read+write: the snapshot may be xlsx
     # (legacy) while the target is parquet; a raw copy would corrupt merged.parquet.
     restored = dataset_io.read_dataset(snap_path)
-    # A snapshot taken before UIDs existed (legacy xlsx, old parquet) gets valid UIDs now;
-    # the caller holds job_runner.mutation, so this write is exclusive.
-    dataset_io.ensure_uid(restored)
+    # A snapshot taken before UIDs existed (legacy xlsx, old parquet) gets valid UIDs now,
+    # issued above the analysis high-water mark so a restored row keeps its own key and a
+    # repaired row never collides with a key used elsewhere; the caller holds
+    # job_runner.mutation, so this write is exclusive.
+    _repair_uid(project_id, restored)
     dataset_io.atomic_write_dataset(restored, target)
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()

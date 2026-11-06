@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from uuid import uuid4
 
 import pandas as pd
@@ -49,7 +49,7 @@ def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
 class DeletePayload(BaseModel):
     # UID is the ONLY row key: positions shift after every delete/filter/restore and a DOI
     # can be shared by several rows, so neither is accepted.
-    uids: list[str] = Field(default_factory=list, description="Unique row UIDs")
+    uids: list[Union[str, int]] = Field(default_factory=list, description="Unique row UIDs (sequential integers)")
     reason: Optional[str] = None
 
 
@@ -58,7 +58,7 @@ def delete_records(project_id: str, payload: DeletePayload):
     """Bulk delete by UID. A snapshot is taken. UIDs that are not in the dataset are skipped and counted."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    uid_set = {str(u).strip() for u in payload.uids if u and str(u).strip()}
+    uid_set = {k for k in (dataset_io.uid_key(u) for u in payload.uids) if k}
     if not uid_set:
         raise HTTPException(400, "uids_required")
     with job_runner.mutation(project_id):
@@ -68,7 +68,7 @@ def delete_records(project_id: str, payload: DeletePayload):
             raise HTTPException(409, str(e))
         total_before = int(len(df))
 
-        df_uid = df["UID"].astype(str).str.strip()
+        df_uid = df[dataset_io.UID_COL].map(dataset_io.uid_key)
         keep = ~df_uid.isin(uid_set)
         found = set(df_uid[~keep])
         requested = len(uid_set)
@@ -139,8 +139,9 @@ def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
         # Format converter: snapshots from the xlsx era can be loaded into the parquet dataset.
         df = dataset_io.read_dataset(snap_path)
         # A snapshot that predates UIDs (or carries blank/repeated ones) gets valid UIDs
-        # before it becomes the active dataset (we hold the mutation lock here).
-        dataset_io.ensure_uid(df)
+        # before it becomes the active dataset (we hold the mutation lock here). Rows that
+        # already have a key keep it, so a restored row comes back under its original key.
+        analyses.ensure_dataset_uid(project_id, df)
         saved_path = _save_dataset(project_id, df)
         # A pre_borderline_accept snapshot carries the borderline state it was taken with:
         # roll the accept decisions back together with the dataset.
@@ -185,7 +186,7 @@ def list_snapshots(project_id: str):
 
 
 class UpdatePayload(BaseModel):
-    uid: Optional[str] = None
+    uid: Optional[Union[str, int]] = None
     fields: dict[str, Any] = Field(default_factory=dict, description="Field to update -> new value")
 
 
@@ -194,7 +195,7 @@ def update_record(project_id: str, payload: UpdatePayload):
     """Manually edit the fields of a single record, found by its UID only. A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
-    uid = (payload.uid or "").strip()
+    uid = dataset_io.uid_key(payload.uid)
     if not uid:
         raise HTTPException(400, "uids_required")
     if any(str(k).strip().upper() == dataset_io.UID_COL for k in payload.fields):
@@ -212,7 +213,7 @@ def update_record(project_id: str, payload: UpdatePayload):
             raise HTTPException(409, str(e))
 
         # No DOI (or any other) fallback: an unknown UID means the client's view is stale.
-        mask = df["UID"].astype(str).str.strip() == uid
+        mask = df[dataset_io.UID_COL].map(dataset_io.uid_key) == uid
         idxs = df.index[mask].tolist()
         if not idxs:
             raise HTTPException(404, "record_not_found")

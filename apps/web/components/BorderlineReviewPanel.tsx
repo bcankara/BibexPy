@@ -12,6 +12,8 @@ import { formatNumber, formatPercent } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "./Dialogs";
 import { InfoTip } from "./InfoTip";
 import { cn } from "@/lib/cn";
+import { useProjectBusy } from "@/lib/job-store";
+import { LOCKED_CLASS } from "./BlockingOverlay";
 
 
 type Decision = "accept" | "reject" | "skip";
@@ -26,6 +28,9 @@ export function BorderlineReviewPanel({
   const t = useT();
   const confirm = useConfirm();
   const toast = useToast();
+  // An exclusive job of the project runs: saving decisions would be refused (HTTP 409). Marking
+  // pairs is local state and stays possible; only "Save and complete" is locked.
+  const { busy: jobBusy } = useProjectBusy(projectId);
   const [items, setItems] = useState<BorderlinePair[]>([]);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [loading, setLoading] = useState(true);
@@ -109,7 +114,7 @@ export function BorderlineReviewPanel({
   }
 
   async function applyDecisions() {
-    if (counts.decided === 0) return;
+    if (counts.decided === 0 || jobBusy) return;
     const acceptCount = Object.values(decisions).filter((v) => v === "accept").length;
     const rejectCount = Object.values(decisions).filter((v) => v === "reject").length;
     const skipCount = Object.values(decisions).filter((v) => v === "skip").length;
@@ -282,8 +287,9 @@ export function BorderlineReviewPanel({
             <Button
               size="sm"
               onClick={applyDecisions}
-              disabled={busy || counts.decided === 0}
-              className="ml-auto bg-success hover:bg-success/90"
+              disabled={busy || jobBusy || counts.decided === 0}
+              title={jobBusy ? t("lock.busyReason") : undefined}
+              className={cn("ml-auto bg-success hover:bg-success/90", LOCKED_CLASS)}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               {t("borderline.saveAndComplete")} ({counts.decided})

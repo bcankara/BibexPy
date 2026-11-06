@@ -219,6 +219,19 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
+    # Startup: one-time conversion of existing analyses to sequential row keys. The server
+    # keeps answering while it runs (background thread); the UI shows a blocking window
+    # driven by GET /api/system/uid-migration, and a project being converted refuses
+    # mutating requests with 409 until it is done.
+    @app.on_event("startup")
+    def _start_uid_migration_on_startup() -> None:
+        try:
+            from services import uid_migration
+            uid_migration.start_background()
+        except Exception:
+            import logging
+            logging.getLogger("uvicorn").exception("could not start the row-key migration")
+
     # Meta endpoints — before the frontend mount, under `/api/`
     @app.get("/api/health", tags=["meta"])
     def health() -> dict:

@@ -6,7 +6,7 @@ import {
   type JobInfo, type ProposalSet, translateApiError, translateTitle,
 } from "@/lib/api-client";
 import {
-  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectJobs,
+  isBusyError, refreshProjectJobs, start as startTrackedJob, useJobFinished, useProjectBusy, useProjectJobs,
 } from "@/lib/job-store";
 import { Card, CardBody } from "./Card";
 import { Button } from "./Button";
@@ -18,6 +18,8 @@ import {
 import { useI18n, useT } from "@/lib/i18n";
 import { formatPercent } from "@/lib/i18n/format";
 import { useConfirm, useToast } from "./Dialogs";
+import { cn } from "@/lib/cn";
+import { LOCKED_CLASS } from "./BlockingOverlay";
 
 type Kind = "authors" | "affiliations" | "countries" | "organizations";
 
@@ -64,6 +66,9 @@ export function DisambiguatePanel({
   // Another exclusive job (e.g. "Fill all missing") holds the project: a scan would be refused.
   const blockingJob = activeJobs.find((j) => j.exclusive && !jobMatchesKind(j, kind));
   const setJobId = setStartedJobId;
+  // ANY exclusive job of the project (also a placeholder that was just started) locks scan and apply.
+  const { busy: jobBusy } = useProjectBusy(projectId);
+  const busyTitle = jobBusy ? t("lock.busyReason") : undefined;
   const [approvedMerges, setApprovedMerges] = useState<Set<string>>(new Set());
   const [approvedSplits, setApprovedSplits] = useState<Set<string>>(new Set());
   const [canonicalEdits, setCanonicalEdits] = useState<Record<string, string>>({});
@@ -85,11 +90,11 @@ export function DisambiguatePanel({
     );
     setApprovedMerges(new Set(visible.filter((c) => c.source === "deterministic").map((c) => c.cluster_id)));
     setApprovedSplits(new Set((p.splits || []).filter((s) => s.source === "deterministic").map((s) => s.split_id)));
-    // A stored proposal file that is not schema uid_v1 (written before row UIDs existed) cannot
+    // A stored proposal file that is not schema uid_v2 (written before row UIDs existed) cannot
     // be applied: the backend would refuse it with 409. Show the re-scan banner up front.
     // Only ever set here, never cleared: a scan / kind change clears it, so a refresh cannot
     // hide a staleness the backend reported (e.g. a proposal file of another analysis).
-    if (((p.clusters?.length ?? 0) + (p.splits?.length ?? 0)) > 0 && p.schema !== "uid_v1") setStale(true);
+    if (((p.clusters?.length ?? 0) + (p.splits?.length ?? 0)) > 0 && p.schema !== "uid_v2") setStale(true);
     setCanonicalEdits({});
   }
 
@@ -139,7 +144,7 @@ export function DisambiguatePanel({
   });
 
   async function start() {
-    if (scanning || jobId) return;
+    if (scanning || jobId || jobBusy) return;
     setError(null); setStale(false); setScanning(true);
     try {
       const starter =
@@ -170,7 +175,7 @@ export function DisambiguatePanel({
   }
 
   async function applyApproved() {
-    if (totalApproved === 0 || applying) return;
+    if (totalApproved === 0 || applying || jobBusy) return;
     if (!(await confirm({ message: t("disambiguate.applyConfirm", { n: totalApproved }) }))) return;
     setApplying(true); setError(null);
     try {
@@ -230,7 +235,7 @@ export function DisambiguatePanel({
         <div className="rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-amber-900 flex items-center gap-3 flex-wrap">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
           <span className="flex-1 min-w-[16rem]">{t("disambiguate.staleRescan")}</span>
-          <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob} size="sm">
+          <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob || jobBusy} title={busyTitle} size="sm" className={LOCKED_CLASS}>
             {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {t("disambiguate.rescan")}
           </Button>
@@ -248,7 +253,7 @@ export function DisambiguatePanel({
 
       {/* Scan */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob} size="sm">
+        <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob || jobBusy} title={busyTitle} size="sm" className={LOCKED_CLASS}>
           {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           {t("disambiguate.scan")}
         </Button>
@@ -257,7 +262,7 @@ export function DisambiguatePanel({
           {t("common.refresh")}
         </Button>
         {totalApproved > 0 && !stale && (
-          <Button onClick={applyApproved} disabled={applying || activeJobs.some((j) => j.exclusive)} variant="success" size="sm" className="ml-auto">
+          <Button onClick={applyApproved} disabled={applying || jobBusy || activeJobs.some((j) => j.exclusive)} title={busyTitle} variant="success" size="sm" className={cn("ml-auto", LOCKED_CLASS)}>
             {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("disambiguate.approveApply", { n: totalApproved })}
           </Button>

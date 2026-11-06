@@ -1493,7 +1493,8 @@
       "exportDeleted": "Export deleted: {name}",
       "converted": "Converted: {name}",
       "fileDeleted": "File deleted: {name}",
-      "borderlineDecisions": "Borderline pairs: {accept} accepted / {reject} rejected / {skip} skipped"
+      "borderlineDecisions": "Borderline pairs: {accept} accepted / {reject} rejected / {skip} skipped",
+      "uidMigration": "Records updated for the new version: {records} record(s) in {analysis} now use sequential IDs"
     },
     "userActions": {
       "job_completed": "Job completed",
@@ -1761,5 +1762,31 @@
       "media": "Media",
       "root": "Root"
     }
+  },
+  "lock": {
+    "busyReason": "An operation is running — wait until it finishes.",
+    "dataLocked": "An operation is running on this project. Changing the data is disabled until it finishes; you can still browse, filter and export.",
+    "mergeNote": "The merge runs on the server. Everything is locked until it finishes.",
+    "uploadNote": "Do not close or leave this page until the upload finishes.",
+    "uploading": "Uploading {n} file(s)…",
+    "cancelMerge": "Cancel merge",
+    "cancelOperation": "Cancel operation",
+    "cancelConfirm": "Cancel this operation? It will be stopped and will not finish.",
+    "confirmCancel": "Yes, cancel it",
+    "keepRunning": "Keep running",
+    "checking": "Checking the project…",
+    "mergeStarting": "Starting the merge…"
+  },
+  "migration": {
+    "title": "Your records are being updated for the new version",
+    "note": "BibexPy is converting your saved analyses to the new record format. This happens only once and can take a minute. Please do not close the app.",
+    "preparing": "Preparing…",
+    "projects": "{done} of {total} projects updated",
+    "current": "Now updating: {project}",
+    "doneTitle": "Your records are up to date",
+    "doneNote": "All saved analyses were updated for the new version. The page will reload in a moment.",
+    "errorTitle": "Some analyses could not be updated",
+    "errorNote": "Everything else was updated. The analyses below keep working with their previous record format; if something looks wrong in one of them, run the merge again.",
+    "continue": "Continue"
   }
 }

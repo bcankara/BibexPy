@@ -14,7 +14,7 @@ from typing import Any, Iterable, Optional
 
 import pandas as pd
 
-from services import dataset_io, merger
+from services import analyses, dataset_io, merger
 
 _log = logging.getLogger(__name__)
 
@@ -33,9 +33,16 @@ def atomic_write_excel(df: pd.DataFrame, path: Any) -> None:
     dataset_io.atomic_write_dataset(df, path)
 
 
-def _ensure_uid_column(df: pd.DataFrame) -> bool:
-    """Backwards-compatible name for `dataset_io.ensure_uid` (True = frame changed, persist it)."""
-    return dataset_io.ensure_uid(df)
+def _ensure_uid_column(df: pd.DataFrame, project_id: Optional[str] = None, path: Any = None) -> bool:
+    """Backwards-compatible name for `dataset_io.ensure_uid` (True = frame changed, persist it).
+
+    With a project and the dataset path the analysis's uid_max is the floor for new keys and is
+    raised to the frame's largest key (a repair never re-issues a key an old snapshot may hold).
+    """
+    if project_id is None:
+        return dataset_io.ensure_uid(df)
+    aid = analyses.analysis_id_of_path(project_id, path) if path is not None else None
+    return analyses.ensure_dataset_uid(project_id, df, analysis_id=aid)
 
 
 # Cache keys whose frame holds UIDs that exist only in memory (the persist was deferred
@@ -79,9 +86,10 @@ def _persist_assigned_uids(
 
 
 def load_merged(project_id: str, *, already_locked: bool = False) -> pd.DataFrame:
-    """Load (and cache) the active dataset; every row is guaranteed to carry a unique UID.
+    """Load (and cache) the active dataset; every row is guaranteed to carry a unique sequential UID.
 
-    Datasets born before UIDs existed get theirs on the first load. The assignment is
+    A dataset without valid keys (or with a repeated one) gets them on the first load, numbered
+    above the analysis's uid_max. The assignment is
     persisted under ``job_runner.mutation(project_id)`` when possible; if a job or another
     mutation is running it stays in memory and is persisted by a later load. Pass
     ``already_locked=True`` when the caller already holds the mutation lock.
@@ -116,7 +124,7 @@ def load_merged(project_id: str, *, already_locked: bool = False) -> pd.DataFram
             raise FileNotFoundError(
                 "merged_dataset_unreadable"
             )
-        if _ensure_uid_column(df):
+        if _ensure_uid_column(df, project_id, p):
             outcome = _persist_assigned_uids(project_id, p, df, key, already_locked)
             if outcome in ("written", "stale") and attempt < 2:
                 continue  # re-read what is on disk now, so the cache mirrors the file
@@ -438,6 +446,8 @@ def paginate(df: pd.DataFrame, offset: int = 0, limit: int = 50, columns: Option
             v = row[c]
             if pd.isna(v):
                 rec[c] = None
+            elif c == dataset_io.UID_COL:
+                rec[c] = dataset_io.uid_key(v)  # sequential integer key, sent as canonical text
             elif isinstance(v, (int, float)) and not isinstance(v, bool):
                 # Convert numeric fields to strings (keep NaN)
                 rec[c] = str(int(v)) if float(v).is_integer() else str(v)
