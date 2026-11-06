@@ -27,6 +27,35 @@ from .similarity import jaro_winkler, name_initials, normalize_name
 CancelCheck = Optional[Callable[[], bool]]
 _CANCEL_EVERY = 256
 
+# The similarity loops (_greedy_cluster, _all_pairs_at_least) are O(n²) in the size of a
+# block, and one block can hold thousands of mentions (every address starting with
+# "Department ..." shares a block). Checking only between blocks left a cancelled scan
+# running for minutes, so these loops count their Jaro-Winkler comparisons and ask
+# should_cancel() every _PAIR_CHECK_EVERY of them (well under a second of work).
+# No GIL yield (time.sleep(0)) here: measured on Windows/CPython 3.13, it made a
+# concurrent request slower (median 74 s against 25 s without), not faster.
+_PAIR_CHECK_EVERY = 256
+
+
+class _Cancelled(Exception):
+    """Raised inside a similarity loop when should_cancel() turns True."""
+
+
+class _PairGuard:
+    """Comparison counter shared by the similarity loops of one builder call."""
+
+    __slots__ = ("_should_cancel", "_n")
+
+    def __init__(self, should_cancel: CancelCheck):
+        self._should_cancel = should_cancel
+        self._n = 0
+
+    def tick(self) -> None:
+        self._n += 1
+        if self._n % _PAIR_CHECK_EVERY == 0 and self._should_cancel is not None \
+                and self._should_cancel():
+            raise _Cancelled()
+
 
 def _is_cancelled(should_cancel: CancelCheck, counter: int) -> bool:
     return bool(should_cancel) and (counter % _CANCEL_EVERY == 0) and should_cancel()
@@ -136,51 +165,73 @@ def _field_signal(members: list[dict]) -> bool | None:
     sets = [m.get("fields") or set() for m in members]
     if not any(sets):
         return None
-    n = len(members)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if sets[i] & sets[j]:
-                return True
+    # Two members share a field ⇔ some member's fields meet the union of the earlier ones.
+    # One pass over the tokens instead of comparing all n²/2 member pairs.
+    seen: set[str] = set()
+    for s in sets:
+        if not seen.isdisjoint(s):
+            return True
+        seen |= s
     return False
 
 
-def _greedy_cluster(members: list[dict], threshold: float) -> list[list[dict]]:
+def _greedy_cluster(members: list[dict], threshold: float,
+                    guard: Optional[_PairGuard] = None) -> list[list[dict]]:
     """Transitively cluster mentions by norm similarity (≥ threshold → same cluster).
 
     Exception: a mention that CARRIES a split suffix ('(b)', '(c)' ...) is an identity
     the system deliberately separated earlier → it is not put into any merge cluster
     (it stays on its own and is later dropped by the <2 variants filter). Otherwise the
     scan would undo its own split (e.g. try to merge 'LIU L (b)' with 'LIU LEI').
+
+    `guard` counts the comparisons for cancellation (see _PairGuard); it raises _Cancelled,
+    which the calling builder catches.
     """
     clustered: list[list[dict]] = []
     for m in members:
         if m.get("suffix"):
             clustered.append([m])  # separated identity → isolated, never a merge candidate
             continue
+        norm = m["norm"]
         placed = False
         for cluster in clustered:
             # If the target cluster contains a split identity, do not put it there either.
             if any(x.get("suffix") for x in cluster):
                 continue
-            if any(jaro_winkler(m["norm"], x["norm"]) >= threshold for x in cluster):
+            # Same result as any(jaro_winkler(norm, x["norm"]) >= threshold for x in cluster):
+            # members in order, stopping at the first one that is similar enough.
+            for x in cluster:
+                if guard is not None:
+                    guard.tick()
+                if jaro_winkler(norm, x["norm"]) >= threshold:
+                    placed = True
+                    break
+            if placed:
                 cluster.append(m)
-                placed = True
                 break
         if not placed:
             clustered.append([m])
     return clustered
 
 
-def _min_pairwise_jw(norms: set[str]) -> float:
-    """Lowest pairwise Jaro-Winkler in a variant cluster (a measure of cluster cohesion)."""
+def _all_pairs_at_least(norms: set[str], threshold: float,
+                        guard: Optional[_PairGuard] = None) -> bool:
+    """True when every pair of variants of a cluster has Jaro-Winkler ≥ threshold.
+
+    Same answer as `min(pairwise Jaro-Winkler, starting from 1.0) >= threshold`, but it stops
+    at the first pair below the threshold. A loose cluster of n variants used to cost all
+    n²/2 comparisons: 1.85 million for one 1,923-variant affiliation cluster of the sample.
+    """
+    if not 1.0 >= threshold:
+        return False  # the minimum starts from 1.0 (a single variant has cohesion 1.0)
     items = sorted(norms)
-    if len(items) < 2:
-        return 1.0
-    lo = 1.0
     for i in range(len(items)):
         for j in range(i + 1, len(items)):
-            lo = min(lo, jaro_winkler(items[i], items[j]))
-    return lo
+            if guard is not None:
+                guard.tick()
+            if not jaro_winkler(items[i], items[j]) >= threshold:
+                return False
+    return True
 
 
 def _candidate(key: str, ci: int, cluster: list[dict], variant_field: str, tier: int,
@@ -264,35 +315,38 @@ def build_author_blocks(
     #   component ≥2 variants + between 0.75–0.95                       → Tier 2 (LLM)
     #   single variant / <0.75                                          → Tier 3 (skip)
     out: list[dict] = []
-    for key, members in blocks.items():
-        # Block loop: there are few blocks but each one is heavy (_greedy_cluster is O(n²)) →
-        # check on every block (no modulo); on cancellation return the result so far.
-        if should_cancel and should_cancel():
-            return out
-        if len({m["norm"] for m in members}) < 2:
-            continue  # no variants to merge
+    guard = _PairGuard(should_cancel)
+    try:
+        for key, members in blocks.items():
+            # Block loop: there are few blocks but each one is heavy (_greedy_cluster is O(n²)) →
+            # check on every block (no modulo); on cancellation return the result so far.
+            if should_cancel and should_cancel():
+                return out
+            if len({m["norm"] for m in members}) < 2:
+                continue  # no variants to merge
 
-        auto_clusters: list[dict] = []
-        llm_members: list[dict] = []
-        for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
-            comp_norms = {m["norm"] for m in comp}
-            if len(comp_norms) < 2:
-                continue  # single-variant component → no merge (Tier 3)
-            if _min_pairwise_jw(comp_norms) >= auto_threshold and _field_signal(comp) is not False:
-                # Names ≥0.95 AND (shared field EXISTS or field data is ABSENT) → automatic (Tier 1).
-                # If field data exists but does not overlap (_field_signal False) → falls to the AI.
-                auto_clusters.append(_candidate(key, ci, comp, "name_variants", tier=1, uid_of=uid_of))
-            else:
-                llm_members.append(_candidate(key, ci, comp, "name_variants", tier=2, uid_of=uid_of))
+            auto_clusters: list[dict] = []
+            llm_members: list[dict] = []
+            for ci, comp in enumerate(_greedy_cluster(members, sim_threshold, guard)):
+                comp_norms = {m["norm"] for m in comp}
+                if len(comp_norms) < 2:
+                    continue  # single-variant component → no merge (Tier 3)
+                if _all_pairs_at_least(comp_norms, auto_threshold, guard) and _field_signal(comp) is not False:
+                    # Names ≥0.95 AND (shared field EXISTS or field data is ABSENT) → automatic (Tier 1).
+                    # If field data exists but does not overlap (_field_signal False) → falls to the AI.
+                    auto_clusters.append(_candidate(key, ci, comp, "name_variants", tier=1, uid_of=uid_of))
+                else:
+                    llm_members.append(_candidate(key, ci, comp, "name_variants", tier=2, uid_of=uid_of))
 
-        block: dict = {"key": key}
-        if auto_clusters:
-            block["auto"] = auto_clusters
-        if llm_members:
-            block["members"] = llm_members
-        if block.get("auto") or block.get("members"):
-            out.append(block)
-
+            block: dict = {"key": key}
+            if auto_clusters:
+                block["auto"] = auto_clusters
+            if llm_members:
+                block["members"] = llm_members
+            if block.get("auto") or block.get("members"):
+                out.append(block)
+    except _Cancelled:
+        pass  # cancelled inside a similarity loop: return the result so far
     return out
 
 
@@ -426,39 +480,42 @@ def build_affiliation_blocks(
             })
 
     out: list[dict] = []
-    for key, members in blocks.items():
-        if should_cancel and should_cancel():
-            return out
-        if len({m["norm"] for m in members}) < 2:
-            continue
+    guard = _PairGuard(should_cancel)
+    try:
+        for key, members in blocks.items():
+            if should_cancel and should_cancel():
+                return out
+            if len({m["norm"] for m in members}) < 2:
+                continue
 
-        auto_clusters: list[dict] = []
-        llm_members: list[dict] = []
-        for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
-            comp_norms = {m["norm"] for m in comp}
-            if len(comp_norms) < 2:
-                continue  # single variant → no merge (Tier 3)
-            cand = {
-                "id": f"{key}_{ci}",
-                "variants": sorted({m["raw"] for m in comp}),
-                "records": _uids((m["record"] for m in comp), uid_of, 100),
-            }
-            # Affiliation: high string similarity alone is a strong signal (no context).
-            if _min_pairwise_jw(comp_norms) >= auto_threshold:
-                cand["tier"] = 1
-                auto_clusters.append(cand)
-            else:
-                cand["tier"] = 2
-                llm_members.append(cand)
+            auto_clusters: list[dict] = []
+            llm_members: list[dict] = []
+            for ci, comp in enumerate(_greedy_cluster(members, sim_threshold, guard)):
+                comp_norms = {m["norm"] for m in comp}
+                if len(comp_norms) < 2:
+                    continue  # single variant → no merge (Tier 3)
+                cand = {
+                    "id": f"{key}_{ci}",
+                    "variants": sorted({m["raw"] for m in comp}),
+                    "records": _uids((m["record"] for m in comp), uid_of, 100),
+                }
+                # Affiliation: high string similarity alone is a strong signal (no context).
+                if _all_pairs_at_least(comp_norms, auto_threshold, guard):
+                    cand["tier"] = 1
+                    auto_clusters.append(cand)
+                else:
+                    cand["tier"] = 2
+                    llm_members.append(cand)
 
-        block: dict = {"key": key}
-        if auto_clusters:
-            block["auto"] = auto_clusters
-        if llm_members:
-            block["members"] = llm_members
-        if block.get("auto") or block.get("members"):
-            out.append(block)
-
+            block: dict = {"key": key}
+            if auto_clusters:
+                block["auto"] = auto_clusters
+            if llm_members:
+                block["members"] = llm_members
+            if block.get("auto") or block.get("members"):
+                out.append(block)
+    except _Cancelled:
+        pass  # cancelled inside a similarity loop: return the result so far
     return out
 
 
@@ -527,18 +584,21 @@ def build_country_blocks(
         for k, recs in unresolved.items()
     ]
     llm_members: list[dict] = []
-    for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
-        recs: set[int] = set()
-        variants_u: set[str] = set()
-        for m in comp:
-            variants_u.add(m["raw"])
-            recs |= m["_recs"]
-        llm_members.append({
-            "id": f"country_u_{ci}",
-            "variants": sorted(variants_u),
-            "records": _uids(recs, uid_of, 1000),
-            "tier": 2,
-        })
+    try:
+        for ci, comp in enumerate(_greedy_cluster(members, sim_threshold, _PairGuard(should_cancel))):
+            recs: set[int] = set()
+            variants_u: set[str] = set()
+            for m in comp:
+                variants_u.add(m["raw"])
+                recs |= m["_recs"]
+            llm_members.append({
+                "id": f"country_u_{ci}",
+                "variants": sorted(variants_u),
+                "records": _uids(recs, uid_of, 1000),
+                "tier": 2,
+            })
+    except _Cancelled:
+        return []
 
     block: dict = {"key": "country"}
     if auto_clusters:
@@ -587,36 +647,39 @@ def build_org_rollup(
             blocks[key].append({"record": int(idx), "raw": addr, "norm": norm, "parent": inst})
 
     out: list[dict] = []
-    for key, members in blocks.items():
-        if should_cancel and should_cancel():
-            return out
-        auto_clusters: list[dict] = []
-        llm_members: list[dict] = []
-        for ci, comp in enumerate(_greedy_cluster(members, sim_threshold)):
-            parent = Counter(m["parent"] for m in comp).most_common(1)[0][0]
-            variants = sorted({m["raw"] for m in comp})
-            if len(variants) == 1 and variants[0].strip() == parent.strip():
-                continue  # the single address already equals the parent institution
-            cand = {
-                "id": f"org_{key}_{ci}",
-                "variants": variants,           # full original addresses (apply replaces these)
-                "canonical_name": parent,       # suggested parent institution
-                "records": _uids((m["record"] for m in comp), uid_of, 1000),
-            }
-            comp_norms = {m["norm"] for m in comp}
-            if len(comp_norms) < 2 or _min_pairwise_jw(comp_norms) >= auto_threshold:
-                cand["tier"] = 1
-                auto_clusters.append(cand)
-            else:
-                cand["tier"] = 2
-                llm_members.append(cand)
+    guard = _PairGuard(should_cancel)
+    try:
+        for key, members in blocks.items():
+            if should_cancel and should_cancel():
+                return out
+            auto_clusters: list[dict] = []
+            llm_members: list[dict] = []
+            for ci, comp in enumerate(_greedy_cluster(members, sim_threshold, guard)):
+                parent = Counter(m["parent"] for m in comp).most_common(1)[0][0]
+                variants = sorted({m["raw"] for m in comp})
+                if len(variants) == 1 and variants[0].strip() == parent.strip():
+                    continue  # the single address already equals the parent institution
+                cand = {
+                    "id": f"org_{key}_{ci}",
+                    "variants": variants,           # full original addresses (apply replaces these)
+                    "canonical_name": parent,       # suggested parent institution
+                    "records": _uids((m["record"] for m in comp), uid_of, 1000),
+                }
+                comp_norms = {m["norm"] for m in comp}
+                if len(comp_norms) < 2 or _all_pairs_at_least(comp_norms, auto_threshold, guard):
+                    cand["tier"] = 1
+                    auto_clusters.append(cand)
+                else:
+                    cand["tier"] = 2
+                    llm_members.append(cand)
 
-        block: dict = {"key": key}
-        if auto_clusters:
-            block["auto"] = auto_clusters
-        if llm_members:
-            block["members"] = llm_members
-        if block.get("auto") or block.get("members"):
-            out.append(block)
-
+            block: dict = {"key": key}
+            if auto_clusters:
+                block["auto"] = auto_clusters
+            if llm_members:
+                block["members"] = llm_members
+            if block.get("auto") or block.get("members"):
+                out.append(block)
+    except _Cancelled:
+        pass  # cancelled inside a similarity loop: return the result so far
     return out
