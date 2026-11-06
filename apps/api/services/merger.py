@@ -138,6 +138,8 @@ async def _finish_single_source(
 ) -> dict[str, Any]:
     import asyncio
     output_dataset = adir / "merged.parquet"
+    # The dataset is born here: every row gets its permanent UID before the first write.
+    dataset_io.ensure_uid(df)
     await dataset_io.write_dataset_uncancellable(df, output_dataset)
     ctx.progress(0.7)
 

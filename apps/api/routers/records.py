@@ -1,7 +1,8 @@
 """API router for record-level operations on a project's merged dataset.
 
 Provides endpoints to bulk-delete records, edit a single record, and list or
-restore dataset snapshots. Every destructive operation takes a snapshot first
+restore dataset snapshots. Rows are addressed by UID only, never by position or DOI.
+Every destructive operation takes a snapshot first
 and writes an entry to the audit log.
 """
 
@@ -46,46 +47,37 @@ def _save_dataset(project_id: str, df: pd.DataFrame) -> str:
 
 
 class DeletePayload(BaseModel):
-    uids: list[str] = Field(default_factory=list, description="Unique row UIDs (recommended)")
-    dois: list[str] = Field(default_factory=list, description="DOI list (only for records that have a DOI)")
-    indices: list[int] = Field(default_factory=list, description="Position based (fallback, fragile)")
+    # UID is the ONLY row key: positions shift after every delete/filter/restore and a DOI
+    # can be shared by several rows, so neither is accepted.
+    uids: list[str] = Field(default_factory=list, description="Unique row UIDs")
     reason: Optional[str] = None
 
 
 @router.post("/delete")
 def delete_records(project_id: str, payload: DeletePayload):
-    """Bulk delete by UID, DOI or row indices. A snapshot is taken."""
+    """Bulk delete by UID. A snapshot is taken. UIDs that are not in the dataset are skipped and counted."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
+    uid_set = {str(u).strip() for u in payload.uids if u and str(u).strip()}
+    if not uid_set:
+        raise HTTPException(400, "uids_required")
     with job_runner.mutation(project_id):
         try:
-            df = filter_engine.load_merged(project_id)
+            df = filter_engine.load_merged(project_id, already_locked=True)
         except FileNotFoundError as e:
             raise HTTPException(409, str(e))
         total_before = int(len(df))
 
-        if not payload.uids and not payload.dois and not payload.indices:
-            raise HTTPException(400, "no_records_to_delete")
-
-        keep = pd.Series(True, index=df.index)
-
-        if payload.uids and "UID" in df.columns:
-            uid_set = {str(u).strip() for u in payload.uids if u}
-            df_uid = df["UID"].astype(str).str.strip()
-            keep &= ~df_uid.isin(uid_set)
-
-        if payload.dois and "DI" in df.columns:
-            doi_set = {str(d).strip().lower() for d in payload.dois if d}
-            df_doi = df["DI"].astype(str).str.strip().str.lower()
-            keep &= ~df_doi.isin(doi_set)
-
-        if payload.indices:
-            idx_to_drop = set(payload.indices)
-            keep &= ~pd.Series([i in idx_to_drop for i in range(len(df))], index=df.index)
+        df_uid = df["UID"].astype(str).str.strip()
+        keep = ~df_uid.isin(uid_set)
+        found = set(df_uid[~keep])
+        requested = len(uid_set)
+        not_found = requested - len(found)
 
         deleted_count = int((~keep).sum())
         if deleted_count == 0:
-            return {"deleted": 0, "kept": total_before, "snapshot": None}
+            return {"deleted": 0, "kept": total_before, "snapshot": None,
+                    "requested": requested, "not_found": not_found}
 
         snapshot = _snapshot_dataset(project_id, df, "delete")
         df_new = df.loc[keep].reset_index(drop=True)
@@ -101,9 +93,8 @@ def delete_records(project_id: str, payload: DeletePayload):
                 "before": total_before,
                 "after": int(len(df_new)),
                 "deleted": deleted_count,
-                "by_uid": len(payload.uids),
-                "by_doi": len(payload.dois),
-                "by_index": len(payload.indices),
+                "by_uid": requested,
+                "not_found": not_found,
                 "reason": payload.reason,
                 "saved_path": saved_path,
             },
@@ -118,6 +109,8 @@ def delete_records(project_id: str, payload: DeletePayload):
             "kept": int(len(df_new)),
             "total_before": total_before,
             "snapshot": snapshot,
+            "requested": requested,
+            "not_found": not_found,
         }
 
 
@@ -132,12 +125,22 @@ def restore_snapshot(project_id: str, payload: RestoreSnapshotPayload):
         raise HTTPException(404, "project_not_found")
     with job_runner.mutation(project_id):
         # The path comes from the request body: resolve it and require it to stay inside
-        # this project's folder (no "../" or absolute paths to arbitrary files).
+        # this project's folder (no "../" or absolute paths to arbitrary files) AND inside
+        # the ACTIVE analysis folder: another analysis has its own, unrelated UID set.
         snap_path = (storage.settings.storage_path / payload.snapshot).resolve()
-        if not snap_path.is_relative_to(storage.project_dir(project_id).resolve()) or not snap_path.is_file():
+        active_dir = analyses.get_active_analysis_dir(project_id)
+        if (
+            not snap_path.is_relative_to(storage.project_dir(project_id).resolve())
+            or active_dir is None
+            or not snap_path.is_relative_to(Path(active_dir).resolve())
+            or not snap_path.is_file()
+        ):
             raise HTTPException(404, f"snapshot_not_found: {payload.snapshot}")
         # Format converter: snapshots from the xlsx era can be loaded into the parquet dataset.
         df = dataset_io.read_dataset(snap_path)
+        # A snapshot that predates UIDs (or carries blank/repeated ones) gets valid UIDs
+        # before it becomes the active dataset (we hold the mutation lock here).
+        dataset_io.ensure_uid(df)
         saved_path = _save_dataset(project_id, df)
         # A pre_borderline_accept snapshot carries the borderline state it was taken with:
         # roll the accept decisions back together with the dataset.
@@ -183,37 +186,40 @@ def list_snapshots(project_id: str):
 
 class UpdatePayload(BaseModel):
     uid: Optional[str] = None
-    doi: Optional[str] = None
     fields: dict[str, Any] = Field(default_factory=dict, description="Field to update -> new value")
 
 
 @router.post("/update")
 def update_record(project_id: str, payload: UpdatePayload):
-    """Manually edit the fields of a single record (find it by UID or DOI). A snapshot is taken."""
+    """Manually edit the fields of a single record, found by its UID only. A snapshot is taken."""
     if storage.get_project(project_id) is None:
         raise HTTPException(404, "project_not_found")
+    uid = (payload.uid or "").strip()
+    if not uid:
+        raise HTTPException(400, "uids_required")
+    if any(str(k).strip().upper() == dataset_io.UID_COL for k in payload.fields):
+        raise HTTPException(400, "uid_immutable")
+    # Internal columns (leading underscore) are not editable through the API.
+    fields = {k: v for k, v in payload.fields.items() if not str(k).startswith("_")}
+    if not fields:
+        raise HTTPException(400, "no_fields_to_update")
     with job_runner.mutation(project_id):
-        if not payload.fields:
-            raise HTTPException(400, "no_fields_to_update")
         try:
             # load_merged returns the SHARED cached frame: edit a copy, so a failed save
             # cannot leave phantom edits in the cache.
-            df = filter_engine.load_merged(project_id).copy()
+            df = filter_engine.load_merged(project_id, already_locked=True).copy()
         except FileNotFoundError as e:
             raise HTTPException(409, str(e))
 
-        mask = pd.Series(False, index=df.index)
-        if payload.uid and "UID" in df.columns:
-            mask |= df["UID"].astype(str).str.strip() == str(payload.uid).strip()
-        if not mask.any() and payload.doi and "DI" in df.columns:
-            mask |= df["DI"].astype(str).str.strip().str.lower() == str(payload.doi).strip().lower()
+        # No DOI (or any other) fallback: an unknown UID means the client's view is stale.
+        mask = df["UID"].astype(str).str.strip() == uid
         idxs = df.index[mask].tolist()
         if not idxs:
             raise HTTPException(404, "record_not_found")
         idx = idxs[0]
 
         snapshot = _snapshot_dataset(project_id, df, "edit")
-        for k, v in payload.fields.items():
+        for k, v in fields.items():
             if k not in df.columns:
                 df[k] = ""
             df.at[idx, k] = "" if v is None else v
@@ -222,11 +228,11 @@ def update_record(project_id: str, payload: UpdatePayload):
         audit.write(
             project_id,
             kind="records_edit",
-            title=f"Record edited ({len(payload.fields)} fields)",
+            title=f"Record edited ({len(fields)} fields)",
             title_key="audit.titles.recordEdited",
-            title_params={"n": len(payload.fields)},
-            details={"uid": payload.uid, "doi": payload.doi, "fields": list(payload.fields.keys()), "saved_path": saved_path},
+            title_params={"n": len(fields)},
+            details={"uid": uid, "fields": list(fields.keys()), "saved_path": saved_path},
             snapshot=snapshot,
             user_action="manual_edit",
         )
-        return {"updated": 1, "fields": len(payload.fields), "snapshot": snapshot}
+        return {"updated": 1, "fields": len(fields), "snapshot": snapshot}

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,9 @@ from .deepseek_client import (
 )
 
 
+log = logging.getLogger(__name__)
+
+
 def _project_dir(project_id: str) -> Path:
     """Disambiguation working directory = the ACTIVE ANALYSIS directory (not the project root).
 
@@ -49,11 +53,62 @@ def _project_dir(project_id: str) -> Path:
     return analyses.work_dir(project_id)
 
 
+# Proposal files refer to rows by UID. "uid_v1" marks that format; a file without it
+# (written before UIDs, with int row positions in "records") or one written for another
+# analysis is STALE and is never applied: the user has to re-scan.
+PROPOSALS_SCHEMA = "uid_v1"
+
+
+def _persist_uid(df: pd.DataFrame, path: Path) -> None:
+    """Write a frame whose UIDs were just added/repaired. A failed write is NEVER swallowed:
+    UIDs that exist only in memory would be re-generated differently on the next load and
+    every stored reference would dangle."""
+    try:
+        dataset_io.atomic_write_dataset(df, path)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a typed error below
+        log.error("could not persist row UIDs to %s: %s", path, exc)
+        raise HTTPException(409, "uid_persist_failed") from exc
+    try:
+        from services.filter_engine import _DF_CACHE
+        _DF_CACHE.clear()
+    except Exception:  # noqa: BLE001 - the cache is only an optimisation
+        pass
+
+
 def _load_merged(project_id: str) -> pd.DataFrame:
+    """Load the active dataset for a scan (runs INSIDE the exclusive job): every row
+    gets a valid UID and, if any was added, it is persisted before the scan starts."""
     p = merger.merged_dataset_path(project_id)
     if p is None:
         raise HTTPException(409, "no_merged_data")
-    return dataset_io.read_dataset(p)
+    df = dataset_io.read_dataset(p)
+    if dataset_io.ensure_uid(df):
+        _persist_uid(df, p)
+    return df
+
+
+def _proposals_header(project_id: str) -> dict[str, Any]:
+    """Fields every proposal file carries: the UID schema and the analysis it was scanned from."""
+    return {"schema": PROPOSALS_SCHEMA, "analysis_id": analyses.get_active_analysis_id(project_id)}
+
+
+def _read_proposals_checked(project_id: str, kind: str) -> tuple[dict[str, Any], bool]:
+    """The stored proposals of `kind` for an APPLY. Returns (proposals, file_exists).
+
+    A file that is not schema uid_v1, or was scanned from another analysis than the
+    active one, is refused with 409 `proposals_stale_rescan`. A missing file is not an
+    error (nothing to apply)."""
+    p = _project_dir(project_id) / f"disambiguation_{kind}.json"
+    if not p.exists():
+        return {"kind": kind, "clusters": [], "uncertain": []}, False
+    props = json.loads(p.read_text(encoding="utf-8"))
+    if (
+        not isinstance(props, dict)
+        or props.get("schema") != PROPOSALS_SCHEMA
+        or props.get("analysis_id") != analyses.get_active_analysis_id(project_id)
+    ):
+        raise HTTPException(409, "proposals_stale_rescan")
+    return props, True
 
 
 def _distinct_variants(cluster: dict) -> set[str]:
@@ -163,28 +218,29 @@ def _snapshot(project_dir: Path, df: pd.DataFrame, kind: str) -> Path:
 # the loop is blocked during a scan and cancel/navigation/export FREEZE (the separate root
 # cause of test finding #7). The helpers below are moved onto a thread with
 # asyncio.to_thread; they exit early on cancellation via should_cancel. ──
-def _resolve_member_orcid_sets(df, members, email, allow_api, should_cancel=None) -> list[set]:
-    """Per-member ORCID sets (df-first + optional on-demand API). Must be run in a thread."""
+def _resolve_member_orcid_sets(df, members, email, allow_api, should_cancel=None, uid_map=None) -> list[set]:
+    """Per-member ORCID sets (df-first + optional on-demand API). Must be run in a thread.
+    `uid_map` is the per-scan UID -> label map (built once, shared by every lookup)."""
     out: list[set] = []
     for m in members:
         if should_cancel and should_cancel():
             break
-        out.append(orcid_mod.orcids_for_candidate(df, m, email=email, allow_api=allow_api))
+        out.append(orcid_mod.orcids_for_candidate(df, m, email=email, allow_api=allow_api, uid_map=uid_map))
     return out
 
 
-def _resolve_split_group_sets(df, groups, name, email, allow_api, should_cancel=None) -> list[set]:
+def _resolve_split_group_sets(df, groups, name, email, allow_api, should_cancel=None, uid_map=None) -> list[set]:
     """Per-group ORCID sets of a split proposal. Must be run in a thread."""
     out: list[set] = []
     for g in groups:
         if should_cancel and should_cancel():
             break
         cand = {"name_variants": [name], "records": g.get("records", [])}
-        out.append(orcid_mod.orcids_for_candidate(df, cand, email=email, allow_api=allow_api))
+        out.append(orcid_mod.orcids_for_candidate(df, cand, email=email, allow_api=allow_api, uid_map=uid_map))
     return out
 
 
-async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list[dict]:
+async def _compute_author_splits(ctx: JobContext, project_dir: Path, df, uid_map=None) -> list[dict]:
     """Author SPLIT proposals. Tier 1 (clear, field-disjoint) is deterministic;
     Tier 2 (borderline, some records have no field) goes to LLM arbitration — if the LLM
     says 'keep', the proposal is dropped."""
@@ -199,6 +255,8 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
     #   • Groups with different ORCIDs → definitely different people → strong split (no LLM).
     email = settings.crossref_email or None
     allow_api = settings.disambiguation_orcid_lookup
+    if uid_map is None:
+        uid_map = orcid_mod.uid_label_map(df)
     orcid_keep = 0
     orcid_split = 0
     for s in splits:
@@ -208,7 +266,7 @@ async def _compute_author_splits(ctx: JobContext, project_dir: Path, df) -> list
         # keep cancel/nav/export from freezing).
         group_sets = await asyncio.to_thread(
             _resolve_split_group_sets, df, s.get("groups", []), s["name"], email, allow_api,
-            lambda: ctx.cancelled,
+            lambda: ctx.cancelled, uid_map,
         )
         known = [gs for gs in group_sets if gs]
         if len(known) >= 2:
@@ -281,10 +339,15 @@ _ORCID_FILL_COLS = ("OI", "RI", "ROR", "CC")
 
 
 def _apply_filled_cells(full: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
-    """Copy the ORCID-filled cells of `part` (the first len(part) rows of `full`) onto a
-    copy of `full`, only into blank cells. `full` itself is left untouched."""
+    """Copy the ORCID-filled cells of `part` (a scan-time slice of `full`) onto a copy of
+    `full`, only into blank cells. Rows are aligned by UID, never by position; a `part`
+    row whose UID is not in `full` is skipped. `full` itself is left untouched."""
+    uid_col = dataset_io.UID_COL
+    if uid_col not in full.columns or uid_col not in part.columns:
+        raise ValueError("uid_invariant_violation: UID column missing, cannot align filled cells")
     out = full.copy(deep=True)
-    n = min(len(part), len(out))
+    pos_of = {str(u).strip(): i for i, u in enumerate(out[uid_col].tolist())}
+    part_uids = [str(u).strip() for u in part[uid_col].tolist()]
     for col in _ORCID_FILL_COLS:
         if col not in part.columns:
             continue
@@ -292,10 +355,13 @@ def _apply_filled_cells(full: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
             out[col] = None
         ci = out.columns.get_loc(col)
         pv = part[col].tolist()
-        ov = out.iloc[:n, ci].tolist()
-        for i in range(n):
-            if not orcid_mod._is_blank(pv[i]) and orcid_mod._is_blank(ov[i]):
-                out.iat[i, ci] = pv[i]
+        ov = out.iloc[:, ci].tolist()
+        for uid, val in zip(part_uids, pv):
+            j = pos_of.get(uid)
+            if j is None:
+                continue
+            if not orcid_mod._is_blank(val) and orcid_mod._is_blank(ov[j]):
+                out.iat[j, ci] = val
     return out
 
 
@@ -314,6 +380,8 @@ async def run_author_disambiguation(
         ctx.log(f"Test/cost mode: limited to first {max_records} records")
     ctx.log(f"Mode: {mode}")
     ctx.progress(0.05)
+    # One UID -> label map for the whole scan (candidates carry row UIDs).
+    uid_map = orcid_mod.uid_label_map(df)
 
     # 1) Blocking
     ctx.log("Blocking + similarity analysis...")
@@ -375,7 +443,7 @@ async def run_author_disambiguation(
                 # root cause of #7).
                 orcid_sets = await asyncio.to_thread(
                     _resolve_member_orcid_sets, df, members, email, allow_api,
-                    lambda: ctx.cancelled,
+                    lambda: ctx.cancelled, uid_map,
                 )
                 verdict = orcid_mod.classify_by_orcid(orcid_sets)
 
@@ -465,13 +533,14 @@ async def run_author_disambiguation(
 
     # 3) Split proposals — same name, groups that are disjoint in terms of field
     ctx.log("Author splitting analysis (same spelling, different field)...")
-    splits = await _compute_author_splits(ctx, project_dir, df)
+    splits = await _compute_author_splits(ctx, project_dir, df, uid_map)
     ctx.progress(0.9)
 
     # 4) Save the proposals (not applied yet — awaiting approval)
     proposals_path = project_dir / "disambiguation_authors.json"
     proposals = {
         "kind": "authors",
+        **_proposals_header(project_id),
         "generated_at": time.time(),
         "auto_approve_threshold": settings.disambiguation_auto_approve_threshold,
         "clusters": all_clusters,
@@ -489,7 +558,7 @@ async def run_author_disambiguation(
     #    Empty cells only.
     snap_rel = None
     if settings.disambiguation_orcid_persist and not ctx.cancelled:
-        ambiguous_rows: list[int] = []
+        ambiguous_rows: list[str] = []  # row UIDs
         for b in llm_blocks:
             for m in b.get("members", []):
                 ambiguous_rows.extend(m.get("records", []))
@@ -628,6 +697,7 @@ async def run_affiliation_disambiguation(
     proposals_path = project_dir / "disambiguation_affiliations.json"
     proposals = {
         "kind": "affiliations",
+        **_proposals_header(project_id),
         "generated_at": time.time(),
         "clusters": all_clusters,
         "uncertain": all_uncertain,
@@ -725,7 +795,8 @@ async def _run_cluster_tool(
             cache.close()
 
     (project_dir / f"disambiguation_{kind}.json").write_text(
-        json.dumps({"kind": kind, "generated_at": time.time(), "clusters": all_clusters, "uncertain": all_uncertain},
+        json.dumps({"kind": kind, **_proposals_header(project_id), "generated_at": time.time(),
+                    "clusters": all_clusters, "uncertain": all_uncertain},
                    ensure_ascii=False, indent=2), encoding="utf-8")
     ctx.progress(1.0)
     ctx.log(f"{len(all_clusters)} proposals saved ({auto_count} automatic)")
@@ -767,13 +838,17 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     if src is None:
         raise HTTPException(409, "no_merged_data")
     df = dataset_io.read_dataset(src)
+    # Value-based apply (whole-column replacement): it never addresses rows, but the frame
+    # it writes must satisfy the UID invariant. In memory only; persisted by the write below.
+    dataset_io.ensure_uid(df)
 
     # NOTE: the snapshot is taken at the END of the job, and only if a change is actually
     # going to be made (affected>0) — so that 'zero change' applies don't produce a
     # pile of empty snapshots.
 
-    # Read the member metadata from the proposal list
-    proposals = list_proposals(project_id, kind)
+    # Read the member metadata from the proposal list (409 proposals_stale_rescan when the
+    # file predates UIDs or belongs to another analysis).
+    proposals, _ = _read_proposals_checked(project_id, kind)
     cluster_lookup = {c.get("cluster_id"): c for c in proposals.get("clusters", [])}
 
     affected = 0
@@ -908,7 +983,7 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     # Remove the approved clusters from the proposals — so applied ones don't show up in the list again.
     applied_ids = {e.get("cluster_id") for e in approved if e.get("cluster_id")}
     if applied_ids:
-        props = list_proposals(project_id, kind)
+        props, _ = _read_proposals_checked(project_id, kind)
         props["clusters"] = [c for c in props.get("clusters", []) if c.get("cluster_id") not in applied_ids]
         (project_dir / f"disambiguation_{kind}.json").write_text(
             json.dumps(props, ensure_ascii=False, indent=2), encoding="utf-8",
@@ -922,12 +997,26 @@ def apply_clusters(project_id: str, kind: str, approved: list[dict]) -> dict[str
     }
 
 
-def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
-    """Apply the approved SPLIT proposals — separate the nodes by appending a '(b)' '(c)'
-    suffix to the author name in the relevant records. The largest group (empty suffix)
-    is left untouched.
+SPLIT_CHANGED_UIDS_CAP = 200
 
-    approved: split proposals (by split_id) or a full object (name + groups[]).
+
+def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
+    """Apply the approved SPLIT proposals: separate the identities by appending a '(b)'
+    '(c)' suffix to the author name in the relevant records. The largest group (empty
+    suffix) is left untouched.
+
+    approved: [{split_id}]. ONLY `split_id` is read from the request; the groups and their
+    row UIDs always come from the stored proposal file (a request that carries its own
+    groups/records is ignored). A split_id that is not in the stored proposals is skipped
+    and counted (`skipped_unknown_split`), it is not an error for the rest of the batch.
+
+    Rows are resolved BY UID in the CURRENT dataset: a UID that is no longer there (row
+    deleted, filtered out, snapshot restored) is skipped and counted (`skipped_missing`),
+    never mapped to another row. The name-token check stays: the suffix is only written
+    where the row's AU really contains the split name.
+
+    409 `proposals_stale_rescan` when the proposal file is not schema uid_v1 or belongs to
+    another analysis. Must be called inside job_runner.mutation.
     """
     project_dir = _project_dir(project_id)
     src = merger.merged_dataset_path(project_id)
@@ -936,10 +1025,14 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
     df = dataset_io.read_dataset(src)
     if "AU" not in df.columns:
         raise HTTPException(400, "no_au_column")
+    # Stale proposals are refused BEFORE anything is written.
+    proposals, proposals_exist = _read_proposals_checked(project_id, "authors")
+    lookup = {sp.get("split_id"): sp for sp in proposals.get("splits", [])}
+    # UIDs are guaranteed before any lookup; persisted so the stored references stay valid.
+    if dataset_io.ensure_uid(df):
+        _persist_uid(df, src)
 
     # The snapshot is taken at the END of the job, only if affected>0 (an empty apply is a no-op).
-    proposals = list_proposals(project_id, "authors")
-    lookup = {s.get("split_id"): s for s in proposals.get("splits", [])}
 
     import re as _re
 
@@ -947,9 +1040,18 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
         # Whitespace-normalized key: the WoS AU spelling can be inconsistent ('GAO S' vs 'GAO  S').
         return _re.sub(r"\s+", " ", str(s or "")).strip().lower()
 
+    label_of = orcid_mod.uid_label_map(df)  # UID -> row label, once for the whole apply
     affected = 0
+    skipped_missing = 0
+    skipped_no_token = 0
+    skipped_unknown_split: list[str] = []
+    changed_uids: list[str] = []
     for entry in approved:
-        sp = lookup.get(entry.get("split_id")) or entry  # a full object is also accepted
+        sid = entry.get("split_id") if isinstance(entry, dict) else None
+        sp = lookup.get(sid)
+        if sp is None:
+            skipped_unknown_split.append(str(sid))
+            continue
         name = sp.get("name")
         if not name:
             continue
@@ -959,10 +1061,12 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
             if not suffix:
                 continue  # plain group — leave it alone
             new_name = f"{name} {suffix}"
-            for rec in g.get("records", []):
-                if not isinstance(rec, int) or rec < 0 or rec >= len(df):
+            for uid in g.get("records", []):
+                label = label_of.get(uid) if isinstance(uid, str) else None
+                if label is None:
+                    skipped_missing += 1  # the row is gone from the current dataset
                     continue
-                cell = df.at[rec, "AU"]
+                cell = df.at[label, "AU"]
                 cur = "" if pd.isna(cell) else str(cell)
                 # Whitespace-tolerant token matching (the raw AU spelling is preserved,
                 # only the matching token is replaced with the new name).
@@ -974,11 +1078,24 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
                     else:
                         new_parts.append(x.strip())
                 if hit:
-                    df.at[rec, "AU"] = ";".join(new_parts)
+                    df.at[label, "AU"] = ";".join(new_parts)
                     affected += 1
+                    if len(changed_uids) < SPLIT_CHANGED_UIDS_CAP:
+                        changed_uids.append(uid)
+                else:
+                    skipped_no_token += 1
+
+    stats = {
+        "applied_rows": affected,
+        "skipped_missing": skipped_missing,
+        "skipped_no_token": skipped_no_token,
+        "skipped_unknown_split": len(skipped_unknown_split),
+        "changed_uids": changed_uids,
+    }
 
     if affected == 0:
-        return {"kind": "authors_split", "approved_count": len(approved), "replacements": 0, "snapshot": None}
+        return {"kind": "authors_split", "approved_count": len(approved), "replacements": 0,
+                "snapshot": None, **stats}
 
     snap = _snapshot(project_dir, dataset_io.read_dataset(src), "authors_split")
     dataset_io.atomic_write_dataset(df, src)
@@ -989,22 +1106,23 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
         pass
 
     audit_path = project_dir / "disambiguation_audit_authors_split.json"
-    log: list[dict] = []
+    log_entries: list[dict] = []
     if audit_path.exists():
-        log = json.loads(audit_path.read_text(encoding="utf-8"))
-    log.append({
+        log_entries = json.loads(audit_path.read_text(encoding="utf-8"))
+    log_entries.append({
         "applied_at": time.time(),
         "snapshot": str(snap.relative_to(storage.settings.storage_path)),
         "approved_count": len(approved),
         "replacements": affected,
+        **stats,
     })
-    audit_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    audit_path.write_text(json.dumps(log_entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Remove the approved splits from the proposals — so applied ones don't show up in the list again.
-    applied_ids = {e.get("split_id") for e in approved if e.get("split_id")}
-    if applied_ids:
-        props = list_proposals(project_id, "authors")
-        props["splits"] = [s for s in props.get("splits", []) if s.get("split_id") not in applied_ids]
+    applied_ids = {e.get("split_id") for e in approved if isinstance(e, dict) and e.get("split_id")}
+    if applied_ids and proposals_exist:
+        props, _ = _read_proposals_checked(project_id, "authors")
+        props["splits"] = [sp for sp in props.get("splits", []) if sp.get("split_id") not in applied_ids]
         (project_dir / "disambiguation_authors.json").write_text(
             json.dumps(props, ensure_ascii=False, indent=2), encoding="utf-8",
         )
@@ -1014,6 +1132,7 @@ def apply_splits(project_id: str, approved: list[dict]) -> dict[str, Any]:
         "approved_count": len(approved),
         "replacements": affected,
         "snapshot": str(snap.relative_to(storage.settings.storage_path)),
+        **stats,
     }
 
 
@@ -1027,7 +1146,11 @@ def restore_snapshot(project_id: str, snapshot_relative: str) -> dict[str, Any]:
         raise HTTPException(409, "no_merged_data")
     # NOT a byte copy but a format-converting read+write: the snapshot may be xlsx
     # (legacy) while the target is parquet; a raw copy would corrupt merged.parquet.
-    dataset_io.atomic_write_dataset(dataset_io.read_dataset(snap_path), target)
+    restored = dataset_io.read_dataset(snap_path)
+    # A snapshot taken before UIDs existed (legacy xlsx, old parquet) gets valid UIDs now;
+    # the caller holds job_runner.mutation, so this write is exclusive.
+    dataset_io.ensure_uid(restored)
+    dataset_io.atomic_write_dataset(restored, target)
     from services.filter_engine import _DF_CACHE
     _DF_CACHE.clear()
     # A pre_borderline_accept snapshot carries the borderline state it was taken with:

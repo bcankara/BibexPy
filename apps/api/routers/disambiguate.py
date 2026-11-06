@@ -117,7 +117,9 @@ def get_proposals(project_id: str, kind: str):
 class ApplyRequest(BaseModel):
     kind: str
     approved: list[dict[str, Any]] = []          # merge approvals
-    approved_splits: list[dict[str, Any]] = []   # split approvals — authors only
+    # Split approvals — authors only. Only each entry's `split_id` is read: the groups and
+    # their row UIDs come from the stored proposal file, anything else in the entry is ignored.
+    approved_splits: list[dict[str, Any]] = []
 
 
 @router.post("/apply")
@@ -152,6 +154,11 @@ def apply(project_id: str, payload: ApplyRequest):
                 "clusters_approved": len(payload.approved),
                 "splits_approved": len(payload.approved_splits),
                 "replacements": replacements,
+                # Split apply is UID-based: rows whose UID vanished since the scan are skipped
+                # and reported, never mapped to another row.
+                "applied_rows": (split_result or {}).get("applied_rows", 0),
+                "skipped_missing": (split_result or {}).get("skipped_missing", 0),
+                "changed_uids": (split_result or {}).get("changed_uids", []),
             },
             snapshot=snapshot,
             user_action="apply_disambiguation",

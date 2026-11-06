@@ -13,6 +13,8 @@ from typing import Callable, Iterable, Optional
 
 import pandas as pd
 
+from services import dataset_io
+
 from .similarity import jaro_winkler, name_initials, normalize_name
 
 
@@ -28,6 +30,30 @@ _CANCEL_EVERY = 256
 
 def _is_cancelled(should_cancel: CancelCheck, counter: int) -> bool:
     return bool(should_cancel) and (counter % _CANCEL_EVERY == 0) and should_cancel()
+
+
+def _uid_of_label(df: pd.DataFrame) -> dict[int, str]:
+    """Row label -> row UID, built ONCE per builder call.
+
+    Proposals are stored and applied in a later request, after rows may have been
+    deleted, filtered or restored, so they must never carry row positions: every
+    "record" a builder emits is the row UID. The dataset has to carry a valid UID
+    column (the scan ensures it before calling a builder); a frame without one is
+    refused instead of silently falling back to positions.
+    """
+    if dataset_io.UID_COL not in df.columns:
+        raise ValueError("uid_invariant_violation: dataset has no UID column")
+    dataset_io.check_uid(df)
+    return {int(label): str(u).strip() for label, u in zip(df.index, df[dataset_io.UID_COL])}
+
+
+def _uids(labels: Iterable[int], uid_of: dict[int, str], limit: Optional[int] = None) -> list[str]:
+    """Row labels -> UIDs, keeping the established semantics: SORT by position first,
+    TRUNCATE to `limit`, THEN map to UID (so the same rows are kept as before)."""
+    ordered = sorted(set(labels))
+    if limit is not None:
+        ordered = ordered[:limit]
+    return [uid_of[i] for i in ordered]
 
 
 def _split_authors(value: str) -> list[str]:
@@ -155,7 +181,8 @@ def _min_pairwise_jw(norms: set[str]) -> float:
     return lo
 
 
-def _candidate(key: str, ci: int, cluster: list[dict], variant_field: str, tier: int) -> dict:
+def _candidate(key: str, ci: int, cluster: list[dict], variant_field: str, tier: int,
+               uid_of: dict[int, str]) -> dict:
     """Convert a cluster into a candidate object that fits the UI/LLM schema."""
     names = sorted({m["name"] for m in cluster})
     cand = {
@@ -163,7 +190,7 @@ def _candidate(key: str, ci: int, cluster: list[dict], variant_field: str, tier:
         variant_field: names,
         "affiliations": sorted({a for m in cluster for a in m.get("affiliations", [])})[:10],
         "coauthors": sorted({c for m in cluster for c in m.get("coauthors", [])})[:10],
-        "records": sorted({m["record"] for m in cluster})[:50],
+        "records": _uids((m["record"] for m in cluster), uid_of, 50),  # row UIDs
         "tier": tier,
     }
     years = sorted({m["year"] for m in cluster if m.get("year")})
@@ -195,6 +222,7 @@ def build_author_blocks(
     """
     if "AU" not in df.columns:
         return []
+    uid_of = _uid_of_label(df)
 
     # surname+initial -> list of (record_idx, name, affiliations, coauthors, year)
     blocks: dict[str, list[dict]] = defaultdict(list)
@@ -251,9 +279,9 @@ def build_author_blocks(
             if _min_pairwise_jw(comp_norms) >= auto_threshold and _field_signal(comp) is not False:
                 # Names ≥0.95 AND (shared field EXISTS or field data is ABSENT) → automatic (Tier 1).
                 # If field data exists but does not overlap (_field_signal False) → falls to the AI.
-                auto_clusters.append(_candidate(key, ci, comp, "name_variants", tier=1))
+                auto_clusters.append(_candidate(key, ci, comp, "name_variants", tier=1, uid_of=uid_of))
             else:
-                llm_members.append(_candidate(key, ci, comp, "name_variants", tier=2))
+                llm_members.append(_candidate(key, ci, comp, "name_variants", tier=2, uid_of=uid_of))
 
         block: dict = {"key": key}
         if auto_clusters:
@@ -296,10 +324,12 @@ def build_author_splits(df: pd.DataFrame, should_cancel: CancelCheck = None) -> 
     Tier 2 (borderline): some records have no field data → ask the AI (split / keep).
     Otherwise (single group / chained shared fields) → no split.
 
-    Returns: split suggestions; each one is {split_id, name, norm, tier, groups[], reason}.
+    Returns: split suggestions; each one is {split_id, name, norm, tier, groups[], reason};
+    each group's "records" are row UIDs (strings).
     """
     if "AU" not in df.columns:
         return []
+    uid_of = _uid_of_label(df)
     mentions: dict[str, list[dict]] = defaultdict(list)
     name_of: dict[str, str] = {}
     for _ri, (idx, row) in enumerate(df.iterrows()):
@@ -341,7 +371,7 @@ def build_author_splits(df: pd.DataFrame, should_cancel: CancelCheck = None) -> 
         for gi, comp in enumerate(comps):
             gfields = sorted({f for r in comp for f in r["fields"]})
             groups.append({
-                "records": sorted({r["record"] for r in comp}),
+                "records": _uids((r["record"] for r in comp), uid_of),  # row UIDs, never positions
                 "fields": gfields[:8],
                 "suffix": suffixes[gi] if gi < len(suffixes) else f"({gi})",
             })
@@ -372,6 +402,7 @@ def build_affiliation_blocks(
     """Blocking of affiliation variants based on the first meaningful token. See build_author_blocks."""
     if "C1" not in df.columns and "C1raw" not in df.columns:
         return []
+    uid_of = _uid_of_label(df)
 
     # canonical form -> list of variants
     blocks: dict[str, list[dict]] = defaultdict(list)
@@ -408,7 +439,7 @@ def build_affiliation_blocks(
             cand = {
                 "id": f"{key}_{ci}",
                 "variants": sorted({m["raw"] for m in comp}),
-                "records": sorted({m["record"] for m in comp})[:100],
+                "records": _uids((m["record"] for m in comp), uid_of, 100),
             }
             # Affiliation: high string similarity alone is a strong signal (no context).
             if _min_pairwise_jw(comp_norms) >= auto_threshold:
@@ -445,6 +476,7 @@ def build_country_blocks(
 
     if "C1" not in df.columns and "C1raw" not in df.columns:
         return []
+    uid_of = _uid_of_label(df)
 
     resolved: dict[str, dict] = {}     # canonical -> {variants, records}
     unresolved: dict[str, set] = {}    # token(lower) -> records
@@ -482,7 +514,7 @@ def build_country_blocks(
             "id": f"country_{re.sub(r'[^a-z0-9]+', '_', canon.lower()).strip('_')}",
             "variants": variants,
             "canonical_name": canon,
-            "records": sorted(data["records"])[:1000],
+            "records": _uids(data["records"], uid_of, 1000),
             "tier": 1,
         })
 
@@ -502,7 +534,7 @@ def build_country_blocks(
         llm_members.append({
             "id": f"country_u_{ci}",
             "variants": sorted(variants_u),
-            "records": sorted(recs)[:1000],
+            "records": _uids(recs, uid_of, 1000),
             "tier": 2,
         })
 
@@ -533,6 +565,7 @@ def build_org_rollup(
 
     if "C1" not in df.columns and "C1raw" not in df.columns:
         return []
+    uid_of = _uid_of_label(df)
 
     blocks: dict[str, list[dict]] = defaultdict(list)
     for _ri, (idx, row) in enumerate(df.iterrows()):
@@ -566,7 +599,7 @@ def build_org_rollup(
                 "id": f"org_{key}_{ci}",
                 "variants": variants,           # full original addresses (apply replaces these)
                 "canonical_name": parent,       # suggested parent institution
-                "records": sorted({m["record"] for m in comp})[:1000],
+                "records": _uids((m["record"] for m in comp), uid_of, 1000),
             }
             comp_norms = {m["norm"] for m in comp}
             if len(comp_norms) < 2 or _min_pairwise_jw(comp_norms) >= auto_threshold:

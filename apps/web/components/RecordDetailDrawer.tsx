@@ -16,8 +16,15 @@ type Props = {
   projectId: string;
   onClose: () => void;
   onSaved?: () => void;
+  /** The record's UID is no longer in the dataset (404 record_not_found on save). */
+  onRecordGone?: () => void;
   startEditing?: boolean;
 };
+
+/** Identity / internal columns that are never editable and never sent as changes. */
+function isInternalKey(k: string): boolean {
+  return k === "UID" || k.startsWith("_");
+}
 
 type FieldFormat = "wrap" | "compact" | "list" | "doi" | "long";
 type FieldGroup = {
@@ -95,7 +102,7 @@ function buildGroups(t: (k: string) => string): FieldGroup[] {
   ];
 }
 
-export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startEditing = false }: Props) {
+export function RecordDetailDrawer({ record, projectId, onClose, onSaved, onRecordGone, startEditing = false }: Props) {
   const t = useT();
   const toast = useToast();
   const GROUPS = useMemo(() => buildGroups(t), [t]);
@@ -133,7 +140,10 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
     if (!record) return;
     if (startEditing) {
       const d: Record<string, string> = {};
-      for (const k of Object.keys(record)) d[k] = record[k] == null ? "" : String(record[k]);
+      for (const k of Object.keys(record)) {
+        if (isInternalKey(k)) continue;
+        d[k] = record[k] == null ? "" : String(record[k]);
+      }
       setDraft(d);
       setEditing(true);
     } else {
@@ -148,16 +158,26 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
 
   function startEdit() {
     const d: Record<string, string> = {};
-    for (const k of Object.keys(rec)) d[k] = rec[k] == null ? "" : String(rec[k]);
+    for (const k of Object.keys(rec)) {
+      if (isInternalKey(k)) continue;
+      d[k] = rec[k] == null ? "" : String(rec[k]);
+    }
     setDraft(d);
     setEditing(true);
   }
 
   async function save() {
+    const uid = (rec.UID ?? "").trim();
+    if (!uid) {
+      // A record without a UID has no identity and cannot be updated.
+      toast(t("recordDetail.noUid"), { tone: "danger" });
+      return;
+    }
     setSaving(true);
     try {
       const changed: Record<string, string> = {};
       for (const k of Object.keys(draft)) {
+        if (isInternalKey(k)) continue;   // UID is read-only; "_" columns are internal
         const orig = rec[k] == null ? "" : String(rec[k]);
         if (draft[k] !== orig) changed[k] = draft[k];
       }
@@ -165,17 +185,21 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
         setEditing(false);
         return;
       }
-      await api.updateRecord(projectId, {
-        uid: rec.UID || undefined,
-        doi: rec.DI || undefined,
-        fields: changed,
-      });
+      await api.updateRecord(projectId, { uid, fields: changed });
       toast(t("recordDetail.saved", { n: Object.keys(changed).length }), { tone: "success" });
       setOverrides((o) => ({ ...o, ...changed }));   // so the read view immediately shows the current value
       setEditing(false);
       onSaved?.();
     } catch (e) {
-      toast(translateApiError(t, e, "recordDetail.saveFailed"), { tone: "danger" });
+      const msg = e instanceof Error ? e.message : "";
+      if (/record_not_found/.test(msg)) {
+        // The row was deleted / the dataset was restored since the list was loaded.
+        toast(t("recordDetail.recordGone"), { tone: "warning" });
+        onRecordGone?.();
+        onClose();
+      } else {
+        toast(translateApiError(t, e, "recordDetail.saveFailed"), { tone: "danger" });
+      }
     } finally {
       setSaving(false);
     }
@@ -197,7 +221,7 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
 
   const usedKeys = new Set(GROUPS.flatMap((g) => g.fields.map((f) => f.key)));
   const otherFields = Object.keys(rec)
-    .filter((k) => !usedKeys.has(k) && rec[k] != null && rec[k] !== "")
+    .filter((k) => !usedKeys.has(k) && !isInternalKey(k) && rec[k] != null && rec[k] !== "")
     .sort();
 
   return (
@@ -227,6 +251,12 @@ export function RecordDetailDrawer({ record, projectId, onClose, onSaved, startE
             <h2 className="font-semibold text-base leading-snug text-ink">{title}</h2>
             {authors && <p className="text-xs text-muted mt-1 line-clamp-2">{authors}</p>}
             {journal && <p className="text-xs text-muted italic mt-0.5">{journal}</p>}
+            {rec.UID && (
+              <p className="text-[11px] text-muted mt-1" title={t("recordDetail.uidHint")}>
+                <span className="font-medium">{t("recordDetail.uidLabel")}</span>{" "}
+                <span className="font-mono select-all">{rec.UID}</span>
+              </p>
+            )}
             {doi && !editing && (
               <a
                 href={`https://doi.org/${doi}`}

@@ -24,7 +24,6 @@ type Props = {
   storageKey?: string;
   selected?: Set<string>;
   onSelectionChange?: (next: Set<string>) => void;
-  rowKey?: (row: Row) => string;
   onEditRow?: (row: Row) => void;
   onDeleteRow?: (row: Row) => void;
 };
@@ -55,21 +54,24 @@ const ALWAYS_HIDDEN = new Set(["UID"]);
 
 export function RecordsTable({
   data, onPage, onRowClick, storageKey = "bibex.records.table",
-  selected, onSelectionChange, rowKey, onEditRow, onDeleteRow,
+  selected, onSelectionChange, onEditRow, onDeleteRow,
 }: Props) {
   const { t, locale } = useI18n();
   const { total, offset, limit, columns: cols, records } = data;
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(offset + limit, total);
 
-  const getKey = (r: Row) => rowKey ? rowKey(r) : (r.UID || r.DI || r.UT || JSON.stringify(r).slice(0, 80));
+  // Selection identity is the record UID and nothing else. A row without a UID
+  // has no identity (key = "") and cannot be selected.
+  const getKey = (r: Row): string => (r.UID ?? "").trim();
+  const isSelectable = (r: Row) => getKey(r) !== "";
   const selectionEnabled = !!onSelectionChange;
   const actionsEnabled = !!(onEditRow || onDeleteRow);
   const stickyCol = selectionEnabled || actionsEnabled;
   const selectedSet = selected ?? new Set<string>();
 
   // Are all rows on the current page selected?
-  const pageKeys = records.map(getKey);
+  const pageKeys = records.map(getKey).filter((k) => k !== "");
   const allChecked = pageKeys.length > 0 && pageKeys.every((k) => selectedSet.has(k));
   const someChecked = !allChecked && pageKeys.some((k) => selectedSet.has(k));
 
@@ -85,8 +87,9 @@ export function RecordsTable({
   }
   function toggleRow(r: Row) {
     if (!onSelectionChange) return;
-    const next = new Set(selectedSet);
     const k = getKey(r);
+    if (!k) return;
+    const next = new Set(selectedSet);
     if (next.has(k)) next.delete(k); else next.add(k);
     onSelectionChange(next);
   }
@@ -175,6 +178,9 @@ export function RecordsTable({
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
+    // Row id = UID (never the page-local array index). Rows without a UID fall
+    // back to a page-local marker that is only used as a React key.
+    getRowId: (r, i) => (r.UID ? String(r.UID) : `__nouid_${i}`),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode: "onChange",
@@ -258,6 +264,7 @@ export function RecordsTable({
                         <input
                           type="checkbox"
                           checked={allChecked}
+                          disabled={pageKeys.length === 0}
                           ref={(el) => { if (el) el.indeterminate = someChecked; }}
                           onChange={togglePage}
                           className="accent-brand-500 h-3.5 w-3.5"
@@ -328,7 +335,8 @@ export function RecordsTable({
                   )}
                   {virt.getVirtualItems().map((vi) => {
                     const row = rows[vi.index];
-                    const isSelected = selectionEnabled && selectedSet.has(getKey(row.original));
+                    const rowSelectable = isSelectable(row.original);
+                    const isSelected = selectionEnabled && rowSelectable && selectedSet.has(getKey(row.original));
                     return (
                       <tr
                         key={row.id}
@@ -357,6 +365,8 @@ export function RecordsTable({
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
+                                  disabled={!rowSelectable}
+                                  title={rowSelectable ? undefined : t("records.noUidCannotSelect")}
                                   onChange={() => toggleRow(row.original)}
                                   className="accent-brand-500 h-3.5 w-3.5"
                                 />

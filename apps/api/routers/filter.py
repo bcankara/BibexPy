@@ -74,7 +74,7 @@ def apply_filter_permanently(project_id: str, payload: ApplyFilterRequest):
     # Applying rewrites the dataset: never while an exclusive job could overwrite it.
     with job_runner.mutation(project_id):
         try:
-            df = filter_engine.load_merged(project_id)
+            df = filter_engine.load_merged(project_id, already_locked=True)
         except FileNotFoundError as e:
             raise HTTPException(409, str(e))
 

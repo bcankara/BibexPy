@@ -938,7 +938,9 @@
     "editRow": "Edit record",
     "deleteRow": "Delete record",
     "deleteRowConfirm": "Delete this record? A snapshot is taken so it can be restored.",
-    "totalWithPct": "total · {pct}%"
+    "totalWithPct": "total · {pct}%",
+    "noUidCannotSelect": "This row has no UID and cannot be selected.",
+    "rowAlreadyGone": "This record was already gone from the dataset; the list was refreshed."
   },
   "enrich": {
     "title": "Harmonization",
@@ -1111,7 +1113,10 @@
       "affiliations": "institution",
       "organizations": "institution",
       "countries": "country"
-    }
+    },
+    "staleRescan": "The dataset changed since this scan, so the stored suggestions can no longer be applied safely. Please scan again.",
+    "rescan": "Scan again",
+    "skippedMissing": "{n} record(s) from the suggestions were no longer in the dataset and were skipped."
   },
   "export": {
     "title": "Export",
@@ -1570,7 +1575,11 @@
     "save": "Save",
     "saved": "{n} field(s) updated.",
     "saveFailed": "Could not save the record.",
-    "editHint": "Edit any field below — empty fields can be filled in manually too. Saved to the active dataset (a snapshot is taken)."
+    "editHint": "Edit any field below — empty fields can be filled in manually too. Saved to the active dataset (a snapshot is taken).",
+    "uidLabel": "UID",
+    "uidHint": "Permanent record identifier (read-only)",
+    "noUid": "This record has no UID, so it cannot be saved.",
+    "recordGone": "This record no longer exists in the dataset (it was deleted or the dataset was restored). The list was refreshed."
   },
   "bulk": {
     "recordsSelected": "records selected",
@@ -1586,7 +1595,8 @@
     "cellsFilled": "{n} cells filled",
     "noDoiSkipped": "{n} without DOI (skipped)",
     "apiNotFound": "{n} not found in API",
-    "deletedToast": "{deleted} records deleted, {kept} kept."
+    "deletedToast": "{deleted} records deleted, {kept} kept.",
+    "notFoundSkipped": "{n} selected record(s) were no longer in the dataset and were skipped."
   },
   "jobs": {
     "starting": "Starting…",
@@ -1650,7 +1660,7 @@
     "no_raw_files": "No raw files uploaded yet",
     "path_not_found": "Path not found",
     "scopus_convert_failed": "Scopus CSV → XLSX conversion failed. Is the file really a Scopus CSV?",
-    "no_records_to_delete": "No records specified to delete (uids, dois or indices)",
+    "no_records_to_delete": "No records were selected to delete.",
     "tsv_encoding_failed": "Could not read TSV encoding",
     "wos_convert_failed": "WoS TXT → XLSX conversion failed. Is the file really WoS plain text?",
     "decisions_empty": "decisions cannot be empty",
@@ -1711,7 +1721,12 @@
     "borderline_uid_not_unique": "Record IDs would not be unique after merging the accepted pairs. The dataset was not changed.",
     "merged_dataset_unreadable": "The merged dataset looks corrupted. Restore a snapshot from History.",
     "no_merge_for_flow": "There is no merge to draw the data flow from yet — run a merge first.",
-    "dataset_busy_request_running": "Another change to this project is being saved — try again in a moment."
+    "dataset_busy_request_running": "Another change to this project is being saved — try again in a moment.",
+    "uids_required": "No record was identified. Records are addressed by their UID only; reload the list and try again.",
+    "uid_immutable": "A record's UID cannot be changed.",
+    "uid_persist_failed": "The record IDs (UIDs) could not be saved to the dataset. Nothing was changed; try again once no other job is running.",
+    "proposals_stale_rescan": "These suggestions were created before the dataset changed (or by an older version), so they can no longer be applied safely. Scan again to get fresh suggestions.",
+    "uid_missing": "A record without an ID (UID) was found while running the job. Nothing was written; run the job again."
   },
   "folderPicker": {
     "title": "Select Folder",

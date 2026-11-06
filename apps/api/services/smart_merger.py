@@ -23,6 +23,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 import pandas as pd
+from fastapi import HTTPException
 
 from bibex_core.cr_normalize import count_refs, normalize_cr
 from config import settings
@@ -46,6 +47,9 @@ FIELD_PREFERENCES: dict[str, str] = {
     "TC": "wos",          # times cited
     "CR": "wos",          # cited references
     "NR": "wos",          # number of references
+    # Row identity: a matched pair keeps the WoS row's UID (merge_pair_with_preferences
+    # handles it without logging a conflict); the Scopus row's UID is retired.
+    "UID": "wos",
     # Scopus-preferred (abstracts and author lists are more complete in Scopus)
     "AB": "scopus",       # abstract
     "AU": "scopus",       # author short
@@ -59,6 +63,8 @@ FIELD_PREFERENCES: dict[str, str] = {
     "SC": "cross_fill_wos_first",
 }
 DEFAULT_PREFERENCE = "wos_first"  # for all other fields
+
+UID_COL = dataset_io.UID_COL
 
 # Threshold constants
 TITLE_EXACT_THRESHOLD = 0.92          # Stage 3
@@ -700,6 +706,13 @@ def merge_pair_with_preferences(
     for col in all_columns:
         if col.startswith("_norm_"):
             continue  # internal columns
+        if col == UID_COL:
+            # A matched pair keeps the WoS row's UID; the Scopus row's UID is retired.
+            # The two UIDs always differ, so this is identity bookkeeping and never a
+            # field conflict (conflict_log.xlsx and the source distribution stay unchanged).
+            w_uid, s_uid = w.get(col), s.get(col)
+            merged[col] = s_uid if _is_empty(w_uid) else w_uid
+            continue
         w_val = w.get(col)
         s_val = s.get(col)
         chosen, source = _apply_preference(col, w_val, s_val)
@@ -733,7 +746,7 @@ def _write_match_audit(rows: list[dict], out: Path) -> None:
     if not rows:
         return
     df = pd.DataFrame(rows)
-    cols = ["pair_id", "wos_index", "scp_index", "doi", "stage", "stage_label",
+    cols = ["pair_id", "wos_uid", "scp_uid", "wos_index", "scp_index", "doi", "stage", "stage_label",
             "confidence", "jw_title", "year_diff", "surname_match", "reason"]
     cols = [c for c in cols if c in df.columns]
     df[cols].to_excel(out, index=False)
@@ -927,6 +940,43 @@ def restore_borderline_state(project_id: str, snap_path: Path) -> bool:
 #  MAIN ORCHESTRATOR
 # ════════════════════════════════════════════════════════════════════════
 
+def _assign_source_uids(wos_df: pd.DataFrame, scp_df: pd.DataFrame) -> None:
+    """Give every WoS and Scopus source row a UID, IN PLACE, before dedup and matching.
+
+    A row's identity is therefore fixed at its birth: a matched pair keeps the WoS row's UID,
+    an unmatched row keeps its own, and the queue/audit files can name rows by UID. UIDs that
+    a re-imported export already carries are kept when valid and unique; a Scopus UID that
+    collides with a WoS UID is renewed so the final dataset can never hold a repeat.
+    """
+    dataset_io.ensure_uid(wos_df)
+    dataset_io.ensure_uid(scp_df)
+    taken = set(wos_df[UID_COL].astype(str))
+    clash = scp_df[UID_COL].astype(str).isin(taken)
+    if clash.any():
+        taken.update(scp_df.loc[~clash, UID_COL].astype(str))
+        # Positions, not index labels: a frame with repeated labels must not get one UID twice.
+        values = scp_df[UID_COL].to_numpy(dtype=object, copy=True)
+        for pos in clash.to_numpy().nonzero()[0]:
+            u = dataset_io.new_uid()
+            while u in taken:
+                u = dataset_io.new_uid()
+            taken.add(u)
+            values[pos] = u
+        scp_df[UID_COL] = values
+
+
+def _persist_uid(df: pd.DataFrame, path: Path) -> None:
+    """Persist a frame whose UIDs were just added; a failure is surfaced, never swallowed.
+
+    Raised as a typed 409 (same code as the other UID persist paths) so the request does not
+    end in an opaque 500: UIDs that exist only in memory would be re-generated on the next
+    load and every stored reference would dangle."""
+    try:
+        dataset_io.atomic_write_dataset(df, path)
+    except Exception as e:
+        raise HTTPException(409, "uid_persist_failed") from e
+
+
 async def run_smart_merge(ctx: JobContext, project_id: str) -> dict[str, Any]:
     """Main Smart Merge workflow. Returns a result dict (for the audit hook).
 
@@ -978,6 +1028,9 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
     # created an extra in-memory copy of the corpus)
     wos_df["DB"] = "ISI"
     scp_df["DB"] = "SCOPUS"
+
+    # UIDs are born here, before dedup and matching (see _assign_source_uids).
+    await run_cpu(_assign_source_uids, wos_df, scp_df)
 
     # NOTE: The CPU-heavy stages below (normalize / dedup / candidate generation /
     # matching / field merge) run in the run_cpu pool. Running them inline on the
@@ -1068,6 +1121,11 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
                 s_row = scp_df.loc[s_idx]
                 borderline.append({
                     "pair_id": pair_id,
+                    # Row identity: the UIDs the two rows carry in the merged dataset
+                    # (an unmatched row keeps its own UID). wos_index/scp_index are only
+                    # labels of the INPUT frames, kept for readers of older queues.
+                    "wos_uid": _to_str(w_row.get(UID_COL, "")),
+                    "scp_uid": _to_str(s_row.get(UID_COL, "")),
                     "wos_index": int(w_idx),
                     "scp_index": int(s_idx),
                     "jw_title": m["jw_title"],
@@ -1103,6 +1161,8 @@ async def _run_smart_merge(ctx: JobContext, project_id: str, progress: dict[str,
                 stage_counts[m["stage_label"]] = stage_counts.get(m["stage_label"], 0) + 1
                 matches.append({
                     "pair_id": pair_id,
+                    "wos_uid": _to_str(wos_df.at[w_idx, UID_COL]),
+                    "scp_uid": _to_str(scp_df.at[s_idx, UID_COL]),
                     "wos_index": int(w_idx),
                     "scp_index": int(s_idx),
                     "doi": m.get("doi", ""),
@@ -1380,8 +1440,12 @@ def list_borderline(project_id: str) -> list[dict]:
         st = state.get(pair_id, {"status": "pending"})
         items.append({
             "pair_id": pair_id,
-            "wos_index": int(row.get("wos_index", 0)),
-            "scp_index": int(row.get("scp_index", 0)),
+            # Row identity for the dataset is the UID (blank in queues written by older versions).
+            "wos_uid": _cell_str(row.get("wos_uid")) or None,
+            "scp_uid": _cell_str(row.get("scp_uid")) or None,
+            # Labels of the input frames; informational only, never used to locate a row.
+            "wos_index": _opt_int(row.get("wos_index")),
+            "scp_index": _opt_int(row.get("scp_index")),
             "jw_title": float(row.get("jw_title") or 0),
             "confidence": float(row.get("confidence") or 0),
             "status": st.get("status", "pending"),
@@ -1425,15 +1489,18 @@ def _merge_accepted_pairs(
     accepted pair produces whatever it would have produced had it been counted
     as a definite match during the merge.
 
-    Rows are located by IDENTIFIER (WoS UT / Scopus EID), falling back to the
-    normalized DOI, and finally to the normalized title+year; at each step the
-    DB column verifies the side. An ambiguous (multiple hits) or missing row is
-    never silently assumed: the pair returns as "unresolved" and waits in the
-    queue.
+    Rows are located by UID FIRST (exact match on the UID column; the queue stores the
+    UIDs of both rows). A side whose UID is in the queue is NEVER searched by anything
+    else: a UID that is not in the dataset means the row is gone, not that another row
+    may stand in for it. Only queues written by older versions (no uid columns) fall
+    back to the IDENTIFIER (WoS UT / Scopus EID), then the normalized DOI, and finally
+    the normalized title+year; at each step the DB column verifies the side. An
+    ambiguous (multiple hits) or missing row is never silently assumed: the pair
+    returns as "unresolved" and waits in the queue.
 
     Returns: (new_df, {pair_id: outcome}, conflict_records)
     """
-    cols = [c for c in df.columns if c != "UID" and not c.startswith("_norm_")]
+    cols = [c for c in df.columns if c != UID_COL and not c.startswith("_norm_")]
     ut_series = df["UT"].map(_to_str).str.lower() if "UT" in df.columns else None
     doi_series = df["DI"].map(normalize_doi) if "DI" in df.columns else None
     title_series = df["TI"].map(normalize_title) if "TI" in df.columns else None
@@ -1445,7 +1512,17 @@ def _merge_accepted_pairs(
             return pd.Series(True, index=df.index)
         return (db_series == "SCOPUS") if scopus_side else (db_series != "SCOPUS")
 
-    def _locate(ut: Any, doi: Any, title: Any, year: Any, scopus_side: bool) -> list:
+    uid_rows: dict[str, list] = {}
+    if UID_COL in df.columns:
+        for label, u in zip(df.index, df[UID_COL].map(_to_str)):
+            if u:
+                uid_rows.setdefault(u, []).append(label)
+
+    def _locate(uid: Any, ut: Any, doi: Any, title: Any, year: Any, scopus_side: bool) -> list:
+        uid_v = _to_str(uid)
+        if _present(uid_v):
+            # UID is authoritative (and unique): no fallback to another identifier.
+            return list(uid_rows.get(uid_v, []))
         side = _side_mask(scopus_side)
         ut_v = _to_str(ut)
         if _present(ut_v) and ut_series is not None:
@@ -1485,15 +1562,18 @@ def _merge_accepted_pairs(
             outcomes[pid] = "unresolved:already_accepted"
             continue
 
-        w_hits = [i for i in _locate(pair.get("wos_ut"), pair.get("wos_doi"),
+        w_hits = [i for i in _locate(pair.get("wos_uid"), pair.get("wos_ut"), pair.get("wos_doi"),
                                      pair.get("wos_title"), pair.get("wos_year"), False)]
-        s_hits = [i for i in _locate(pair.get("scp_ut"), pair.get("scp_doi"),
+        s_hits = [i for i in _locate(pair.get("scp_uid"), pair.get("scp_ut"), pair.get("scp_doi"),
                                      pair.get("scp_title"), pair.get("scp_year"), True)]
         if len(w_hits) > 1 or len(s_hits) > 1:
             outcomes[pid] = "unresolved:ambiguous"
             continue
         w_idx = w_hits[0] if w_hits else None
         s_idx = s_hits[0] if s_hits else None
+        if w_idx is not None and w_idx == s_idx:
+            outcomes[pid] = "unresolved:ambiguous"   # both sides resolved to one row
+            continue
 
         if w_idx is None and s_idx is None:
             outcomes[pid] = "unresolved:both_missing"
@@ -1574,6 +1654,17 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     bq_df = pd.read_excel(bq_path)
     bq_by_id = {str(r["pair_id"]): r for _, r in bq_df.iterrows()}
 
+    # Load the dataset BEFORE any state is written: a dataset without UIDs (older analyses)
+    # gets them now and the frame is persisted, inside the caller's mutation lock, so the
+    # pre-accept snapshot, the merge and the final write all carry the same UIDs. A failed
+    # persist aborts the call before the decision state is touched.
+    df_before: Optional[pd.DataFrame] = None
+    if any(d.get("decision") == "accept" for d in decisions):
+        df_before = dataset_io.read_dataset(merged_path)
+        if dataset_io.ensure_uid(df_before):
+            _persist_uid(df_before, merged_path)
+            filter_engine._DF_CACHE.clear()
+
     accept_pairs: list[dict] = []
     now_ts = time.time()
     for d in decisions:
@@ -1611,8 +1702,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
     resolved_ids: list[str] = []
     unresolved_ids: list[str] = []
     unresolved_reasons: dict[str, str] = {}
-    if accept_pairs:
-        df_before = dataset_io.read_dataset(merged_path)
+    if accept_pairs and df_before is not None:
         df_after, outcomes, pair_conflicts = _merge_accepted_pairs(
             df_before.copy(), accept_pairs, prior_accepted,
         )
@@ -1631,7 +1721,7 @@ def decide_borderline(project_id: str, decisions: list[dict]) -> dict[str, Any]:
                     f"borderline_merge_invariant: expected {len(df_before)} - {merged_pairs} "
                     f"rows but got {len(df_after)}"
                 )
-            if "UID" in df_after.columns and not df_after["UID"].astype(str).is_unique:
+            if UID_COL not in df_after.columns or not df_after[UID_COL].astype(str).is_unique:
                 raise RuntimeError("borderline_uid_not_unique")
 
             # Snapshot of the PREVIOUS dataset — only if something will really change.

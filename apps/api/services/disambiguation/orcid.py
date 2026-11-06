@@ -15,6 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from bibex_core.modules.api_utils import _get_with_retry
+from services import dataset_io
 from .similarity import normalize_name
 from .blocking import _SPLIT_SUFFIX_RE
 
@@ -142,14 +143,30 @@ def parse_oi_cell(cell) -> dict[str, str]:
     return out
 
 
-def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: bool) -> set[str]:
+def uid_label_map(df) -> dict[str, object]:
+    """Row UID -> row label of `df`. Build it ONCE per scan and reuse it for every lookup.
+
+    Candidates and DOI-fill requests refer to rows by UID (never by position); the
+    UID is resolved to the label of the frame being worked on through this map, so a
+    lookup is O(1) instead of an O(n) mask per call. A frame without a UID column is
+    refused: positions are never a fallback.
+    """
+    if dataset_io.UID_COL not in df.columns:
+        raise ValueError("uid_invariant_violation: dataset has no UID column")
+    return {str(u).strip(): label for label, u in df[dataset_io.UID_COL].items()}
+
+
+def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: bool,
+                         uid_map: dict[str, object] | None = None) -> set[str]:
     """ORCID set of a candidate.
 
-    Using the candidate['records'] row indices + candidate['name_variants'] (or
-    'variants'): collects the ORCIDs of the authors that MATCH the candidate's
-    name variants, FIRST from each row's OI cell and, if missing (when allow_api
-    is set), from an OpenAlex query by DOI. A name match is required — otherwise
-    a co-author's ORCID would not be picked up.
+    Using the candidate['records'] row UIDs + candidate['name_variants'] (or
+    'variants'). `uid_map` is the per-scan UID -> label map (see `uid_label_map`);
+    it is built from `df` when not supplied. A UID that is not in `df` is skipped.
+    Collects the ORCIDs of the authors that MATCH the candidate's name variants,
+    FIRST from each row's OI cell and, if missing (when allow_api is set), from an
+    OpenAlex query by DOI. A name match is required — otherwise a co-author's ORCID
+    would not be picked up.
 
     NO side effects (does not write to the data); read-only. (Write-back is done separately.)
     """
@@ -162,13 +179,16 @@ def orcids_for_candidate(df, candidate: dict, *, email: str | None, allow_api: b
         return set()
 
     records = candidate.get("records") or []
+    if uid_map is None:
+        uid_map = uid_label_map(df)
     has_oi = "OI" in df.columns
     has_di = "DI" in df.columns
     found: set[str] = set()
 
-    for idx in records:
-        if idx not in df.index:
-            continue
+    for uid in records:
+        idx = uid_map.get(uid) if isinstance(uid, str) else None
+        if idx is None:
+            continue  # UID not in this frame (or a legacy position): never mapped to another row
         # 1) OI already present in the data
         if has_oi:
             for nm, oid in parse_oi_cell(df.at[idx, "OI"]).items():
@@ -189,8 +209,11 @@ def _is_blank(v) -> bool:
     return s == "" or s.lower() in ("nan", "none")
 
 
-def enrich_rows_from_doi(df, row_indices, *, email: str | None) -> dict:
-    """Fill the EMPTY OI/RI/ROR/CC cells of the given rows via OpenAlex, by DOI.
+def enrich_rows_from_doi(df, row_uids, *, email: str | None) -> dict:
+    """Fill the EMPTY OI/RI/ROR/CC cells of the given rows (row UIDs) via OpenAlex, by DOI.
+
+    Rows are identified by UID; unknown UIDs are skipped. The UID -> label map is built
+    once per call.
 
     Writes only into empty cells (does not overwrite an existing/original value). df is updated IN PLACE.
     Returns: {'rows_filled': int, 'dois_fetched': int}. Side effect: df mutation.
@@ -202,11 +225,13 @@ def enrich_rows_from_doi(df, row_indices, *, email: str | None) -> dict:
         if col not in df.columns:
             df[col] = None
 
+    uid_map = uid_label_map(df)
     rows_filled = 0
     dois_fetched = 0
     seen_doi: set[str] = set()
-    for idx in dict.fromkeys(row_indices):  # deduplicate, preserve order
-        if idx not in df.index:
+    for uid in dict.fromkeys(row_uids):  # deduplicate, preserve order
+        idx = uid_map.get(uid) if isinstance(uid, str) else None
+        if idx is None:
             continue
         doi = df.at[idx, "DI"]
         if doi is None or not str(doi).strip() or str(doi).strip().lower() == "nan":

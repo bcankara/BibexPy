@@ -162,6 +162,10 @@ export default function RecordsPage() {
       toast(t("records.filter.appliedToast", { kept: formatNumber(r.kept, locale), removed: formatNumber(r.removed, locale) }), { tone: "success" });
       setSpec(EMPTY);          // the filter is now the dataset itself — reset the spec
       setActivePreset(null);   // (the spec change refreshes the list via the effect)
+      // The dataset changed: selection / open drawer refer to the previous rows.
+      setSelectedRows(new Set());
+      setSelectedRecord(null);
+      setEditStart(false);
     } catch (e) {
       setError(translateApiError(t, e, "records.queryFailed"), e);
     } finally {
@@ -169,14 +173,33 @@ export default function RecordsPage() {
     }
   }
 
+  /** The dataset changed under us (restore, filter-apply, bulk delete): selections and the
+   * open drawer refer to rows of the previous state, so drop them and reload. */
+  const resetAfterDatasetChange = useCallback(() => {
+    setSelectedRows(new Set());
+    setSelectedRecord(null);
+    setEditStart(false);
+    refresh(0);
+  }, [refresh]);
+
+  /** The drawer's record no longer exists (404 record_not_found): close it and reload. */
+  const handleRecordGone = useCallback(() => {
+    setSelectedRecord(null);
+    setEditStart(false);
+    setSelectedRows(new Set());
+    refresh(0);
+  }, [refresh]);
+
   async function handleDeleteRow(row: Record<string, string | null>) {
-    const uid = row.UID || undefined;
-    const doi = row.DI || undefined;
-    if (!uid && !doi) return;
+    // Rows are addressed by UID only; a row without a UID cannot be deleted.
+    const uid = (row.UID ?? "").trim();
+    if (!uid) return;
     if (!(await confirm({ message: t("records.deleteRowConfirm"), tone: "danger" }))) return;
     try {
-      await api.deleteRecords(id, uid ? { uids: [uid] } : { dois: [doi!] });
-      setSelectedRows((prev) => { const n = new Set(prev); if (uid) n.delete(uid); return n; });
+      const r = await api.deleteRecords(id, { uids: [uid] });
+      if ((r.not_found ?? 0) > 0) toast(t("records.rowAlreadyGone"), { tone: "warning" });
+      setSelectedRows((prev) => { const n = new Set(prev); n.delete(uid); return n; });
+      if ((selectedRecord?.UID ?? "") === uid) { setSelectedRecord(null); setEditStart(false); }
       refresh(0);
     } catch (e) {
       setError(translateApiError(t, e, "records.queryFailed"), e);
@@ -315,6 +338,7 @@ export default function RecordsPage() {
         projectId={id}
         startEditing={editStart}
         onSaved={() => refresh(0)}
+        onRecordGone={handleRecordGone}
         onClose={() => { setSelectedRecord(null); setEditStart(false); }}
       />
 
@@ -322,15 +346,14 @@ export default function RecordsPage() {
         projectId={id}
         selected={selectedRows}
         onClear={() => setSelectedRows(new Set())}
-        onChanged={() => {
-          refresh(0);
-        }}
+        onChanged={resetAfterDatasetChange}
       />
 
       <AuditLogPanel
         projectId={id}
         open={showAudit}
         onClose={() => setShowAudit(false)}
+        onRestored={resetAfterDatasetChange}
       />
     </>
   );

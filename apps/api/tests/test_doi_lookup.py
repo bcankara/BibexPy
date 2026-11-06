@@ -747,7 +747,7 @@ def test_doi_pass_never_assigns_one_doi_to_two_rows(tmp_path, monkeypatch):
 
 def test_doi_pass_handles_a_float_all_nan_di_column(tmp_path, monkeypatch):
     rec, items, truth = case("exact")
-    df = pd.DataFrame([{**rec, "DI": float("nan")}])
+    df = pd.DataFrame([{**rec, "UID": "u0", "DI": float("nan")}])
     assert df["DI"].dtype != object
     _install_crossref_by_title(monkeypatch, {rec["TI"][:25]: items})
     asyncio.run(enricher._doi_pass(Ctx(), df, out_dir=tmp_path))

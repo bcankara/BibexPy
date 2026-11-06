@@ -377,7 +377,7 @@ export const api = {
     approved: Array<Record<string, unknown>>,
     approvedSplits: Array<Record<string, unknown>> = [],
   ) =>
-    http<{ replacements: number; snapshot: string | null }>(`/projects/${id}/disambiguate/apply`, {
+    http<ApplyResult>(`/projects/${id}/disambiguate/apply`, {
       method: "POST", body: JSON.stringify({ kind, approved, approved_splits: approvedSplits }),
     }),
   restoreSnapshot: (id: string, snapshot: string) =>
@@ -395,8 +395,10 @@ export const api = {
   qualityCharts: (id: string) => http<QualityCharts>(`/projects/${id}/quality/charts`),
 
   // Records — delete & snapshots
-  deleteRecords: (id: string, body: { uids?: string[]; dois?: string[]; indices?: number[]; reason?: string }) =>
-    http<{ deleted: number; kept: number; total_before: number; snapshot: string | null }>(
+  // Rows are addressed by UID only (no DOI / position keys). UIDs that are not in the
+  // current dataset are skipped by the backend and counted in `not_found`.
+  deleteRecords: (id: string, body: { uids: string[]; reason?: string }) =>
+    http<{ deleted: number; kept: number; total_before: number; snapshot: string | null; not_found?: number }>(
       `/projects/${id}/records/delete`,
       { method: "POST", body: JSON.stringify(body) }
     ),
@@ -406,7 +408,8 @@ export const api = {
     http<{ restored: number; snapshot: string }>(`/projects/${id}/records/restore-snapshot`, {
       method: "POST", body: JSON.stringify({ snapshot }),
     }),
-  updateRecord: (id: string, body: { uid?: string; doi?: string; fields: Record<string, string> }) =>
+  // UID is mandatory; unknown UID -> 404 record_not_found; a "UID" key inside `fields` -> 400 uid_immutable.
+  updateRecord: (id: string, body: { uid: string; fields: Record<string, string> }) =>
     http<{ updated: number; fields: number; snapshot: string | null }>(`/projects/${id}/records/update`, {
       method: "POST", body: JSON.stringify(body),
     }),
@@ -694,8 +697,12 @@ export type AnalysesListResponse = {
 
 export type BorderlinePair = {
   pair_id: string;
-  wos_index: number;
-  scp_index: number;
+  /** Stable record identity of the two sides. */
+  wos_uid?: string;
+  scp_uid?: string;
+  /** Legacy positional fields (old queues only); never used to address rows. */
+  wos_index?: number;
+  scp_index?: number;
   jw_title: number;
   confidence: number;
   status: "pending" | "accept" | "reject" | "skip";
@@ -776,7 +783,8 @@ export type ClusterMember = {
   affiliations?: string[];
   coauthors?: string[];
   year_range?: string[];
-  records?: number[];
+  /** Row UIDs of the records this member appears in (never positions). */
+  records?: string[];
 };
 
 export type Cluster = {
@@ -793,7 +801,8 @@ export type Cluster = {
 };
 
 export type SplitGroup = {
-  records: number[];
+  /** Row UIDs (never positions). */
+  records: string[];
   fields: string[];
   suffix: string;         // "" = the largest group (stays plain); "(b)" "(c)" ...
 };
@@ -838,8 +847,22 @@ export type CopyReport = {
   skipped: { name: string; reason: string }[];
 };
 
+/** Result of applying approved clusters / splits. */
+export type ApplyResult = {
+  replacements: number;
+  snapshot: string | null;
+  applied_rows?: number;
+  /** UIDs of the proposal that were no longer in the dataset (skipped, never remapped). */
+  skipped_missing?: number;
+  /** First UIDs that were changed (capped by the backend). */
+  changed_uids?: string[];
+};
+
 export type ProposalSet = {
   kind: string;
+  /** "uid_v1" for UID-addressed proposal files. */
+  schema?: string;
+  analysis_id?: string | null;
   generated_at?: number;
   auto_approve_threshold?: number;
   clusters: Cluster[];

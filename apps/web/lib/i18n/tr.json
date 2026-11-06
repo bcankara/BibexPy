@@ -938,7 +938,9 @@
     "editRow": "Kaydı düzenle",
     "deleteRow": "Kaydı sil",
     "deleteRowConfirm": "Bu kayıt silinsin mi? Geri yüklenebilmesi için snapshot alınır.",
-    "totalWithPct": "toplam · %{pct}"
+    "totalWithPct": "toplam · %{pct}",
+    "noUidCannotSelect": "Bu satırın UID'si yok, seçilemez.",
+    "rowAlreadyGone": "Bu kayıt veri setinde zaten yoktu; liste yenilendi."
   },
   "enrich": {
     "title": "Harmonizasyon",
@@ -1111,7 +1113,10 @@
       "affiliations": "kurum",
       "organizations": "kurum",
       "countries": "ülke"
-    }
+    },
+    "staleRescan": "Veri seti bu taramadan sonra değişti; kayıtlı öneriler artık güvenle uygulanamaz. Lütfen yeniden tarayın.",
+    "rescan": "Yeniden tara",
+    "skippedMissing": "Önerilerdeki {n} kayıt artık veri setinde olmadığı için atlandı."
   },
   "export": {
     "title": "Veri Dönüşümü",
@@ -1570,7 +1575,11 @@
     "save": "Kaydet",
     "saved": "{n} alan güncellendi.",
     "saveFailed": "Kayıt kaydedilemedi.",
-    "editHint": "Aşağıdaki alanları düzenleyin — boş alanlar da elle doldurulabilir. Aktif veri setine kaydedilir (snapshot alınır)."
+    "editHint": "Aşağıdaki alanları düzenleyin — boş alanlar da elle doldurulabilir. Aktif veri setine kaydedilir (snapshot alınır).",
+    "uidLabel": "UID",
+    "uidHint": "Kalıcı kayıt kimliği (salt okunur)",
+    "noUid": "Bu kaydın UID'si yok, kaydedilemez.",
+    "recordGone": "Bu kayıt artık veri setinde yok (silinmiş ya da veri seti geri yüklenmiş). Liste yenilendi."
   },
   "bulk": {
     "recordsSelected": "kayıt seçildi",
@@ -1586,7 +1595,8 @@
     "cellsFilled": "{n} alan dolduruldu",
     "noDoiSkipped": "{n} DOI'siz (atlandı)",
     "apiNotFound": "{n} API'de bulunamadı",
-    "deletedToast": "{deleted} kayıt silindi, {kept} kayıt korundu."
+    "deletedToast": "{deleted} kayıt silindi, {kept} kayıt korundu.",
+    "notFoundSkipped": "Seçilen {n} kayıt artık veri setinde olmadığı için atlandı."
   },
   "jobs": {
     "starting": "Başlatılıyor…",
@@ -1650,7 +1660,7 @@
     "no_raw_files": "Henüz ham dosya yüklenmemiş",
     "path_not_found": "Path bulunamadı",
     "scopus_convert_failed": "Scopus CSV → XLSX dönüşümü başarısız. Dosya gerçekten Scopus CSV mi?",
-    "no_records_to_delete": "Silinecek kayıt belirtilmedi (uids, dois veya indices)",
+    "no_records_to_delete": "Silinecek kayıt seçilmedi.",
     "tsv_encoding_failed": "TSV encoding okunamadı",
     "wos_convert_failed": "WoS TXT → XLSX dönüşümü başarısız. Dosya gerçekten WoS plain text mi?",
     "decisions_empty": "decisions boş olamaz",
@@ -1711,7 +1721,12 @@
     "borderline_uid_not_unique": "Onaylanan çiftler birleştirildikten sonra kayıt kimlikleri benzersiz olmayacaktı. Veri seti değişmedi.",
     "merged_dataset_unreadable": "Birleştirilmiş veri seti bozuk görünüyor. Geçmiş'ten bir snapshot geri yükle.",
     "no_merge_for_flow": "Veri akışını çizecek bir birleştirme henüz yok — önce birleştirme çalıştırın.",
-    "dataset_busy_request_running": "Bu projede başka bir değişiklik kaydediliyor — birazdan tekrar dene."
+    "dataset_busy_request_running": "Bu projede başka bir değişiklik kaydediliyor — birazdan tekrar dene.",
+    "uids_required": "Hiçbir kayıt belirtilmedi. Kayıtlar yalnızca UID ile adreslenir; listeyi yenileyip tekrar deneyin.",
+    "uid_immutable": "Bir kaydın UID değeri değiştirilemez.",
+    "uid_persist_failed": "Kayıt kimlikleri (UID) veri setine kaydedilemedi. Hiçbir şey değişmedi; başka bir iş çalışmıyorken tekrar deneyin.",
+    "proposals_stale_rescan": "Bu öneriler veri seti değişmeden önce (ya da eski bir sürümle) oluşturuldu; artık güvenle uygulanamaz. Güncel öneriler için yeniden tarayın.",
+    "uid_missing": "İş çalışırken kimliği (UID) olmayan bir kayıt bulundu. Hiçbir şey yazılmadı; işi yeniden çalıştırın."
   },
   "folderPicker": {
     "title": "Klasör Seç",

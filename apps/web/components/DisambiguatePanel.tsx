@@ -53,6 +53,9 @@ export function DisambiguatePanel({
   // Job started from THIS panel instance (kept so a failed run's card stays visible).
   const [startedJobId, setStartedJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The backend refused to apply the stored proposals (409 proposals_stale_rescan): they
+  // were produced for an older dataset state or format. Only a new scan clears this.
+  const [stale, setStale] = useState(false);
   // A scan that is already running (started here earlier, before a navigation, or from
   // another tab) is picked up from the shared job store — no local re-attach code needed.
   const { active: activeJobs } = useProjectJobs(projectId);
@@ -82,6 +85,11 @@ export function DisambiguatePanel({
     );
     setApprovedMerges(new Set(visible.filter((c) => c.source === "deterministic").map((c) => c.cluster_id)));
     setApprovedSplits(new Set((p.splits || []).filter((s) => s.source === "deterministic").map((s) => s.split_id)));
+    // A stored proposal file that is not schema uid_v1 (written before row UIDs existed) cannot
+    // be applied: the backend would refuse it with 409. Show the re-scan banner up front.
+    // Only ever set here, never cleared: a scan / kind change clears it, so a refresh cannot
+    // hide a staleness the backend reported (e.g. a proposal file of another analysis).
+    if (((p.clusters?.length ?? 0) + (p.splits?.length ?? 0)) > 0 && p.schema !== "uid_v1") setStale(true);
     setCanonicalEdits({});
   }
 
@@ -108,6 +116,7 @@ export function DisambiguatePanel({
     let alive = true;
     setProposals(null);
     setError(null);
+    setStale(false);
     setJobId(null);
     setApprovedMerges(new Set());
     setApprovedSplits(new Set());
@@ -131,7 +140,7 @@ export function DisambiguatePanel({
 
   async function start() {
     if (scanning || jobId) return;
-    setError(null); setScanning(true);
+    setError(null); setStale(false); setScanning(true);
     try {
       const starter =
         kind === "authors" ? api.startAuthorDisambiguation
@@ -175,9 +184,16 @@ export function DisambiguatePanel({
         .map((s) => ({ split_id: s.split_id }));
       const r = await api.applyClusters(projectId, kind, mergeItems, splitItems);
       toast(t("disambiguate.appliedMessage", { n: r.replacements, snapshot: r.snapshot ?? "—" }), { tone: "success" });
+      // Records of the proposal that no longer exist in the dataset are skipped by the
+      // backend (never remapped to another row) — tell the user how many.
+      if ((r.skipped_missing ?? 0) > 0) {
+        toast(t("disambiguate.skippedMissing", { n: r.skipped_missing ?? 0 }), { tone: "warning" });
+      }
       await loadProposals();
     } catch (e) {
-      setError(translateApiError(t, e, "disambiguate.applyFailed"));
+      const msg = e instanceof Error ? e.message : "";
+      if (/proposals_stale_rescan/.test(msg)) setStale(true);
+      else setError(translateApiError(t, e, "disambiguate.applyFailed"));
     } finally { setApplying(false); }
   }
 
@@ -210,6 +226,17 @@ export function DisambiguatePanel({
 
       {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-2 text-sm text-red-700">{error}</div>}
 
+      {stale && (
+        <div className="rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-amber-900 flex items-center gap-3 flex-wrap">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1 min-w-[16rem]">{t("disambiguate.staleRescan")}</span>
+          <Button onClick={start} disabled={scanning || !!jobId || !!blockingJob} size="sm">
+            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {t("disambiguate.rescan")}
+          </Button>
+        </div>
+      )}
+
       <p className="text-xs text-muted">{kind === "authors" ? t("disambiguate.scanHint") : t("disambiguate.scanHintStd", { subject })}</p>
 
       {blockingJob && (
@@ -229,7 +256,7 @@ export function DisambiguatePanel({
           {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {t("common.refresh")}
         </Button>
-        {totalApproved > 0 && (
+        {totalApproved > 0 && !stale && (
           <Button onClick={applyApproved} disabled={applying || activeJobs.some((j) => j.exclusive)} variant="success" size="sm" className="ml-auto">
             {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("disambiguate.approveApply", { n: totalApproved })}

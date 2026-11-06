@@ -143,6 +143,82 @@ def _coerce_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ─────────────────────────────────────────────────────────────
+#  Row identity (UID)
+# ─────────────────────────────────────────────────────────────
+# Every row of a dataset carries a UID that BibexPy assigns once, when the dataset
+# is born (merge, single-source analysis, legacy migration), and never changes.
+# Every operation that refers to rows across requests (record edit/delete,
+# disambiguation proposals, borderline decisions, provenance logs) refers to the
+# UID, never to a row position: positions shift after any delete, filter or restore.
+
+UID_COL = "UID"
+_UID_BLANKS = frozenset({"", "nan", "none", "<na>"})
+
+
+def new_uid() -> str:
+    """A fresh row UID: "r_" + 16 hex digits (64 random bits)."""
+    return f"r_{uuid4().hex[:16]}"
+
+
+def _uid_text(df: pd.DataFrame) -> pd.Series:
+    return df[UID_COL].map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v).strip())
+
+
+def ensure_uid(df: pd.DataFrame) -> bool:
+    """Give every row a unique UID, IN PLACE. Valid, unique UIDs are never changed.
+
+    Adds the UID column when it is missing; blank UIDs and repeats of an earlier
+    UID (the first occurrence keeps it) get a new value. Returns True when anything
+    was added or changed, i.e. the caller has to persist the frame.
+    """
+    if UID_COL not in df.columns:
+        taken: set[str] = set()
+        values = []
+        for _ in range(len(df)):
+            u = new_uid()
+            while u in taken:
+                u = new_uid()
+            taken.add(u)
+            values.append(u)
+        # Positional assignment (a list, not a Series): the frame may carry duplicate index labels.
+        df[UID_COL] = pd.Series(values, dtype=object).to_numpy()
+        return True
+    text = _uid_text(df)
+    blank = text.str.lower().isin(_UID_BLANKS)
+    dup = text.duplicated(keep="first") & ~blank
+    if not blank.any() and not dup.any():
+        return False
+    taken = set(text[~blank & ~dup])
+    # Work on positions, never on index labels: after a concat the index can repeat, and a
+    # label-based write would give several rows the same new UID (or overwrite a valid one).
+    values = df[UID_COL].to_numpy(dtype=object, copy=True)  # untouched rows keep their exact value
+    for pos in (blank | dup).to_numpy().nonzero()[0]:
+        u = new_uid()
+        while u in taken:
+            u = new_uid()
+        taken.add(u)
+        values[pos] = u
+    df[UID_COL] = values
+    return True
+
+
+def check_uid(df: pd.DataFrame) -> None:
+    """Refuse a frame whose UID column has blanks or duplicates (no-op without the column).
+
+    Raises ValueError("uid_invariant_violation: ..."). Called by every dataset write,
+    so a frame that would make UID-based operations ambiguous never reaches disk.
+    """
+    if UID_COL not in df.columns:
+        return
+    text = _uid_text(df)
+    blank_mask = text.str.lower().isin(_UID_BLANKS)
+    blank = int(blank_mask.sum())
+    dup = int((text.duplicated(keep=False) & ~blank_mask).sum())
+    if blank or dup:
+        raise ValueError(f"uid_invariant_violation: {blank} blank and {dup} duplicated UID value(s)")
+
+
 def atomic_write_dataset(df: pd.DataFrame, path: Any) -> None:
     """Write a dataset ATOMICALLY, dispatching on suffix.
 
@@ -158,6 +234,7 @@ def atomic_write_dataset(df: pd.DataFrame, path: Any) -> None:
     frame. On Windows a short concurrent read can still make ``os.replace``
     raise PermissionError, hence the bounded retry.
     """
+    check_uid(df)
     p = Path(path)
     tmp = p.with_name(f"{p.name}.{uuid4().hex[:8]}.tmp~")
     try:
@@ -310,6 +387,9 @@ def ensure_parquet(
             return p
         try:
             df = read_dataset(p)
+            # A legacy workbook may predate UIDs: give every row its permanent UID now,
+            # so the migrated parquet (and the snapshots taken from it) always carry them.
+            ensure_uid(df)
             atomic_write_dataset(df, target)
         except Exception:
             _LAST_FAILURE[str(p).lower()] = time.monotonic()

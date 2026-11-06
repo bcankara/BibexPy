@@ -45,9 +45,12 @@ type Props = {
   projectId: string;
   open: boolean;
   onClose: () => void;
+  /** Called after a snapshot was restored, so the host page can drop selections / open
+   * drawers that refer to rows of the previous dataset and reload its data. */
+  onRestored?: () => void;
 };
 
-export function AuditLogPanel({ projectId, open, onClose }: Props) {
+export function AuditLogPanel({ projectId, open, onClose, onRestored }: Props) {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
@@ -99,6 +102,7 @@ export function AuditLogPanel({ projectId, open, onClose }: Props) {
     try {
       const r = await api.restoreRecordSnapshot(projectId, snapshot);
       toast(t("audit.restoredToast", { n: r.restored }), { tone: "success" });
+      onRestored?.();
       await refresh();
     } catch (e) {
       toast(translateApiError(t, e, "audit.restoreFailed"), { tone: "danger" });

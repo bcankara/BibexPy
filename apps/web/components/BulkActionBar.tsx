@@ -30,29 +30,20 @@ export function BulkActionBar({ projectId, selected, onClear, onChanged }: Props
 
   if (count === 0) return null;
 
-  // Split the selection into UID and DOI (UID takes priority)
-  function splitKeys(): { uids: string[]; dois: string[] } {
-    const uids: string[] = [];
-    const dois: string[] = [];
-    for (const k of selected) {
-      if (k.startsWith("r_") && k.length < 20) uids.push(k);
-      else if (/^10\./.test(k)) dois.push(k);
-      else uids.push(k);
-    }
-    return { uids, dois };
-  }
-
   async function doDelete() {
     setBusy(true); setError(null);
     try {
-      const { uids, dois } = splitKeys();
-      if (uids.length === 0 && dois.length === 0) {
+      // The selection set holds record UIDs only (RecordsTable selects by UID).
+      const uids = Array.from(selected);
+      if (uids.length === 0) {
         setError(t("bulk.noSelected"));
         return;
       }
-      const r = await api.deleteRecords(projectId, { uids, dois, reason: reason || undefined });
+      const r = await api.deleteRecords(projectId, { uids, reason: reason || undefined });
+      const notFound = r.not_found ?? 0;
       toast(
         t("bulk.deletedToast", { deleted: r.deleted, kept: r.kept }) +
+        (notFound > 0 ? `\n${t("bulk.notFoundSkipped", { n: notFound })}` : "") +
         (r.snapshot ? `\n${t("disambiguate.snapshot")}: ${r.snapshot}` : ""),
         { tone: "success" },
       );

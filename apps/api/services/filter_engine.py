@@ -7,6 +7,7 @@ produces facets and paginated, projected result pages for the UI.
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 from typing import Any, Iterable, Optional
@@ -14,6 +15,8 @@ from typing import Any, Iterable, Optional
 import pandas as pd
 
 from services import dataset_io, merger
+
+_log = logging.getLogger(__name__)
 
 
 # ---------- Dataset loading (cache) ----------
@@ -31,43 +34,77 @@ def atomic_write_excel(df: pd.DataFrame, path: Any) -> None:
 
 
 def _ensure_uid_column(df: pd.DataFrame) -> bool:
-    """Assign a unique, stable UID to every row. Adds the UID column if missing.
+    """Backwards-compatible name for `dataset_io.ensure_uid` (True = frame changed, persist it)."""
+    return dataset_io.ensure_uid(df)
 
-    Return: True = added (needs saving), False = already existed.
+
+# Cache keys whose frame holds UIDs that exist only in memory (the persist was deferred
+# because a job/mutation was running, or failed). A later load retries the persist.
+_UID_UNPERSISTED: set[tuple[str, float, int]] = set()
+
+
+def _persist_assigned_uids(
+    project_id: str, p: Any, df: pd.DataFrame, key: tuple[str, float, int], already_locked: bool,
+) -> str:
+    """Write a frame whose UIDs were just assigned. Returns "written", "stale" or "deferred".
+
+    - "stale": the file changed after it was read (another mutation landed first). The
+      frame is NOT written (that would roll the other mutation back); the caller re-reads.
+    - "deferred": a job/mutation is running (or the write failed). The UIDs stay in memory
+      only and the persist is retried by a later load. The reason is logged.
+    The write happens under ``job_runner.mutation`` so it cannot interleave with a
+    mutating request or an exclusive job; a caller that already holds that lock passes
+    ``already_locked=True``.
     """
-    import uuid
-    if "UID" in df.columns:
-        # Fill missing / duplicate UIDs
-        s = df["UID"].astype(str).str.strip()
-        empty = (s == "") | (s.str.upper() == "NAN") | s.isna()
-        dups = s.duplicated(keep="first") & ~empty
-        if not empty.any() and not dups.any():
-            return False
-        # Assign new values to missing or colliding UIDs
-        existing = set(s[~empty & ~dups].tolist())
-        for i in df.index[empty | dups]:
-            while True:
-                nid = f"r_{uuid.uuid4().hex[:10]}"
-                if nid not in existing:
-                    existing.add(nid)
-                    df.at[i, "UID"] = nid
-                    break
-        return True
-    # The UID column is missing entirely
-    df["UID"] = [f"r_{uuid.uuid4().hex[:10]}" for _ in range(len(df))]
-    return True
+    def _write() -> str:
+        st = p.stat()
+        if (str(p), st.st_mtime, st.st_size) != key:
+            return "stale"
+        dataset_io.atomic_write_dataset(df, p)
+        return "written"
+
+    try:
+        if already_locked:
+            return _write()
+        from jobs.runner import job_runner
+        with job_runner.mutation(project_id):
+            return _write()
+    except Exception as e:  # HTTPException (busy) or an I/O error: keep the UIDs in memory
+        detail = getattr(e, "detail", None) or repr(e)
+        _log.warning(
+            "UID persist deferred for project %s (%s); the UIDs stay in memory until the dataset is idle",
+            project_id, detail,
+        )
+        return "deferred"
 
 
-def load_merged(project_id: str) -> pd.DataFrame:
-    p = merger.merged_dataset_path(project_id)
-    if p is None:
-        raise FileNotFoundError("no_merged_data")
-    st = p.stat()
-    # The size is part of the key as well: since a parquet write takes milliseconds,
-    # two consecutive mutations can fall into the same mtime tick.
-    key = (str(p), st.st_mtime, st.st_size)
-    if key not in _DF_CACHE:
+def load_merged(project_id: str, *, already_locked: bool = False) -> pd.DataFrame:
+    """Load (and cache) the active dataset; every row is guaranteed to carry a unique UID.
+
+    Datasets born before UIDs existed get theirs on the first load. The assignment is
+    persisted under ``job_runner.mutation(project_id)`` when possible; if a job or another
+    mutation is running it stays in memory and is persisted by a later load. Pass
+    ``already_locked=True`` when the caller already holds the mutation lock.
+    """
+    for attempt in range(3):
+        p = merger.merged_dataset_path(project_id)
+        if p is None:
+            raise FileNotFoundError("no_merged_data")
+        st = p.stat()
+        # The size is part of the key as well: since a parquet write takes milliseconds,
+        # two consecutive mutations can fall into the same mtime tick.
+        key = (str(p), st.st_mtime, st.st_size)
+        if key in _DF_CACHE:
+            if key in _UID_UNPERSISTED:
+                # Retry the deferred persist; a later load re-reads the file once it succeeds.
+                outcome = _persist_assigned_uids(project_id, p, _DF_CACHE[key], key, already_locked)
+                if outcome != "deferred":
+                    _UID_UNPERSISTED.discard(key)
+                    _DF_CACHE.pop(key, None)
+                    continue
+            return _DF_CACHE[key]
         _DF_CACHE.clear()  # single-user, single-dataset
+        _UID_UNPERSISTED.clear()
         try:
             # read_dataset reads according to the extension + normalizes blanks in
             # object columns to "" (parquet returns NA as None).
@@ -79,14 +116,15 @@ def load_merged(project_id: str) -> pd.DataFrame:
             raise FileNotFoundError(
                 "merged_dataset_unreadable"
             )
-        # Assign a UID to every row (if missing) and persist it to disk
         if _ensure_uid_column(df):
-            try:
-                dataset_io.atomic_write_dataset(df, p)
-            except Exception:
-                pass  # a write error must not stop the main flow — the UID is still in memory
+            outcome = _persist_assigned_uids(project_id, p, df, key, already_locked)
+            if outcome in ("written", "stale") and attempt < 2:
+                continue  # re-read what is on disk now, so the cache mirrors the file
+            if outcome == "deferred":
+                _UID_UNPERSISTED.add(key)
         _DF_CACHE[key] = df
-    return _DF_CACHE[key]
+        return df
+    raise FileNotFoundError("merged_dataset_unreadable")
 
 
 # ---------- Applying the filter spec ----------
